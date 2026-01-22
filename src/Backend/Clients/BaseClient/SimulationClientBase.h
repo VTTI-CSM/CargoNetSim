@@ -64,7 +64,7 @@ public:
     explicit SimulationClientBase(
         QObject       *parent = nullptr,
         const QString &host = "localhost", int port = 5672,
-        const QString &exchange     = "simulation_exchange",
+        const QString &exchange     = "CargoNetSim.Exchange",
         const QString &commandQueue = "command_queue",
         const QString &responseQueue     = "response_queue",
         const QString &sendingRoutingKey = "default_key",
@@ -377,6 +377,8 @@ protected:
     // Connection parameters
     QString     m_host;
     int         m_port;
+    QString     m_username = "guest";
+    QString     m_password = "guest";
     QString     m_exchange;
     QString     m_commandQueue;
     QString     m_responseQueue;
@@ -407,6 +409,14 @@ private slots:
     void handleMessage(const QJsonObject &message);
 
 private:
+    /**
+     * @brief Load RabbitMQ configuration from config file
+     *
+     * Loads host, port, username, exchange from XML config.
+     * Password is loaded from OS keychain.
+     */
+    void loadRabbitMQConfig();
+
     // Command serialization
     QReadWriteLock m_commandSerializationMutex;
 

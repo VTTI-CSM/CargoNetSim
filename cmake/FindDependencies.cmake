@@ -7,6 +7,17 @@ else()
     find_package(Qt6 COMPONENTS Core Gui Widgets Network Xml REQUIRED)
 endif()
 
+# Find QtKeychain for secure password storage (optional)
+find_package(Qt6Keychain QUIET)
+if(Qt6Keychain_FOUND)
+    message(STATUS "Qt6Keychain found - passwords will be stored securely in OS keychain")
+    set(HAVE_QTKEYCHAIN TRUE)
+else()
+    message(WARNING "Qt6Keychain not found - passwords will be stored in config file (less secure)")
+    message(STATUS "Install qt6keychain-dev for secure password storage")
+    set(HAVE_QTKEYCHAIN FALSE)
+endif()
+
 # Platform-specific paths
 if(WIN32)
     # Windows-specific paths

@@ -26,6 +26,7 @@ namespace Backend
  */
 RabbitMQHandler::RabbitMQHandler(
     QObject *parent, const QString &host, int port,
+    const QString &username, const QString &password,
     const QString &exchange, const QString &commandQueue,
     const QString     &responseQueue,
     const QString     &sendingRoutingKey,
@@ -36,6 +37,8 @@ RabbitMQHandler::RabbitMQHandler(
     , m_connected(false)
     , m_host(host)
     , m_port(port)
+    , m_username(username)
+    , m_password(password)
     , m_exchange(exchange)
     , m_commandQueue(commandQueue)
     , m_responseQueue(responseQueue)
@@ -139,9 +142,8 @@ bool RabbitMQHandler::establishConnection()
                            131072, // frame max
                            0,      // heartbeat
                            AMQP_SASL_METHOD_PLAIN,
-                           "guest", // username
-                           "guest"  // password
-                );
+                           m_username.toUtf8().constData(),
+                           m_password.toUtf8().constData());
 
             if (sendLoginReply.reply_type
                 != AMQP_RESPONSE_NORMAL)
@@ -232,9 +234,8 @@ bool RabbitMQHandler::establishConnection()
                            131072, // frame max
                            0,      // heartbeat
                            AMQP_SASL_METHOD_PLAIN,
-                           "guest", // username
-                           "guest"  // password
-                );
+                           m_username.toUtf8().constData(),
+                           m_password.toUtf8().constData());
 
             if (receiveLoginReply.reply_type
                 != AMQP_RESPONSE_NORMAL)
@@ -1243,9 +1244,8 @@ void RabbitMQHandler::reconnectSending()
                    131072, // frame max
                    0,      // heartbeat
                    AMQP_SASL_METHOD_PLAIN,
-                   "guest", // username
-                   "guest"  // password
-        );
+                   m_username.toUtf8().constData(),
+                   m_password.toUtf8().constData());
 
     if (loginReply.reply_type != AMQP_RESPONSE_NORMAL)
     {
@@ -1362,9 +1362,8 @@ void RabbitMQHandler::reconnectReceiving()
                    131072, // frame max
                    0,      // heartbeat
                    AMQP_SASL_METHOD_PLAIN,
-                   "guest", // username
-                   "guest"  // password
-        );
+                   m_username.toUtf8().constData(),
+                   m_password.toUtf8().constData());
 
     if (loginReply.reply_type != AMQP_RESPONSE_NORMAL)
     {

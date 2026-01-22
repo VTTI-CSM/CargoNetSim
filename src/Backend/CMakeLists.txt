@@ -137,6 +137,12 @@ target_link_libraries(CargoNetSimBackend
     rabbitmq::rabbitmq
 )
 
+# Conditionally link QtKeychain if available
+if(HAVE_QTKEYCHAIN)
+    target_link_libraries(CargoNetSimBackend PUBLIC Qt6Keychain::Qt6Keychain)
+    target_compile_definitions(CargoNetSimBackend PUBLIC HAVE_QTKEYCHAIN)
+endif()
+
 # Set include directories
 target_include_directories(CargoNetSimBackend
     PUBLIC

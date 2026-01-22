@@ -1,14 +1,20 @@
 #include "SimulationClientBase.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QDomDocument>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QJsonDocument>
 #include <QThread>
 #include <QTimer>
 #include <QUuid>
+#ifdef HAVE_QTKEYCHAIN
+#include <qt6keychain/keychain.h>
+#endif
 
 #include "Backend/Models/SimulationTime.h"
+#include "Backend/Utils/Utils.h"
 #include "QtWidgets/qmessagebox.h"
 
 namespace CargoNetSim
@@ -77,11 +83,14 @@ void SimulationClientBase::initializeClient(
     m_simulationTime = simulationTime;
     m_terminalClient = terminalClient;
 
+    // Load RabbitMQ configuration from file and keychain
+    loadRabbitMQConfig();
+
     // Create RabbitMQ handler
     m_rabbitMQHandler = new RabbitMQHandler(
-        nullptr, m_host, m_port, m_exchange, m_commandQueue,
-        m_responseQueue, m_sendingRoutingKey,
-        m_receivingRoutingKeys);
+        nullptr, m_host, m_port, m_username, m_password,
+        m_exchange, m_commandQueue, m_responseQueue,
+        m_sendingRoutingKey, m_receivingRoutingKeys);
 
     // Connect signals and slots
     connect(m_rabbitMQHandler,
@@ -592,6 +601,120 @@ void SimulationClientBase::handleMessage(
                     QJsonDocument::Compact);
 
     processMessage(message);
+}
+
+/**
+ * Load RabbitMQ configuration from config file and keychain.
+ */
+void SimulationClientBase::loadRabbitMQConfig()
+{
+    QString configPath =
+        Utils::findConfigFilePath("rabbitmq.xml");
+
+    QFile file(configPath);
+    if (!file.exists())
+    {
+        qDebug() << "RabbitMQ config file not found at"
+                 << configPath << "- using defaults";
+        return;
+    }
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        qWarning() << "Failed to open RabbitMQ config file:"
+                   << configPath;
+        return;
+    }
+
+    QDomDocument doc;
+    auto result = doc.setContent(&file);
+    file.close();
+    if (!result)
+    {
+        qWarning() << "Failed to parse RabbitMQ config XML:"
+                   << result.errorMessage << "at line"
+                   << result.errorLine;
+        return;
+    }
+
+    QDomElement root = doc.documentElement();
+    if (root.tagName() != "rabbitmq")
+    {
+        qWarning()
+            << "Invalid RabbitMQ config: root element is not "
+               "'rabbitmq'";
+        return;
+    }
+
+    // Read configuration values
+    QDomElement hostElem = root.firstChildElement("host");
+    if (!hostElem.isNull())
+    {
+        m_host = hostElem.text();
+    }
+
+    QDomElement portElem = root.firstChildElement("port");
+    if (!portElem.isNull())
+    {
+        bool ok;
+        int  port = portElem.text().toInt(&ok);
+        if (ok && port > 0 && port <= 65535)
+        {
+            m_port = port;
+        }
+    }
+
+    QDomElement usernameElem =
+        root.firstChildElement("username");
+    if (!usernameElem.isNull())
+    {
+        m_username = usernameElem.text();
+    }
+
+    qDebug() << "Loaded RabbitMQ config: host=" << m_host
+             << "port=" << m_port
+             << "username=" << m_username;
+
+#ifdef HAVE_QTKEYCHAIN
+    // Load password from OS keychain
+    QKeychain::ReadPasswordJob job("CargoNetSim");
+    job.setAutoDelete(false);
+    job.setKey("rabbitmq-password");
+
+    QEventLoop loop;
+    QObject::connect(
+        &job, &QKeychain::ReadPasswordJob::finished, &loop,
+        &QEventLoop::quit);
+    job.start();
+    loop.exec();
+
+    if (job.error() == QKeychain::NoError)
+    {
+        m_password = job.textData();
+        qDebug() << "Loaded RabbitMQ password from keychain";
+    }
+    else
+    {
+        qDebug() << "Could not load password from keychain:"
+                 << job.errorString()
+                 << "- trying XML fallback";
+#endif
+        // Fallback: load password from XML file
+        QDomElement passwordElem =
+            root.firstChildElement("password");
+        if (!passwordElem.isNull())
+        {
+            m_password = passwordElem.text();
+            qDebug() << "Loaded RabbitMQ password from config "
+                        "file";
+        }
+        else
+        {
+            qDebug() << "No password in config - using default";
+        }
+#ifdef HAVE_QTKEYCHAIN
+    }
+#endif
 }
 
 } // namespace Backend

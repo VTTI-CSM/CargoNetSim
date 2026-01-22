@@ -32,6 +32,8 @@ public:
      * @param parent Parent QObject
      * @param host RabbitMQ host
      * @param port RabbitMQ port
+     * @param username RabbitMQ username
+     * @param password RabbitMQ password
      * @param exchange RabbitMQ exchange name
      * @param commandQueue Command queue name
      * @param responseQueue Response queue name
@@ -42,7 +44,9 @@ public:
     explicit RabbitMQHandler(
         QObject       *parent = nullptr,
         const QString &host = "localhost", int port = 5672,
-        const QString &exchange     = "simulation_exchange",
+        const QString &username = "guest",
+        const QString &password = "guest",
+        const QString &exchange     = "CargoNetSim.Exchange",
         const QString &commandQueue = "command_queue",
         const QString &responseQueue     = "response_queue",
         const QString &sendingRoutingKey = "default_key",
@@ -235,6 +239,8 @@ private:
     // Connection parameters
     QString     m_host;
     int         m_port;
+    QString     m_username;
+    QString     m_password;
     QString     m_exchange;
     QString     m_commandQueue;
     QString     m_responseQueue;
