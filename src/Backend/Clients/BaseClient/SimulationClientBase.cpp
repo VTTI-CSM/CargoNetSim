@@ -1,13 +1,13 @@
 #include "SimulationClientBase.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QJsonDocument>
 #include <QThread>
 #include <QTimer>
 #include <QUuid>
 
-#include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Models/SimulationTime.h"
 #include "QtWidgets/qmessagebox.h"
 

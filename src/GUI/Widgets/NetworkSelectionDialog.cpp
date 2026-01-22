@@ -52,6 +52,16 @@ NetworkSelectionDialog::NetworkSelectionDialog(
     linkSelectedButton->setEnabled(false);
     linkAllVisibleButton->setEnabled(false);
     // Connect signals
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+    connect(
+        trainNetworkCheckBox, &QCheckBox::checkStateChanged,
+        this,
+        &NetworkSelectionDialog::onCheckBoxStateChanged);
+    connect(
+        truckNetworkCheckBox, &QCheckBox::checkStateChanged,
+        this,
+        &NetworkSelectionDialog::onCheckBoxStateChanged);
+#else
     connect(
         trainNetworkCheckBox, &QCheckBox::stateChanged,
         this,
@@ -60,6 +70,7 @@ NetworkSelectionDialog::NetworkSelectionDialog(
         truckNetworkCheckBox, &QCheckBox::stateChanged,
         this,
         &NetworkSelectionDialog::onCheckBoxStateChanged);
+#endif
     connect(linkSelectedButton, &QPushButton::clicked, this,
             &QDialog::accept);
     connect(linkAllVisibleButton, &QPushButton::clicked,

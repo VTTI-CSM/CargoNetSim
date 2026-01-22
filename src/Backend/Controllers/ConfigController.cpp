@@ -39,8 +39,20 @@ bool ConfigController::loadConfig()
         }
 
         QDomDocument doc;
-        QString      errorMsg;
-        int          errorLine, errorColumn;
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+        auto result = doc.setContent(&file);
+        if (!result)
+        {
+            file.close();
+            qWarning() << "Failed to parse XML:" << result.errorMessage
+                       << " at line " << result.errorLine
+                       << ", column " << result.errorColumn;
+            return false;
+        }
+#else
+        QString errorMsg;
+        int     errorLine, errorColumn;
 
         if (!doc.setContent(&file, &errorMsg, &errorLine,
                             &errorColumn))
@@ -51,6 +63,7 @@ bool ConfigController::loadConfig()
                        << ", column " << errorColumn;
             return false;
         }
+#endif
         file.close();
 
         // Get the root element
@@ -429,19 +442,19 @@ void ConfigController::variantMapToXmlElement(
         QDomElement element = doc.createElement(it.key());
         QDomText    text;
 
-        switch (it.value().type())
+        switch (it.value().typeId())
         {
-        case QVariant::Bool:
+        case QMetaType::Bool:
             text = doc.createTextNode(
                 it.value().toBool() ? "true" : "false");
             break;
 
-        case QVariant::Int:
+        case QMetaType::Int:
             text = doc.createTextNode(
                 QString::number(it.value().toInt()));
             break;
 
-        case QVariant::Double:
+        case QMetaType::Double:
             // Use fixed-point notation for doubles with
             // precision of 6
             text = doc.createTextNode(QString::number(

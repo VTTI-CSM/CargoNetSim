@@ -206,23 +206,23 @@ void SimulationConfig::setValue(const QString  &key,
 {
     QJsonValue jsonValue;
 
-    switch (value.type())
+    switch (value.typeId())
     {
-    case QVariant::Bool:
+    case QMetaType::Bool:
         jsonValue = value.toBool();
         break;
-    case QVariant::Int:
-    case QVariant::UInt:
-    case QVariant::LongLong:
-    case QVariant::ULongLong:
-    case QVariant::Double:
+    case QMetaType::Int:
+    case QMetaType::UInt:
+    case QMetaType::LongLong:
+    case QMetaType::ULongLong:
+    case QMetaType::Double:
         jsonValue = value.toDouble();
         break;
-    case QVariant::String:
+    case QMetaType::QString:
         jsonValue = value.toString();
         break;
-    case QVariant::List:
-    case QVariant::StringList: {
+    case QMetaType::QVariantList:
+    case QMetaType::QStringList: {
         QJsonArray   array;
         QVariantList list = value.toList();
         for (const QVariant &item : list)
@@ -232,7 +232,7 @@ void SimulationConfig::setValue(const QString  &key,
         jsonValue = array;
     }
     break;
-    case QVariant::Map: {
+    case QMetaType::QVariantMap: {
         QJsonObject obj;
         QVariantMap map = value.toMap();
         for (auto it = map.begin(); it != map.end(); ++it)

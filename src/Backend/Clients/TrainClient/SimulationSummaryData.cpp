@@ -204,7 +204,7 @@ SimulationSummaryData::getAllSubcategories(
             for (const QString &key : catData.keys())
             {
                 // If the value is a map, it's a subcategory
-                if (catData[key].type() == QVariant::Map)
+                if (catData[key].typeId() == QMetaType::QVariantMap)
                 {
                     subcats.append(key);
                 }
@@ -221,7 +221,7 @@ SimulationSummaryData::getAllSubcategories(
         QStringList subcats;
         for (const QString &key : catData.keys())
         {
-            if (catData[key].type() == QVariant::Map)
+            if (catData[key].typeId() == QMetaType::QVariantMap)
             {
                 subcats.append(key);
             }
