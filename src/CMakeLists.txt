@@ -65,9 +65,10 @@ target_link_libraries(CargoNetSim
 )
 
 # Installation
-install(TARGETS CargoNetSim 
+install(TARGETS CargoNetSim
     RUNTIME DESTINATION bin
     BUNDLE DESTINATION .
+    COMPONENT CargoNetSim_COMP
 )
 
 # Copy required DLLs on Windows
@@ -83,5 +84,6 @@ if(WIN32)
     install(DIRECTORY ${RABBITMQ_SHRD_LIB_DIR}/
         DESTINATION bin
         FILES_MATCHING PATTERN "*.dll"
+        COMPONENT CargoNetSim_COMP
     )
 endif()

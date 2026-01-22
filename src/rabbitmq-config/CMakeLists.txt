@@ -33,4 +33,5 @@ target_include_directories(RabbitMQConfig
 # Installation
 install(TARGETS RabbitMQConfig
     RUNTIME DESTINATION bin
+    COMPONENT CargoNetSim_COMP
 )

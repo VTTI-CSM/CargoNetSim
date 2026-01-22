@@ -46,13 +46,10 @@ if(CARGONET_BUILD_INSTALLER)
     # Ensure that CargoNetSim is built first by specifying it as a dependency
     add_dependencies(CargoNetSimInstaller CargoNetSim)
 
-    # Define install paths for the executables and libraries
+    # Install CargoNetSim executable with component
+    # This is needed because the install in src/CMakeLists.txt may not be processed correctly by CPack
     install(TARGETS CargoNetSim
         RUNTIME DESTINATION bin
-        COMPONENT CargoNetSim_COMP
-        LIBRARY DESTINATION lib
-        COMPONENT CargoNetSim_COMP
-        ARCHIVE DESTINATION lib/static
         COMPONENT CargoNetSim_COMP)
 
     # ========================================
@@ -726,6 +723,10 @@ exec \"\${SCRIPT_DIR}/CargoNetSim\" \"$@\"
 
     # Include CPack module to generate the installer
     set(CPACK_GENERATOR "IFW")
+
+    # Only include the CargoNetSim_COMP component, ignore Unspecified
+    set(CPACK_COMPONENTS_ALL CargoNetSim_COMP)
+
     set(CPACK_PACKAGE_VENDOR "CargoNet Development Team")
     set(CPACK_PACKAGE_DESCRIPTION "An installer for CargoNetSim simulation software.")
     set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")

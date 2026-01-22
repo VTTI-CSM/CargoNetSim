@@ -42,5 +42,6 @@ if(CARGONET_BUILD_INSTALLER)
 endif()
 
 # Install configuration
-install(DIRECTORY config/ DESTINATION etc/CargoNetSim)
+install(DIRECTORY config/ DESTINATION etc/CargoNetSim
+    COMPONENT CargoNetSim_COMP)
 # install(DIRECTORY media/ DESTINATION share/CargoNetSim/media)
