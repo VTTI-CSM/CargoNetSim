@@ -29,6 +29,7 @@ TerminalItem::TerminalItem(
     , m_terminalType(terminalType)
     , m_properties(properties)
     , m_wasSelected(false)
+    , m_globalTerminalItem(nullptr)
 {
     // Set a higher Z-value for terminals (will be drawn on
     // top)
