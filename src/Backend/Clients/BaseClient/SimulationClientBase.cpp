@@ -172,24 +172,11 @@ bool SimulationClientBase::connectToServer()
                 getClientTypeString()
                     + " failed to connect to server",
                 static_cast<int>(m_clientType));
-
-            QMessageBox msgBox(nullptr);
-            msgBox.setIcon(QMessageBox::Critical);
-            msgBox.setWindowTitle("RabbitMQ Connection Failed");
-            msgBox.setText("Could not connect to RabbitMQ server");
-            msgBox.setInformativeText(
-                "The application failed to establish a connection to the RabbitMQ message broker. "
-                "This means that simulation features will not be available.\n\n"
-                "Please check:\n"
-                "• RabbitMQ server is running\n"
-                "• Network connectivity\n"
-                "• Firewall settings\n"
-                "• Server configuration\n\n"
-                "The application will terminate now."
-                );
-            msgBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Retry);
-            msgBox.setDefaultButton(QMessageBox::Ok);
         }
+        emit errorOccurred(
+            "Could not connect to RabbitMQ server. "
+            "Please check that the RabbitMQ server is "
+            "running and accessible.");
     }
 
     return success;
@@ -335,8 +322,9 @@ bool SimulationClientBase::sendCommand(
         QUuid::createUuid().toString(QUuid::WithoutBraces);
     commandObj["commandId"] = commandId;
 
-    qDebug() << "Sending command" << command << "with ID"
-             << commandId;
+    qDebug() << "Sending command"
+             << QJsonDocument(commandObj).toJson(
+                    QJsonDocument::Compact);
 
     // Send the command
     bool success = m_rabbitMQHandler->sendCommand(

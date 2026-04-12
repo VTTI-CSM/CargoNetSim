@@ -41,6 +41,7 @@
 #include <QJsonDocument>
 #include <QThread>
 
+#include "Backend/Clients/TerminalClient/TerminalSimulationClient.h"
 #include "Backend/Commons/LoggerInterface.h"
 #include "Backend/Commons/ThreadSafetyUtils.h"
 #include "Backend/Models/ShipSystem.h"
@@ -322,6 +323,86 @@ bool ShipSimulationClient::runSimulator(
             }
         }
         return success;
+    });
+}
+
+/**
+ * @brief Advances simulation by a specific time step
+ *
+ * Runs the simulation for a specified time step, waiting
+ * for simulationAdvanced event instead of completion.
+ *
+ * @param networkNames Networks to advance or "*" for all
+ * @param deltaT Time step in seconds
+ * @return True if successful
+ */
+bool ShipSimulationClient::advanceByTimeStep(
+    const QStringList& networkNames,
+    double deltaT)
+{
+    return executeSerializedCommand([&]() {
+        QJsonObject params;
+
+        QJsonArray networks;
+        for (const QString& name : networkNames)
+        {
+            networks.append(name);
+        }
+        params["networkNames"] = networks;
+        params["byTimeSteps"] = deltaT;
+
+        // Wait for simulationAdvanced instead of allShipsReachedDestination
+        bool success = sendCommandAndWait(
+            "runSimulator",
+            params,
+            {"simulationadvanced", "allshipsreacheddestination"});
+
+        return success;
+    });
+}
+
+/**
+ * @brief Notifies about terminal closure for rerouting
+ *
+ * Sends notification about a closed terminal to the server.
+ *
+ * @param terminalId Closed terminal identifier
+ * @param alternativeId Alternative terminal for rerouting
+ */
+void ShipSimulationClient::notifyTerminalClosure(
+    const QString& terminalId,
+    const QString& alternativeId)
+{
+    executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["closedTerminal"] = terminalId;
+        params["alternativeTerminal"] = alternativeId;
+
+        return sendCommandAndWait(
+            "notifyTerminalClosure",
+            params,
+            {"terminalClosureAcknowledged"});
+    });
+}
+
+/**
+ * @brief Notifies about terminal reopening
+ *
+ * Sends notification about a reopened terminal to the server.
+ *
+ * @param terminalId Reopened terminal identifier
+ */
+void ShipSimulationClient::notifyTerminalReopened(
+    const QString& terminalId)
+{
+    executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminalId"] = terminalId;
+
+        return sendCommandAndWait(
+            "notifyTerminalReopened",
+            params,
+            {"terminalReopenedAcknowledged"});
     });
 }
 
@@ -1276,16 +1357,31 @@ void ShipSimulationClient::onShipReachedSeaport(
 void ShipSimulationClient::onContainersUnloaded(
     const QJsonObject &message)
 {
-    // No shared state modification, no mutex needed
+    QString portName =
+        message.value("portName").toString();
+    QString networkName =
+        message.value("networkName").toString();
     QJsonArray containers =
         message.value("containers").toArray();
-    QString portName = message.value("portName").toString();
-    QJsonObject containersObj;
-    containersObj["containers"] = containers;
-    QJsonDocument containersDoc(containersObj);
-    QString       containersJson =
-        containersDoc.toJson(QJsonDocument::Compact);
-    double currentTime = 0.0;
+
+    QJsonObject   containersObj{{"containers", containers}};
+    QJsonDocument doc(containersObj);
+    QString containersJson =
+        doc.toJson(QJsonDocument::Compact);
+
+    QString fullTerminalID =
+        QString(networkName + "_" + portName);
+
+    double currentTime =
+        m_simulationTime->getCurrentTime();
+
+    if (m_terminalClient)
+    {
+        m_terminalClient->addContainers(
+            fullTerminalID, containersJson,
+            currentTime, "Ship");
+    }
+
     if (m_logger)
     {
         m_logger->log("Containers unloaded at port: "
