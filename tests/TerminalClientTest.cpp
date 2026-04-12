@@ -132,8 +132,7 @@ private slots:
         QVERIFY(connected);
         
         // Reset server state to ensure clean test environment
-        bool reset = false;
-        client->resetServer();
+        bool reset = client->resetServer();
         QVERIFY(reset);
     }
     
@@ -362,8 +361,103 @@ private slots:
     }
     
     /**
+     * @brief Test arrival_mode is passed through addContainers
+     *
+     * Verifies that the TerminalSimulationClient sends
+     * arrival_mode in the RabbitMQ params for all addContainers
+     * variants.
+     */
+    void testAddContainersWithArrivalMode() {
+        // Create and add a test terminal with SD enabled
+        std::unique_ptr<Terminal> terminal(createTestTerminal("ModeTest1"));
+        QVERIFY(client->addTerminal(terminal.get()));
+
+        // Test 1: addContainersFromJson with arrival_mode "Ship"
+        QString shipJson = R"({
+            "containers": [{
+                "containerID": "MODE-SHIP-001",
+                "containerSize": 0,
+                "addedTime": 0.0,
+                "containerNextDestinations": ["DestPort"],
+                "containerCurrentLocation": "Origin"
+            }]
+        })";
+        bool result = client->addContainersFromJson(
+            "ModeTest1", shipJson, 1000.0, "Ship");
+        QVERIFY(result);
+
+        // Test 2: addContainersFromJson with arrival_mode "Train"
+        QString trainJson = R"({
+            "containers": [{
+                "containerID": "MODE-TRAIN-001",
+                "containerSize": 0,
+                "addedTime": 0.0,
+                "containerNextDestinations": ["DestPort"],
+                "containerCurrentLocation": "Origin"
+            }]
+        })";
+        result = client->addContainersFromJson(
+            "ModeTest1", trainJson, 2000.0, "Train");
+        QVERIFY(result);
+
+        // Test 3: addContainersFromJson with arrival_mode "Truck"
+        QString truckJson = R"({
+            "containers": [{
+                "containerID": "MODE-TRUCK-001",
+                "containerSize": 0,
+                "addedTime": 0.0,
+                "containerNextDestinations": ["DestPort"],
+                "containerCurrentLocation": "Origin"
+            }]
+        })";
+        result = client->addContainersFromJson(
+            "ModeTest1", truckJson, 3000.0, "Truck");
+        QVERIFY(result);
+
+        // Test 4: addContainersFromJson WITHOUT arrival_mode (default)
+        QString defaultJson = R"({
+            "containers": [{
+                "containerID": "MODE-DEFAULT-001",
+                "containerSize": 0,
+                "addedTime": 0.0,
+                "containerNextDestinations": ["DestPort"],
+                "containerCurrentLocation": "Origin"
+            }]
+        })";
+        result = client->addContainersFromJson(
+            "ModeTest1", defaultJson, 4000.0);
+        QVERIFY(result);
+
+        // Verify all 4 containers were added
+        QCOMPARE(client->getContainerCount("ModeTest1"), 4);
+
+        // Test 5: addContainers (string/JSON variant) with arrival_mode
+        QString batchContainers = R"({
+            "containers": [{
+                "containerID": "BATCH-MODE-001",
+                "containerSize": 0,
+                "addedTime": 0.0,
+                "containerNextDestinations": ["DestPort"],
+                "containerCurrentLocation": "Origin"
+            }, {
+                "containerID": "BATCH-MODE-002",
+                "containerSize": 0,
+                "addedTime": 0.0,
+                "containerNextDestinations": ["DestPort"],
+                "containerCurrentLocation": "Origin"
+            }]
+        })";
+        result = client->addContainers(
+            "ModeTest1", batchContainers, 5000.0, "Train");
+        QVERIFY(result);
+
+        // Verify total: 4 + 2 = 6
+        QCOMPARE(client->getContainerCount("ModeTest1"), 6);
+    }
+
+    /**
      * @brief Test graph serialization and deserialization
-     * 
+     *
      * Tests the ability to save and restore the network state.
      */
     void testGraphSerialization() {
