@@ -195,6 +195,35 @@ public:
                       double byTimeSteps = -1.0);
 
     /**
+     * @brief Advance simulation by a specific time step
+     * @param networkNames Networks to advance ("*" for all)
+     * @param deltaT Time step in seconds
+     * @return True if step completed successfully
+     *
+     * Unlike runSimulator(), this waits for simulationAdvanced
+     * event instead of allShipsReachedDestination.
+     */
+    Q_INVOKABLE bool advanceByTimeStep(
+        const QStringList& networkNames,
+        double deltaT);
+
+    /**
+     * @brief Notify about terminal closure for rerouting
+     * @param terminalId Closed terminal
+     * @param alternativeId Alternative terminal
+     */
+    Q_INVOKABLE void notifyTerminalClosure(
+        const QString& terminalId,
+        const QString& alternativeId);
+
+    /**
+     * @brief Notify about terminal reopening
+     * @param terminalId Reopened terminal
+     */
+    Q_INVOKABLE void notifyTerminalReopened(
+        const QString& terminalId);
+
+    /**
      * @brief Ends the simulator for specified networks
      *
      * Terminates the simulation for given networks or all
