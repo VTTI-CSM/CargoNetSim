@@ -1,6 +1,12 @@
 #include "TrainNetwork.h"
 #include <QDebug>
 #include <QFile>
+#include <QLoggingCategory>
+
+namespace
+{
+Q_LOGGING_CATEGORY(lcRail, "cargonetsim.rail")
+}
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -721,6 +727,9 @@ NeTrainSimNetwork::getVariables() const
 void NeTrainSimNetwork::loadNetwork(
     const QString &nodesFile, const QString &linksFile)
 {
+    qCDebug(lcRail) << "[RailLoad] loadNetwork start"
+             << "nodes=" << nodesFile
+             << "links=" << linksFile;
     QMutexLocker locker(&m_mutex);
 
     // Clean up existing objects
@@ -736,27 +745,43 @@ void NeTrainSimNetwork::loadNetwork(
     try
     {
         // Read nodes
+        qCDebug(lcRail) << "[RailLoad] readNodesFile begin";
         QVector<QMap<QString, QString>> nodeRecords =
             NeTrainSimNodeDataReader::readNodesFile(
                 nodesFile);
+        qCDebug(lcRail) << "[RailLoad] readNodesFile ok, records="
+                 << nodeRecords.size();
         m_nodes = generateNodes(nodeRecords);
+        qCDebug(lcRail) << "[RailLoad] generateNodes ok, nodes="
+                 << m_nodes.size();
 
         // Read links
+        qCDebug(lcRail) << "[RailLoad] readLinksFile begin";
         QVector<QMap<QString, QString>> linkRecords =
             NeTrainSimLinkDataReader::readLinksFile(
                 linksFile);
+        qCDebug(lcRail) << "[RailLoad] readLinksFile ok, records="
+                 << linkRecords.size();
         m_links = generateLinks(linkRecords);
+        qCDebug(lcRail) << "[RailLoad] generateLinks ok, links="
+                 << m_links.size();
 
         // Build graph representation
+        qCDebug(lcRail) << "[RailLoad] buildGraph begin";
         buildGraph();
+        qCDebug(lcRail) << "[RailLoad] buildGraph ok";
 
+        qCDebug(lcRail) << "[RailLoad] emit signals";
         emit networkChanged();
         emit nodesChanged();
         emit linksChanged();
+        qCDebug(lcRail) << "[RailLoad] loadNetwork done";
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error loading network:" << e.what();
+        qCCritical(lcRail)
+            << "[RailLoad] Error loading network:"
+            << e.what();
         throw;
     }
 }
@@ -885,6 +910,13 @@ QVector<NeTrainSimLink *> NeTrainSimNetwork::generateLinks(
 
         if (!fromNode || !toNode)
         {
+            qCCritical(lcRail)
+                << "[RailLoad] missing node(s) for"
+                        << " linkId=" << record["UserID"]
+                        << " fromId=" << record["FromNodeID"]
+                        << " toId=" << record["ToNodeID"]
+                        << " fromResolved=" << (fromNode != nullptr)
+                        << " toResolved=" << (toNode != nullptr);
             throw std::runtime_error(
                 QString("Could not find nodes for link %1")
                     .arg(record["UserID"])

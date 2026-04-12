@@ -290,6 +290,60 @@ bool TrainSimulationClient::runSimulator(
     });
 }
 
+bool TrainSimulationClient::advanceByTimeStep(
+    const QStringList& networkNames,
+    double deltaT)
+{
+    return executeSerializedCommand([&]() {
+        QJsonObject params;
+
+        QJsonArray networks;
+        for (const QString& name : networkNames)
+        {
+            networks.append(name);
+        }
+        params["networkNames"] = networks;
+        params["byTimeSteps"] = deltaT;
+
+        bool success = sendCommandAndWait(
+            "runSimulator",
+            params,
+            {"simulationadvanced", "alltrainsreacheddestination"});
+
+        return success;
+    });
+}
+
+void TrainSimulationClient::notifyTerminalClosure(
+    const QString& terminalId,
+    const QString& alternativeId)
+{
+    executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["closedTerminal"] = terminalId;
+        params["alternativeTerminal"] = alternativeId;
+
+        return sendCommandAndWait(
+            "notifyTerminalClosure",
+            params,
+            {"terminalClosureAcknowledged"});
+    });
+}
+
+void TrainSimulationClient::notifyTerminalReopened(
+    const QString& terminalId)
+{
+    executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminalId"] = terminalId;
+
+        return sendCommandAndWait(
+            "notifyTerminalReopened",
+            params,
+            {"terminalReopenedAcknowledged"});
+    });
+}
+
 bool TrainSimulationClient::endSimulator(
     const QStringList &networkNames)
 {
@@ -1091,7 +1145,8 @@ void TrainSimulationClient::onContainersUnloaded(
     if (m_terminalClient)
     {
         m_terminalClient->addContainers(
-            fullTerminalID, containersJson, currentTime);
+            fullTerminalID, containersJson,
+            currentTime, "Train");
     }
 
     // Log event using logger if available
