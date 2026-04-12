@@ -562,7 +562,7 @@ bool TerminalSimulationClient::addContainer(
 
 bool TerminalSimulationClient::addContainers(
     const QString &terminalId, QString &containers,
-    double addTime)
+    double addTime, const QString &arrivalMode)
 {
     // Execute containers addition serially
     return executeSerializedCommand([&]() {
@@ -575,6 +575,10 @@ bool TerminalSimulationClient::addContainers(
         {
             params["adding_time"] = addTime;
         }
+        if (!arrivalMode.isEmpty())
+        {
+            params["arrival_mode"] = arrivalMode;
+        }
         // Send containers addition command
         return sendCommandAndWait("add_containers", params,
                                   {"containersAdded"});
@@ -585,7 +589,8 @@ bool TerminalSimulationClient::addContainers(
 bool TerminalSimulationClient::addContainers(
     const QString                     &terminalId,
     QList<ContainerCore::Container *> &containers,
-    double                             addTime)
+    double                             addTime,
+    const QString                     &arrivalMode)
 {
     // Execute containers addition serially
     return executeSerializedCommand([&]() {
@@ -605,6 +610,10 @@ bool TerminalSimulationClient::addContainers(
         {
             params["adding_time"] = addTime;
         }
+        if (!arrivalMode.isEmpty())
+        {
+            params["arrival_mode"] = arrivalMode;
+        }
         // Send containers addition command
         return sendCommandAndWait("add_containers", params,
                                   {"containersAdded"});
@@ -614,7 +623,7 @@ bool TerminalSimulationClient::addContainers(
 // Add containers from JSON
 bool TerminalSimulationClient::addContainersFromJson(
     const QString &terminalId, const QString &json,
-    double addTime)
+    double addTime, const QString &arrivalMode)
 {
     // Execute JSON addition serially
     return executeSerializedCommand([&]() {
@@ -625,6 +634,10 @@ bool TerminalSimulationClient::addContainersFromJson(
         if (addTime >= 0.0)
         {
             params["adding_time"] = addTime;
+        }
+        if (!arrivalMode.isEmpty())
+        {
+            params["arrival_mode"] = arrivalMode;
         }
         // Send JSON containers command
         return sendCommandAndWait(
@@ -799,6 +812,63 @@ bool TerminalSimulationClient::clearTerminal(
     });
 }
 
+// Update System Dynamics for all terminals
+bool TerminalSimulationClient::updateAllTerminalsSystemDynamics(
+    double currentTime,
+    double deltaT)
+{
+    return executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["current_time"] = currentTime;
+        params["delta_t"] = deltaT;
+
+        return sendCommandAndWait(
+            "update_all_terminals_sd",
+            params,
+            {"systemDynamicsUpdated"});
+    });
+}
+
+// Update System Dynamics for a specific terminal
+bool TerminalSimulationClient::updateTerminalSystemDynamics(
+    const QString& terminalId,
+    double currentTime,
+    double deltaT)
+{
+    return executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["current_time"] = currentTime;
+        params["delta_t"] = deltaT;
+
+        return sendCommandAndWait(
+            "update_system_dynamics",
+            params,
+            {"systemDynamicsUpdated"});
+    });
+}
+
+// Get System Dynamics state for a terminal
+QJsonObject TerminalSimulationClient::getTerminalSystemDynamicsState(
+    const QString& terminalId)
+{
+    QJsonObject result;
+
+    executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+
+        bool success = sendCommandAndWait(
+            "get_system_dynamics_state",
+            params,
+            {"systemDynamicsState"});
+
+        return success;
+    });
+
+    return result;
+}
+
 // Serialize server graph
 QJsonObject TerminalSimulationClient::serializeGraph()
 {
@@ -927,6 +997,16 @@ void TerminalSimulationClient::processMessage(
     {
         Commons::ScopedWriteLock locker(m_dataMutex);
         m_pingResponse = message["result"].toObject();
+    }
+    else if (normEvent == "systemdynamicsupdated")
+    {
+        // SD update acknowledged - no special handling needed
+        qDebug() << "System Dynamics updated";
+    }
+    else if (normEvent == "systemdynamicsstate")
+    {
+        // SD state returned - no special handling needed
+        qDebug() << "System Dynamics state received";
     }
     else
     {

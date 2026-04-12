@@ -309,13 +309,15 @@ public:
      */
     Q_INVOKABLE bool
     addContainers(const QString &terminalId,
-                  QString &containers, double addTime);
+                  QString &containers, double addTime,
+                  const QString &arrivalMode = "");
 
     /**
      * @brief Adds multiple containers to a terminal
      * @param terminalId Terminal identifier
      * @param containers List of container pointers
      * @param addTime Addition time, default -1.0
+     * @param arrivalMode Transportation mode string
      * @return True if addition succeeds
      *
      * Adds multiple containers to the terminal.
@@ -323,13 +325,15 @@ public:
     Q_INVOKABLE bool addContainers(
         const QString                     &terminalId,
         QList<ContainerCore::Container *> &containers,
-        double                             addTime = -1.0);
+        double                             addTime = -1.0,
+        const QString                     &arrivalMode = "");
 
     /**
      * @brief Adds containers from JSON data
      * @param terminalId Terminal identifier
      * @param json JSON string of containers
      * @param addTime Addition time, default -1.0
+     * @param arrivalMode Transportation mode string
      * @return True if addition succeeds
      *
      * Parses and adds containers from JSON.
@@ -337,7 +341,8 @@ public:
     Q_INVOKABLE bool
     addContainersFromJson(const QString &terminalId,
                           const QString &json,
-                          double         addTime = -1.0);
+                          double         addTime = -1.0,
+                          const QString &arrivalMode = "");
 
     /**
      * @brief Gets containers by departing time
@@ -436,6 +441,37 @@ public:
      */
     Q_INVOKABLE bool
     clearTerminal(const QString &terminalId);
+
+    // System Dynamics Management
+    /**
+     * @brief Update System Dynamics for all terminals
+     * @param currentTime Current simulation time in seconds
+     * @param deltaT Time step in hours (SD uses hours)
+     * @return True if update succeeded
+     */
+    Q_INVOKABLE bool updateAllTerminalsSystemDynamics(
+        double currentTime,
+        double deltaT);
+
+    /**
+     * @brief Update System Dynamics for a specific terminal
+     * @param terminalId Terminal to update
+     * @param currentTime Current simulation time in seconds
+     * @param deltaT Time step in hours
+     * @return True if update succeeded
+     */
+    Q_INVOKABLE bool updateTerminalSystemDynamics(
+        const QString& terminalId,
+        double currentTime,
+        double deltaT);
+
+    /**
+     * @brief Get System Dynamics state for a terminal
+     * @param terminalId Terminal to query
+     * @return JSON object with SD state
+     */
+    Q_INVOKABLE QJsonObject getTerminalSystemDynamicsState(
+        const QString& terminalId);
 
     // Serialization and Diagnostics
     /**
