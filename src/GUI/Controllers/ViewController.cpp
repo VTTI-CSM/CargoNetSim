@@ -15,8 +15,14 @@
 #include "GUI/Widgets/PropertiesPanel.h"
 #include "GUI/Widgets/ShortestPathTable.h"
 #include "UtilityFunctions.h"
+#include <QLoggingCategory>
 #include <QtWidgets/qapplication.h>
 #include <QtWidgets/qfiledialog.h>
+
+namespace
+{
+Q_LOGGING_CATEGORY(lcRail, "cargonetsim.rail")
+}
 
 void CargoNetSim::GUI::ViewController::
     updateSceneVisibility(MainWindow *mainWindow)
@@ -88,6 +94,8 @@ void CargoNetSim::GUI::ViewController::
 void CargoNetSim::GUI::ViewController::updateGlobalMapItem(
     MainWindow *main_window, TerminalItem *terminal)
 {
+    qCDebug(lcRail) << "[RailDraw]       updateGlobalMapItem"
+                       " begin";
     if (!terminal)
     {
         return;
@@ -97,6 +105,8 @@ void CargoNetSim::GUI::ViewController::updateGlobalMapItem(
         props.contains("Show on Global Map")
             ? props.value("Show on Global Map").toBool()
             : true;
+    qCDebug(lcRail)
+        << "[RailDraw]       updateGlobalMapItem show=" << show;
 
     if (show)
     {
@@ -108,6 +118,8 @@ void CargoNetSim::GUI::ViewController::updateGlobalMapItem(
 
         if (!regionData)
         {
+            qCDebug(lcRail) << "[RailDraw]       "
+                               "regionData null, return";
             return;
         }
 
@@ -117,11 +129,17 @@ void CargoNetSim::GUI::ViewController::updateGlobalMapItem(
 
         if (!regionCenterPoint)
         {
+            qCDebug(lcRail)
+                << "[RailDraw]       regionCenterPoint"
+                   " null, return";
             return;
         }
 
         if (terminal->getGlobalTerminalItem())
         {
+            qCDebug(lcRail)
+                << "[RailDraw]       existing global item,"
+                   " updating position";
             // Update the global terminal item position
             CargoNetSim::GUI::ViewController::
                 updateTerminalGlobalPosition(
@@ -130,15 +148,23 @@ void CargoNetSim::GUI::ViewController::updateGlobalMapItem(
         }
         else
         {
+            qCDebug(lcRail)
+                << "[RailDraw]       creating"
+                   " GlobalTerminalItem";
             // Create the global terminal item
             QPixmap pixmap       = terminal->getPixmap();
             auto global_terminal = new GlobalTerminalItem(
                 pixmap, terminal, nullptr);
+            qCDebug(lcRail)
+                << "[RailDraw]       GlobalTerminalItem"
+                   " constructed, addItemWithId begin";
 
             // Add to the view
             main_window->globalMapView_->getScene()
                 ->addItemWithId(global_terminal,
                                 global_terminal->getID());
+            qCDebug(lcRail)
+                << "[RailDraw]       addItemWithId ok";
             terminal->setGlobalTerminalItem(
                 global_terminal);
 
@@ -156,16 +182,28 @@ void CargoNetSim::GUI::ViewController::updateGlobalMapItem(
                             terminal);
                 });
 
+            qCDebug(lcRail)
+                << "[RailDraw]       calling"
+                   " updateTerminalGlobalPosition";
             // Explicitly set its position
             updateTerminalGlobalPosition(
                 main_window, regionCenterPoint, terminal);
+            qCDebug(lcRail)
+                << "[RailDraw]       "
+                   "updateTerminalGlobalPosition ok";
         }
     }
     else
     {
+        qCDebug(lcRail)
+            << "[RailDraw]       show=false else-branch,"
+               " checking existing global item";
         // Remove the global terminal item
         if (terminal->getGlobalTerminalItem())
         {
+            qCDebug(lcRail)
+                << "[RailDraw]       existing global"
+                   " item present, removing";
             GlobalTerminalItem *item =
                 terminal->getGlobalTerminalItem();
             terminal->setGlobalTerminalItem(
@@ -174,8 +212,18 @@ void CargoNetSim::GUI::ViewController::updateGlobalMapItem(
                 ->removeItemWithId<GlobalTerminalItem>(
                     item->getID()); // Then remove from
                                     // scene
+            qCDebug(lcRail)
+                << "[RailDraw]       removeItemWithId ok";
+        }
+        else
+        {
+            qCDebug(lcRail)
+                << "[RailDraw]       no existing global"
+                   " item, nothing to remove";
         }
     }
+    qCDebug(lcRail)
+        << "[RailDraw]       updateGlobalMapItem end";
 }
 
 void CargoNetSim::GUI::ViewController::
@@ -937,15 +985,33 @@ CargoNetSim::GUI::ViewController::createTerminalAtPoint(
     MainWindow *mainWindow, const QString &region,
     const QString &terminalType, const QPointF &point)
 {
+    qCDebug(lcRail) << "[RailDraw]     createTerminal: type="
+                    << terminalType << "region=" << region
+                    << "point=" << point;
     // Create a new terminal item
     QMap<QString, QPixmap> terminalIcons =
         IconFactory::createTerminalIcons();
-    QPixmap pixmap   = terminalIcons.value(terminalType);
-    auto    terminal = new TerminalItem(pixmap, {}, region,
-                                        nullptr, terminalType);
+    qCDebug(lcRail)
+        << "[RailDraw]     createTerminal: icons loaded,"
+           " keys="
+        << terminalIcons.keys();
+    QPixmap pixmap = terminalIcons.value(terminalType);
+    qCDebug(lcRail)
+        << "[RailDraw]     createTerminal: pixmap isNull="
+        << pixmap.isNull();
+    auto terminal = new TerminalItem(pixmap, {}, region,
+                                     nullptr, terminalType);
+    qCDebug(lcRail)
+        << "[RailDraw]     createTerminal: TerminalItem"
+           " constructed";
     terminal->setPos(point);
+    qCDebug(lcRail)
+        << "[RailDraw]     createTerminal: setPos ok,"
+           " addItemWithId begin";
     mainWindow->regionScene_->addItemWithId(
         terminal, terminal->getID());
+    qCDebug(lcRail)
+        << "[RailDraw]     createTerminal: addItemWithId ok";
 
     // update the TerminalItem visibility
     terminal->setVisible(
@@ -953,9 +1019,14 @@ CargoNetSim::GUI::ViewController::createTerminalAtPoint(
             .getRegionDataController()
             ->getCurrentRegion()
         == region);
+    qCDebug(lcRail)
+        << "[RailDraw]     createTerminal: setVisible ok";
 
     // Update the Global Map Item visibility
     updateGlobalMapItem(mainWindow, terminal);
+    qCDebug(lcRail)
+        << "[RailDraw]     createTerminal: updateGlobalMapItem"
+           " ok";
 
     // Connections
     QObject::connect(
@@ -1236,8 +1307,14 @@ void CargoNetSim::GUI::ViewController::drawTrainNetwork(
     Backend::TrainClient::NeTrainSimNetwork *network,
     QString &regionName, QColor &linksColor)
 {
+    qCDebug(lcRail) << "[RailDraw] drawTrainNetwork start"
+             << "region=" << regionName
+             << "network=" << (network ? "ok" : "null");
+    qCDebug(lcRail) << "[RailDraw] setUsingProjectedCoords(true)";
     mainWindow->regionView_->setUsingProjectedCoords(true);
+    qCDebug(lcRail) << "[RailDraw] updateAllCoordinates begin";
     mainWindow->updateAllCoordinates();
+    qCDebug(lcRail) << "[RailDraw] updateAllCoordinates ok";
 
     // Define node color
     QColor nodesColor = QColor(linksColor);
@@ -1248,9 +1325,21 @@ void CargoNetSim::GUI::ViewController::drawTrainNetwork(
     // set the network Color
     network->setVariable("color", linksColor);
 
+    auto nodes = network->getNodes();
+    qCDebug(lcRail) << "[RailDraw] drawing nodes, count="
+             << nodes.size();
     // Draw the train network
-    for (auto &node : network->getNodes())
+    int nodeIdx = 0;
+    for (auto &node : nodes)
     {
+        qCDebug(lcRail)
+            << "[RailDraw] node idx=" << nodeIdx
+            << " userId=" << node->getUserId()
+            << " isTerminal=" << node->isTerminal()
+            << " x=" << node->getX()
+            << " y=" << node->getY()
+            << " xScale=" << node->getXScale()
+            << " yScale=" << node->getYScale();
 
         QMap<QString, QVariant> properties = {
             {"Is_terminal", node->isTerminal()},
@@ -1261,37 +1350,66 @@ void CargoNetSim::GUI::ViewController::drawTrainNetwork(
             QPointF(node->getX() * node->getXScale(),
                     node->getY() * node->getYScale());
 
+        qCDebug(lcRail) << "[RailDraw]   calling drawNode"
+                        << "projected=" << projectedPoint;
         MapPoint *point =
             CargoNetSim::GUI::ViewController::drawNode(
                 mainWindow,
                 QString::number(node->getUserId()),
                 node->getInternalUniqueID(), projectedPoint,
                 regionName, nodesColor, properties);
+        qCDebug(lcRail) << "[RailDraw]   drawNode returned"
+                        << (point ? "point" : "null");
 
+        if (!point)
+        {
+            qCCritical(lcRail) << "[RailDraw] drawNode returned"
+                           " nullptr at nodeIdx=" << nodeIdx
+                        << " userId=" << node->getUserId();
+        }
         point->setReferenceNetwork(network);
 
         // Link terminal to point
         if (point && node->isTerminal())
         {
+            qCDebug(lcRail)
+                << "[RailDraw]   calling createTerminalAtPoint";
             auto terminal =
                 ViewController::createTerminalAtPoint(
                     mainWindow, regionName,
                     "Intermodal Land Terminal",
                     point->getSceneCoordinate());
+            qCDebug(lcRail)
+                << "[RailDraw]   createTerminalAtPoint returned"
+                << (terminal ? "terminal" : "null");
 
             point->setLinkedTerminal(terminal);
+            qCDebug(lcRail)
+                << "[RailDraw]   setLinkedTerminal ok";
         }
+        ++nodeIdx;
     }
+    qCDebug(lcRail) << "[RailDraw] nodes drawn";
 
     // Process events to keep UI responsive
     QApplication::processEvents();
 
+    auto linksVec = network->getLinks();
+    qCDebug(lcRail) << "[RailDraw] drawing links, count="
+             << linksVec.size();
+    int linkIdx = 0;
     // Draw the train network links
-    for (auto &link : network->getLinks())
+    for (auto &link : linksVec)
     {
         // Get the source and destination nodes
         auto sourceNode = link->getFromNode();
         auto destNode   = link->getToNode();
+        if (!sourceNode || !destNode)
+        {
+            qCCritical(lcRail) << "[RailDraw] link has null"
+                           " endpoint, linkIdx=" << linkIdx
+                        << " userId=" << link->getUserId();
+        }
 
         // Create the source and destination points
         QPointF projectedSourcePoint = QPointF(
@@ -1315,16 +1433,27 @@ void CargoNetSim::GUI::ViewController::drawTrainNetwork(
                 projectedSourcePoint, projectedDestPoint,
                 regionName, linksColor, properties);
 
+        if (!line)
+        {
+            qCCritical(lcRail) << "[RailDraw] drawLink returned"
+                           " nullptr at linkIdx=" << linkIdx
+                        << " userId=" << link->getUserId();
+        }
         line->setReferenceNetwork(network);
+        ++linkIdx;
     }
+    qCDebug(lcRail) << "[RailDraw] links drawn";
 
     // Fit the view to the scene
+    qCDebug(lcRail) << "[RailDraw] fitInView begin";
     mainWindow->regionView_->fitInView(
         mainWindow->regionScene_->itemsBoundingRect(),
         Qt::KeepAspectRatio);
+    qCDebug(lcRail) << "[RailDraw] fitInView ok";
 
     mainWindow->showStatusBarMessage(
         QString("Train network imported successfully."));
+    qCDebug(lcRail) << "[RailDraw] drawTrainNetwork done";
 }
 
 void CargoNetSim::GUI::ViewController::drawTruckNetwork(

@@ -8,11 +8,17 @@
 #include <QColor>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QLoggingCategory>
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QString>
 #include <exception>
 #include <memory>
+
+namespace
+{
+Q_LOGGING_CATEGORY(lcRail, "cargonetsim.rail")
+}
 
 namespace CargoNetSim
 {
@@ -165,13 +171,21 @@ bool NetworkController::importTrainNetwork(
 
     try
     {
+        qCDebug(lcRail) << "[RailLoad] importTrainNetwork: calling"
+                    " addTrainNetwork, name=" << networkName;
         // load the network
         regionData->addTrainNetwork(networkName, nodeFile,
                                     linkFile);
+        qCDebug(lcRail) << "[RailLoad] importTrainNetwork:"
+                    " addTrainNetwork returned";
         // Draw the network on map
+        qCDebug(lcRail) << "[RailLoad] importTrainNetwork: calling"
+                    " drawNetwork";
         ViewController::drawNetwork(mainWindow, regionData,
                                     NetworkType::Train,
                                     networkName);
+        qCDebug(lcRail) << "[RailLoad] importTrainNetwork:"
+                    " drawNetwork returned";
 
         mainWindow->showStatusBarMessage(
             "Importing train network!", 2000);
@@ -179,6 +193,9 @@ bool NetworkController::importTrainNetwork(
     }
     catch (const std::exception &e)
     {
+        qCCritical(lcRail)
+            << "[RailLoad] importTrainNetwork exception:"
+            << e.what();
         QMessageBox::warning(mainWindow, "Error", e.what());
         return false;
     }
