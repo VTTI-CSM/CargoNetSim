@@ -7,6 +7,7 @@
 
 #include "CargoNetSimController.h"
 #include "Backend/Utils/Utils.h"
+#include <QCoreApplication>
 
 namespace CargoNetSim
 {
@@ -513,5 +514,264 @@ bool CargoNetSimController::initializeTerminalClient()
     }
 
     return true;
-} // namespace Backend
+}
+
+// ==========================================
+// Simulation Orchestration Implementation
+// ==========================================
+
+bool CargoNetSimController::runSimulation()
+{
+    if (m_simulationRunning)
+    {
+        qWarning() << "Simulation already running";
+        return false;
+    }
+
+    m_simulationRunning = true;
+    m_simulationPaused = false;
+
+    while (m_simulationRunning && !checkSimulationComplete())
+    {
+        // Handle pause
+        while (m_simulationPaused && m_simulationRunning)
+        {
+            QThread::msleep(100);
+            QCoreApplication::processEvents();
+        }
+
+        if (!m_simulationRunning)
+            break;
+
+        runSimulationStep();
+        QCoreApplication::processEvents();
+    }
+
+    m_simulationRunning = false;
+    emit simulationCompleted();
+    return true;
+}
+
+bool CargoNetSimController::runSimulationStep()
+{
+    if (!m_simulationTime)
+    {
+        qCritical() << "SimulationTime not initialized";
+        return false;
+    }
+
+    double deltaT = m_simulationTime->getTimeStep();
+    double currentTime = m_simulationTime->getCurrentTime();
+
+    // Step 1: Advance all simulators by deltaT
+    advanceAllSimulators(deltaT);
+
+    // Step 2: Update System Dynamics for all terminals
+    updateAllTerminalsSD(currentTime + deltaT, deltaT);
+
+    // Step 3: Process any events (arrivals, departures)
+    processSimulatorEvents();
+
+    // Step 4: Advance simulation time
+    m_simulationTime->advanceByTimeStep();
+
+    // Calculate progress
+    double progress = 0.0;
+    if (m_simulationEndTime > 0.0)
+    {
+        progress = (m_simulationTime->getCurrentTime() / m_simulationEndTime) * 100.0;
+        progress = qMin(progress, 100.0);
+    }
+
+    emit simulationStepCompleted(m_simulationTime->getCurrentTime(), progress);
+
+    return !checkSimulationComplete();
+}
+
+void CargoNetSimController::pauseSimulation()
+{
+    if (m_simulationRunning && !m_simulationPaused)
+    {
+        m_simulationPaused = true;
+        emit simulationPaused();
+    }
+}
+
+void CargoNetSimController::resumeSimulation()
+{
+    if (m_simulationRunning && m_simulationPaused)
+    {
+        m_simulationPaused = false;
+        emit simulationResumed();
+    }
+}
+
+void CargoNetSimController::stopSimulation()
+{
+    m_simulationRunning = false;
+    m_simulationPaused = false;
+}
+
+bool CargoNetSimController::isSimulationRunning() const
+{
+    return m_simulationRunning;
+}
+
+bool CargoNetSimController::isSimulationPaused() const
+{
+    return m_simulationPaused;
+}
+
+double CargoNetSimController::getCurrentSimulationTime() const
+{
+    return m_simulationTime ? m_simulationTime->getCurrentTime() : 0.0;
+}
+
+void CargoNetSimController::setSimulationEndTime(double endTime)
+{
+    m_simulationEndTime = endTime;
+}
+
+void CargoNetSimController::advanceAllSimulators(double deltaT)
+{
+    // Advance Ship simulator
+    if (m_shipClient && m_shipClient->isConnected())
+    {
+        m_shipClient->advanceByTimeStep({"*"}, deltaT);
+    }
+
+    // Advance Train simulator
+    if (m_trainClient && m_trainClient->isConnected())
+    {
+        m_trainClient->advanceByTimeStep({"*"}, deltaT);
+    }
+
+    // Advance Truck simulators (via manager)
+    if (m_truckManager)
+    {
+        QStringList networks = m_truckManager->getAllClientNames();
+        for (const QString& network : networks)
+        {
+            auto* client = m_truckManager->getClient(network);
+            if (client && client->isConnected())
+            {
+                client->advanceByTimeStep({network}, deltaT);
+            }
+        }
+    }
+}
+
+void CargoNetSimController::updateAllTerminalsSD(double currentTime, double deltaT)
+{
+    if (!m_terminalClient || !m_terminalClient->isConnected())
+        return;
+
+    // Convert deltaT from seconds to hours for SD (SD uses hours)
+    double deltaTHours = deltaT / 3600.0;
+
+    m_terminalClient->updateAllTerminalsSystemDynamics(currentTime, deltaTHours);
+}
+
+void CargoNetSimController::processSimulatorEvents()
+{
+    // This method processes arrivals and departures
+    // The actual container movements are handled by the simulators
+    // and terminal client through their event handlers
+
+    // Future enhancement: Add explicit event collection and processing here
+}
+
+bool CargoNetSimController::checkSimulationComplete()
+{
+    // Check if simulation has reached end time
+    if (m_simulationEndTime > 0.0 &&
+        m_simulationTime->getCurrentTime() >= m_simulationEndTime)
+    {
+        return true;
+    }
+
+    // Could also check if all vehicles reached destinations
+    return false;
+}
+
+// ==========================================
+// Dynamic Interventions Implementation
+// ==========================================
+
+bool CargoNetSimController::closeTerminal(const QString& terminalId,
+                                          const QString& alternativeTerminalId)
+{
+    if (terminalId.isEmpty() || alternativeTerminalId.isEmpty())
+    {
+        qWarning() << "Invalid terminal IDs for closure";
+        return false;
+    }
+
+    // Store closure mapping
+    m_closedTerminals[terminalId] = alternativeTerminalId;
+
+    // Notify all simulators about the closure
+    if (m_shipClient)
+    {
+        m_shipClient->notifyTerminalClosure(terminalId, alternativeTerminalId);
+    }
+
+    if (m_trainClient)
+    {
+        m_trainClient->notifyTerminalClosure(terminalId, alternativeTerminalId);
+    }
+
+    if (m_truckManager)
+    {
+        for (const QString& network : m_truckManager->getAllClientNames())
+        {
+            auto* client = m_truckManager->getClient(network);
+            if (client)
+            {
+                client->notifyTerminalClosure(terminalId, alternativeTerminalId);
+            }
+        }
+    }
+
+    emit terminalClosed(terminalId, alternativeTerminalId);
+    return true;
+}
+
+bool CargoNetSimController::reopenTerminal(const QString& terminalId)
+{
+    if (!m_closedTerminals.contains(terminalId))
+    {
+        qWarning() << "Terminal not in closed list:" << terminalId;
+        return false;
+    }
+
+    m_closedTerminals.remove(terminalId);
+
+    // Notify all simulators
+    if (m_shipClient)
+    {
+        m_shipClient->notifyTerminalReopened(terminalId);
+    }
+
+    if (m_trainClient)
+    {
+        m_trainClient->notifyTerminalReopened(terminalId);
+    }
+
+    if (m_truckManager)
+    {
+        for (const QString& network : m_truckManager->getAllClientNames())
+        {
+            auto* client = m_truckManager->getClient(network);
+            if (client)
+            {
+                client->notifyTerminalReopened(terminalId);
+            }
+        }
+    }
+
+    emit terminalReopened(terminalId);
+    return true;
+}
+
 } // namespace CargoNetSim

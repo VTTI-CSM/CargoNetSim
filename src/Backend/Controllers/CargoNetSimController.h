@@ -103,6 +103,81 @@ public:
      */
     bool stopAll();
 
+    // ==========================================
+    // Simulation Orchestration
+    // ==========================================
+
+    /**
+     * @brief Run the simulation loop until completion
+     * @return True if simulation completed successfully
+     */
+    Q_INVOKABLE bool runSimulation();
+
+    /**
+     * @brief Execute a single simulation time step
+     * @return True if step completed, false if simulation ended
+     */
+    Q_INVOKABLE bool runSimulationStep();
+
+    /**
+     * @brief Pause the running simulation
+     */
+    Q_INVOKABLE void pauseSimulation();
+
+    /**
+     * @brief Resume a paused simulation
+     */
+    Q_INVOKABLE void resumeSimulation();
+
+    /**
+     * @brief Stop the simulation completely
+     */
+    Q_INVOKABLE void stopSimulation();
+
+    /**
+     * @brief Check if simulation is currently running
+     * @return True if running
+     */
+    Q_INVOKABLE bool isSimulationRunning() const;
+
+    /**
+     * @brief Check if simulation is paused
+     * @return True if paused
+     */
+    Q_INVOKABLE bool isSimulationPaused() const;
+
+    /**
+     * @brief Get current simulation time
+     * @return Current time in seconds
+     */
+    Q_INVOKABLE double getCurrentSimulationTime() const;
+
+    /**
+     * @brief Set the simulation end time
+     * @param endTime End time in seconds
+     */
+    Q_INVOKABLE void setSimulationEndTime(double endTime);
+
+    // ==========================================
+    // Dynamic Interventions
+    // ==========================================
+
+    /**
+     * @brief Close a terminal and reroute traffic
+     * @param terminalId Terminal to close
+     * @param alternativeTerminalId Alternative terminal for rerouting
+     * @return True if closure was successful
+     */
+    Q_INVOKABLE bool closeTerminal(const QString& terminalId,
+                                   const QString& alternativeTerminalId);
+
+    /**
+     * @brief Reopen a previously closed terminal
+     * @param terminalId Terminal to reopen
+     * @return True if reopening was successful
+     */
+    Q_INVOKABLE bool reopenTerminal(const QString& terminalId);
+
     // Controller access methods
 
     /**
@@ -238,6 +313,42 @@ signals:
                               const QString &containersJson,
                               bool          &result);
 
+    /**
+     * @brief Emitted after each simulation step completes
+     * @param currentTime Current simulation time after step
+     * @param progress Overall progress percentage (0-100)
+     */
+    void simulationStepCompleted(double currentTime, double progress);
+
+    /**
+     * @brief Emitted when simulation completes
+     */
+    void simulationCompleted();
+
+    /**
+     * @brief Emitted when simulation is paused
+     */
+    void simulationPaused();
+
+    /**
+     * @brief Emitted when simulation is resumed
+     */
+    void simulationResumed();
+
+    /**
+     * @brief Emitted when a terminal is closed
+     * @param terminalId The closed terminal
+     * @param alternativeId The alternative terminal
+     */
+    void terminalClosed(const QString& terminalId,
+                        const QString& alternativeId);
+
+    /**
+     * @brief Emitted when a terminal is reopened
+     * @param terminalId The reopened terminal
+     */
+    void terminalReopened(const QString& terminalId);
+
 private slots:
     /**
      * @brief Slot called when a thread has started
@@ -316,6 +427,20 @@ private:
     QMap<Backend::ClientType, bool> m_clientInitialized;
     int                    m_initializedClientCount;
     int                    m_readyClientCount;
+
+    // Simulation state
+    bool m_simulationRunning = false;
+    bool m_simulationPaused = false;
+    double m_simulationEndTime = 0.0;
+
+    // Closed terminals for rerouting
+    QMap<QString, QString> m_closedTerminals;  // terminalId -> alternativeId
+
+    // Private helper methods
+    void advanceAllSimulators(double deltaT);
+    void updateAllTerminalsSD(double currentTime, double deltaT);
+    void processSimulatorEvents();
+    bool checkSimulationComplete();
 
     /** @brief Lock for thread safety of singleton creation
      */
