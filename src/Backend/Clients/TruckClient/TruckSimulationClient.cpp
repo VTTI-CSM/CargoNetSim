@@ -176,6 +176,45 @@ bool TruckSimulationClient::runSimulator(
     return allSucceeded;
 }
 
+bool TruckSimulationClient::advanceByTimeStep(
+    const QStringList& networkNames,
+    double deltaT)
+{
+    return executeSerializedCommand([&]() {
+        QJsonObject params;
+
+        QJsonArray networks;
+        for (const QString& name : networkNames)
+        {
+            networks.append(name);
+        }
+        params["networkNames"] = networks;
+        params["byTimeSteps"] = deltaT;
+
+        bool success = sendCommandAndWait(
+            "runSimulator",
+            params,
+            {"simulationadvanced", "simulationended"});
+
+        return success;
+    });
+}
+
+void TruckSimulationClient::notifyTerminalClosure(
+    const QString& terminalId,
+    const QString& alternativeId)
+{
+    // Truck simulator handles this via trip replanning
+    qDebug() << "Terminal closure notification:" << terminalId
+             << "->" << alternativeId;
+}
+
+void TruckSimulationClient::notifyTerminalReopened(
+    const QString& terminalId)
+{
+    qDebug() << "Terminal reopened:" << terminalId;
+}
+
 bool TruckSimulationClient::endSimulator(
     const QStringList &networkNames)
 {
