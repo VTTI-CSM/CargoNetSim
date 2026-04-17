@@ -1,4 +1,5 @@
 #include "ConnectionLabel.h"
+#include "Backend/Commons/LogCategories.h"
 #include "GUI/Items/ConnectionLine.h"
 
 #include <QCursor>
@@ -21,6 +22,9 @@ ConnectionLabel::ConnectionLabel(QGraphicsItem *parent)
     , m_isSelected(false)
     , m_boundingRect(-16, -16, 32, 32) // Fixed size 32x32
 {
+    qCInfo(lcGuiScene)
+        << "ConnectionLabel::ConnectionLabel: created";
+
     // Set flags
     setFlag(QGraphicsItem::ItemIgnoresTransformations);
     setFlag(QGraphicsItem::ItemIsSelectable);
@@ -37,6 +41,9 @@ void ConnectionLabel::setText(const QString &text)
 {
     if (m_text != text)
     {
+        qCDebug(lcGuiScene)
+            << "ConnectionLabel::setText:"
+            << "old=" << m_text << "new=" << text;
         m_text = text;
         update();
         emit textChanged(text);
@@ -47,6 +54,9 @@ void ConnectionLabel::setColor(const QColor &color)
 {
     if (m_color != color)
     {
+        qCDebug(lcGuiScene)
+            << "ConnectionLabel::setColor:"
+            << "color=" << color.name();
         m_color = color;
         update();
         emit colorChanged(color);
@@ -57,6 +67,9 @@ void ConnectionLabel::setSelected(bool selected)
 {
     if (m_isSelected != selected)
     {
+        qCDebug(lcGuiScene)
+            << "ConnectionLabel::setSelected:"
+            << "selected=" << selected;
         m_isSelected = selected;
         update();
         emit selectionChanged(selected);
@@ -72,6 +85,11 @@ void ConnectionLabel::paint(
     QPainter                       *painter,
     const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
+    qCDebug(lcGuiScene)
+        << "ConnectionLabel::paint:"
+        << "text=" << m_text
+        << "hovered=" << m_isHovered;
+
     // Draw label background
     if (m_isHovered)
     {
@@ -107,6 +125,11 @@ void ConnectionLabel::paint(
 void ConnectionLabel::mousePressEvent(
     QGraphicsSceneMouseEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "ConnectionLabel::mousePressEvent:"
+        << "button=" << event->button()
+        << "scenePos=" << event->scenePos();
+
     if (event->button() == Qt::LeftButton)
     {
         // Set the parent ConnectionLine as selected in the
@@ -143,6 +166,9 @@ void ConnectionLabel::mousePressEvent(
 void ConnectionLabel::hoverEnterEvent(
     QGraphicsSceneHoverEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "ConnectionLabel::hoverEnterEvent:"
+        << "text=" << m_text;
     m_isHovered = true;
     setCursor(QCursor(Qt::PointingHandCursor));
     update();
@@ -152,6 +178,9 @@ void ConnectionLabel::hoverEnterEvent(
 void ConnectionLabel::hoverLeaveEvent(
     QGraphicsSceneHoverEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "ConnectionLabel::hoverLeaveEvent:"
+        << "text=" << m_text;
     m_isHovered = false;
     unsetCursor();
     update();
@@ -160,6 +189,10 @@ void ConnectionLabel::hoverLeaveEvent(
 
 QMap<QString, QVariant> ConnectionLabel::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "ConnectionLabel::toDict:"
+        << "text=" << m_text;
+
     QMap<QString, QVariant> data;
 
     data["text"]  = m_text;
@@ -181,6 +214,10 @@ ConnectionLabel *ConnectionLabel::fromDict(
     const QMap<QString, QVariant> &data,
     QGraphicsItem                 *parent)
 {
+    qCInfo(lcGuiScene)
+        << "ConnectionLabel::fromDict:"
+        << "text=" << data.value("text").toString();
+
     ConnectionLabel *instance = new ConnectionLabel(parent);
 
     // Set properties

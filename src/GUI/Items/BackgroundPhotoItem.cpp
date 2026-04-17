@@ -1,4 +1,5 @@
 #include "BackgroundPhotoItem.h"
+#include "Backend/Commons/LogCategories.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
@@ -23,6 +24,11 @@ BackgroundPhotoItem::BackgroundPhotoItem(
     : GraphicsObjectBase(parent)
     , m_pixmap(pixmap)
 {
+    qCInfo(lcGuiScene)
+        << "BackgroundPhotoItem::BackgroundPhotoItem:"
+        << "region=" << regionName
+        << "pixmap=" << pixmap.size();
+
     // Set a low Z-value to stay below other items
     setZValue(-1);
 
@@ -44,12 +50,19 @@ BackgroundPhotoItem::BackgroundPhotoItem(
 
 void BackgroundPhotoItem::updateCoordinates()
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::updateCoordinates:"
+        << "pos=" << pos();
+
     // Get scene and view
     QGraphicsView *graphicsScene = scene()->views().first();
     GraphicsView  *graphicsView =
         dynamic_cast<GraphicsView *>(graphicsScene);
     if (!graphicsView)
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::updateCoordinates:"
+            << "no GraphicsView available";
         return;
     }
 
@@ -60,20 +73,34 @@ void BackgroundPhotoItem::updateCoordinates()
                    QString::number(newPos.y(), 'f', 6));
     updateProperty("Longitude",
                    QString::number(newPos.x(), 'f', 6));
+
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::updateCoordinates:"
+        << "lat=" << newPos.y() << "lon=" << newPos.x();
 }
 
 void BackgroundPhotoItem::setFromWGS84(QPointF GeoPoint)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::setFromWGS84:"
+        << "geoPoint=" << GeoPoint;
+
     // Get scene and view
     QGraphicsScene *graphicsScene = scene();
     if (!graphicsScene || graphicsScene->views().isEmpty())
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::setFromWGS84:"
+            << "no scene or views";
         return;
     }
 
     QGraphicsView *view = graphicsScene->views().first();
     if (!view)
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::setFromWGS84:"
+            << "null view";
         return;
     }
 
@@ -81,6 +108,9 @@ void BackgroundPhotoItem::setFromWGS84(QPointF GeoPoint)
         dynamic_cast<GraphicsView *>(view);
     if (!gView)
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::setFromWGS84:"
+            << "view is not a GraphicsView";
         return;
     }
 
@@ -98,6 +128,10 @@ void BackgroundPhotoItem::setFromWGS84(QPointF GeoPoint)
     updateProperty(
         "Longitude",
         QString::number(GeoPoint.x(), 'f', 6).toDouble());
+
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::setFromWGS84:"
+        << "scenePos=" << scenePos;
 }
 
 QRectF BackgroundPhotoItem::boundingRect() const
@@ -109,6 +143,10 @@ QRectF BackgroundPhotoItem::boundingRect() const
 
 void BackgroundPhotoItem::updateScale()
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::updateScale:"
+        << "scale=" << getScale();
+
     prepareGeometryChange();
     update();
 
@@ -120,6 +158,10 @@ void BackgroundPhotoItem::setRegion(const QString &region)
 {
     if (m_properties["Region"] != region)
     {
+        qCDebug(lcGuiScene)
+            << "BackgroundPhotoItem::setRegion:"
+            << "old=" << m_properties["Region"].toString()
+            << "new=" << region;
         m_properties["Region"] = region;
         emit regionChanged(region);
     }
@@ -135,8 +177,17 @@ float BackgroundPhotoItem::getScale() const
 
 void BackgroundPhotoItem::setScale(float scale)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::setScale:"
+        << "requested=" << scale
+        << "current=" << getScale();
+
     if (scale <= 0.0f)
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::setScale:"
+            << "clamping non-positive scale" << scale
+            << "to 0.1";
         scale = 0.1f; // Minimum scale
     }
 
@@ -156,6 +207,10 @@ qreal BackgroundPhotoItem::opacity() const
 
 void BackgroundPhotoItem::setOpacity(qreal opacity)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::setOpacity:"
+        << "requested=" << opacity;
+
     opacity = qBound(0.0, opacity, 1.0);
 
     if (qAbs(opacity
@@ -180,6 +235,11 @@ void BackgroundPhotoItem::paint(
     QPainter                       *painter,
     const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::paint:"
+        << "pos=" << pos()
+        << "scale=" << getScale();
+
     // Get current scale from properties
     float scale = getScale();
 
@@ -205,6 +265,12 @@ void BackgroundPhotoItem::paint(
 void BackgroundPhotoItem::mousePressEvent(
     QGraphicsSceneMouseEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::mousePressEvent:"
+        << "button=" << event->button()
+        << "locked=" << m_properties["Locked"].toBool()
+        << "scenePos=" << event->scenePos();
+
     if (!m_properties["Locked"].toBool())
     {
         // Store drag offset for position adjustment
@@ -229,6 +295,10 @@ QVariant
 BackgroundPhotoItem::itemChange(GraphicsItemChange change,
                                 const QVariant    &value)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::itemChange:"
+        << "change=" << change;
+
     if (change == ItemPositionChange && scene())
     {
         // If locked, prevent movement
@@ -270,6 +340,10 @@ BackgroundPhotoItem::itemChange(GraphicsItemChange change,
 void BackgroundPhotoItem::updateProperties(
     const QMap<QString, QVariant> &newProperties)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::updateProperties:"
+        << "count=" << newProperties.size();
+
     for (auto it = newProperties.constBegin();
          it != newProperties.constEnd(); ++it)
     {
@@ -284,6 +358,9 @@ void BackgroundPhotoItem::updateProperty(
     // Only update if value actually changes
     if (m_properties.value(key) != value)
     {
+        qCDebug(lcGuiScene)
+            << "BackgroundPhotoItem::updateProperty:"
+            << "key=" << key << "value=" << value;
         m_properties[key] = value;
         emit propertyChanged(key, value);
     }
@@ -291,6 +368,10 @@ void BackgroundPhotoItem::updateProperty(
 
 QMap<QString, QVariant> BackgroundPhotoItem::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::toDict:"
+        << "region=" << m_properties.value("Region").toString();
+
     QMap<QString, QVariant> data;
 
     // Store position
@@ -319,6 +400,10 @@ BackgroundPhotoItem *BackgroundPhotoItem::fromDict(
     const QMap<QString, QVariant> &data,
     QGraphicsItem                 *parent)
 {
+    qCInfo(lcGuiScene)
+        << "BackgroundPhotoItem::fromDict:"
+        << "deserializing background photo item";
+
     // Convert base64 back to pixmap
     QPixmap    pixmap;
     QByteArray imageData = QByteArray::fromBase64(

@@ -1,5 +1,6 @@
 #include "GraphicsObjectBase.h"
 #include "AnimationObject.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QBrush>
 #include <QGraphicsRectItem>
 #include <QPen>
@@ -17,6 +18,10 @@ GraphicsObjectBase::GraphicsObjectBase(
     , m_animation{new QPropertyAnimation(m_animObject,
                                          "opacity", this)}
 {
+    qCDebug(lcGuiScene)
+        << "GraphicsObjectBase::GraphicsObjectBase:"
+        << "id=" << m_id;
+
     // 4. Auto-delete when finished
     m_animation->setDuration(1000);
     m_animation->setLoopCount(3);
@@ -38,6 +43,12 @@ QString GraphicsObjectBase::getID() const
 void GraphicsObjectBase::flash(bool          evenIfHidden,
                                const QColor &color)
 {
+    qCDebug(lcGuiScene)
+        << "GraphicsObjectBase::flash:"
+        << "id=" << m_id
+        << "evenIfHidden=" << evenIfHidden
+        << "color=" << color.name();
+
     bool wasHidden = !isVisible();
     if (evenIfHidden && wasHidden)
     {
@@ -83,6 +94,9 @@ void GraphicsObjectBase::createAnimationVisual(
 
 void GraphicsObjectBase::onAnimationFinished()
 {
+    qCDebug(lcGuiScene)
+        << "GraphicsObjectBase::onAnimationFinished:"
+        << "id=" << m_id;
     clearAnimationVisuals();
     if (m_animObject->shouldRestoreVisibility())
         setVisible(false);

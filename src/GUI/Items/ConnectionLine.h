@@ -1,4 +1,5 @@
 #pragma once
+#include "Backend/Commons/TransportationMode.h"
 #include "GraphicsObjectBase.h"
 
 #include <QGraphicsItem>
@@ -10,6 +11,13 @@
 
 namespace CargoNetSim
 {
+namespace Backend {
+namespace Scenario {
+struct Connection;
+struct GlobalLink;
+} // namespace Scenario
+} // namespace Backend
+
 namespace GUI
 {
 
@@ -22,12 +30,17 @@ class ConnectionLine : public GraphicsObjectBase
     Q_OBJECT
 
 public:
-    static const QMap<QString, QMap<QString, QVariant>>
-        CONNECTION_STYLES;
+    /// Visual styling per transport mode (line color/width/etc.).
+    /// Keyed by the strongly-typed enum so code can't inadvertently
+    /// look up the wrong case-form of a string.
+    static const QMap<
+        Backend::TransportationTypes::TransportationMode,
+        QMap<QString, QVariant>> CONNECTION_STYLES;
 
     ConnectionLine(
         QGraphicsItem *startItem, QGraphicsItem *endItem,
-        const QString &connectionType = "Truck",
+        Backend::TransportationTypes::TransportationMode connectionType =
+            Backend::TransportationTypes::TransportationMode::Truck,
         const QMap<QString, QVariant> &properties =
             QMap<QString, QVariant>(),
         const QString &region = "Default Region",
@@ -49,7 +62,8 @@ public:
     {
         return m_endItem;
     }
-    QString connectionType() const
+    Backend::TransportationTypes::TransportationMode
+    connectionType() const
     {
         return m_connectionType;
     }
@@ -78,9 +92,54 @@ public:
     {
         return m_properties["Region"].toString();
     }
-    void setConnectionType(const QString &type);
+    void setConnectionType(
+        Backend::TransportationTypes::TransportationMode type);
     void setProperty(const QString  &key,
                      const QVariant &value);
+
+    /**
+     * @brief Bind this line to a region-level Connection (non-owning).
+     *
+     * Setting the connection model clears any GlobalLink binding — a
+     * ConnectionLine is either a region-local Connection OR a
+     * cross-region GlobalLink, never both.
+     *
+     * View-only binding (Task 11). User-driven property edits that
+     * should mutate the document route through ScenarioMutator at the
+     * ViewController layer (Task 15/16), not here.
+     *
+     * Passing nullptr unbinds.
+     */
+    void setConnectionModel(
+        Backend::Scenario::Connection *connection)
+    {
+        m_connection = connection;
+        if (connection) m_global = nullptr;
+    }
+
+    /**
+     * @brief Bind this line to a cross-region GlobalLink (non-owning).
+     *        Mutually exclusive with setConnectionModel.
+     */
+    void setGlobalLinkModel(Backend::Scenario::GlobalLink *link)
+    {
+        m_global = link;
+        if (link) m_connection = nullptr;
+    }
+
+    /// Non-owning connection pointer, or nullptr when unbound / in
+    /// GlobalLink mode.
+    Backend::Scenario::Connection *connectionModel() const
+    {
+        return m_connection;
+    }
+
+    /// Non-owning global-link pointer, or nullptr when unbound / in
+    /// Connection mode.
+    Backend::Scenario::GlobalLink *globalLinkModel() const
+    {
+        return m_global;
+    }
 
     // Update methods
     void updatePosition(const QPointF &newPos  = QPointF(),
@@ -98,6 +157,21 @@ public:
          QGraphicsScene *globalScene = nullptr,
          QGraphicsItem  *parent      = nullptr);
 
+    /**
+     * @brief Returns true when this line connects @p fromId and
+     * @p toId (in either direction) via @p mode.
+     */
+    bool matchesConnection(
+        const QString &fromId, const QString &toId,
+        Backend::TransportationTypes::TransportationMode mode) const;
+
+    /**
+     * @brief Re-reads all display properties from the bound
+     * backend model (Connection or GlobalLink) and schedules a
+     * repaint. No-op when unbound.
+     */
+    void refreshFromModel();
+
     // Reset/set class static IDs
     static void resetClassIDs();
     static void
@@ -112,7 +186,8 @@ signals:
     void propertyChanged(const QString  &key,
                          const QVariant &value);
     void propertiesChanged();
-    void connectionTypeChanged(const QString &newType);
+    void connectionTypeChanged(
+        Backend::TransportationTypes::TransportationMode newType);
     void regionChanged(const QString &newRegion);
 
 protected:
@@ -141,7 +216,8 @@ private:
     // Member variables
     QGraphicsItem          *m_startItem;
     QGraphicsItem          *m_endItem;
-    QString                 m_connectionType;
+    Backend::TransportationTypes::TransportationMode
+                            m_connectionType;
     QMap<QString, QVariant> m_properties;
     int                     m_id;
     bool                    m_isHovered;
@@ -156,6 +232,11 @@ private:
 
     // Static members
     static int CONNECTION_LINE_ID;
+
+    /// Non-owning pointers into ScenarioDocument. At most one is
+    /// non-null at a time (mutual exclusion enforced by setters).
+    Backend::Scenario::Connection *m_connection = nullptr;
+    Backend::Scenario::GlobalLink *m_global     = nullptr;
 };
 
 } // namespace GUI

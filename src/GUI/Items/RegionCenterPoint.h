@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Backend/Scenario/RegionSpec.h"
 #include "GraphicsObjectBase.h"
 
 #include <QColor>
@@ -10,6 +11,7 @@
 
 namespace CargoNetSim
 {
+
 namespace GUI
 {
 
@@ -45,6 +47,46 @@ public:
      * @brief Destructor
      */
     virtual ~RegionCenterPoint() = default;
+
+    /**
+     * @brief Bind this center point to a RegionSpec (non-owning).
+     *
+     * View-only binding (Task 12). User-drag coordinate edits that
+     * should mutate the document go through
+     * `ScenarioMutator::updateRegionLocalOrigin` /
+     * `updateRegionGlobalPosition` at the ViewController layer
+     * (Task 16), not from inside `updateCoordinates`. Keeping the
+     * mutation out of the view-level setter avoids cycles with the
+     * Task 21 observer that will repopulate the scene on
+     * regionChanged.
+     *
+     * Passing nullptr unbinds.
+     */
+    void setRegionSpecModel(Backend::Scenario::RegionSpec *spec)
+    {
+        m_regionSpec = spec;
+    }
+
+    /// Non-owning region-spec pointer, or nullptr in legacy mode.
+    Backend::Scenario::RegionSpec *regionSpecModel() const
+    {
+        return m_regionSpec;
+    }
+
+    /// Domain id: the bound RegionSpec::name, or empty when unbound.
+    /// Reads directly from the model pointer, not from the property bag
+    /// (which has a human-visible fallback and is not authoritative).
+    QString getRegionName() const
+    {
+        return m_regionSpec ? m_regionSpec->name : QString();
+    }
+
+    /**
+     * @brief Refreshes all display properties from the bound
+     * RegionSpec. No-op when @p spec is null.
+     */
+    void refreshFromSpec(
+        const Backend::Scenario::RegionSpec *spec);
 
     /**
      * @brief Updates the region's center coordinates.
@@ -172,6 +214,10 @@ signals:
     void propertiesChanged();
 
 protected:
+    /// Scene-registration hook: region name when bound, else empty so the
+    /// base's sceneRegistryKey() falls back to the auto-UUID.
+    QString domainKey() const override { return getRegionName(); }
+
     // QGraphicsItem overrides
     QRectF boundingRect() const override;
     void   paint(QPainter                       *painter,
@@ -196,6 +242,10 @@ private:
     QColor                  color;
     QMap<QString, QVariant> properties;
     QPointF                 dragOffset;
+
+    /// Non-owning pointer into ScenarioDocument::regions. View-only;
+    /// null → legacy mode.
+    Backend::Scenario::RegionSpec *m_regionSpec = nullptr;
 };
 
 } // namespace GUI

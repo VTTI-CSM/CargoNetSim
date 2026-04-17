@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Backend/Scenario/TerminalPlacement.h"
 #include "GraphicsObjectBase.h"
 
 #include <QColor>
@@ -11,6 +12,12 @@
 
 namespace CargoNetSim
 {
+namespace Backend {
+namespace Scenario {
+struct NodeLinkage;
+} // namespace Scenario
+} // namespace Backend
+
 namespace GUI
 {
 
@@ -52,6 +59,33 @@ public:
                  QMap<QString, QVariant>());
 
     virtual ~MapPoint() = default;
+
+    /**
+     * @brief Bind this point to a NodeLinkage (non-owning).
+     *
+     * The linkage carries the canonical (networkName, nodeId, terminalId,
+     * source) tuple that this point represents. When bound, callers like
+     * the future ScenarioMutator delegate (Task 16) can read the linkage
+     * directly instead of pulling values from m_properties.
+     *
+     * This is a view-only binding. `setLinkedTerminal` remains a pure
+     * view call (it updates the `m_terminal` pointer + property cache
+     * only); user-driven linking/unlinking that must mutate the document
+     * routes through `ScenarioMutator::linkTerminalToNode` at the
+     * ViewController layer (Task 16), not here.
+     *
+     * Passing nullptr unbinds.
+     */
+    void setLinkageModel(Backend::Scenario::NodeLinkage *linkage)
+    {
+        m_linkage = linkage;
+    }
+
+    /// Non-owning linkage pointer, or nullptr for legacy mode.
+    Backend::Scenario::NodeLinkage *linkageModel() const
+    {
+        return m_linkage;
+    }
 
     /**
      * @brief Sets the terminal linked to this point
@@ -245,8 +279,10 @@ protected:
 private:
     void
     showContextMenu(QGraphicsSceneContextMenuEvent *event);
-    void
-    createTerminalAtPosition(const QString &terminalType);
+    void createTerminalAtPosition(
+        const QString &terminalType,
+        Backend::Scenario::TerminalPlacement::TerminalRole role =
+            Backend::Scenario::TerminalPlacement::TerminalRole::Transit);
 
     static int POINT_ID;
 
@@ -257,6 +293,10 @@ private:
     QColor                  m_color;
     QMap<QString, QVariant> m_properties;
     QObject                *m_referenceNetwork;
+
+    /// Non-owning pointer into ScenarioDocument::linkages. When non-null
+    /// this point is a VIEW of the linkage; null → legacy mode.
+    Backend::Scenario::NodeLinkage *m_linkage = nullptr;
 };
 
 } // namespace GUI

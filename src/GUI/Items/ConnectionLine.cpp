@@ -13,6 +13,9 @@
 #include <QPropertyAnimation>
 #include <QStyleOptionGraphicsItem>
 #include <cmath>
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/Scenario/Connection.h"
+#include "Backend/Scenario/GlobalLink.h"
 
 namespace CargoNetSim
 {
@@ -22,20 +25,23 @@ namespace GUI
 // Initialize static members
 int ConnectionLine::CONNECTION_LINE_ID = 0;
 
-// Define connection type styles with valid pen styles
-const QMap<QString, QMap<QString, QVariant>>
+// Define connection type styles with valid pen styles. Keyed by the
+// strongly-typed `TransportationMode` enum — no case-mismatch between
+// display-form ("Truck") and data-form ("truck") is possible.
+const QMap<Backend::TransportationTypes::TransportationMode,
+           QMap<QString, QVariant>>
     ConnectionLine::CONNECTION_STYLES = {
-        {"Truck",
+        {Backend::TransportationTypes::TransportationMode::Truck,
          {{"color", QColor(Qt::magenta)},
           {"width", 5},
           {"style", static_cast<int>(Qt::SolidLine)},
           {"offset", 0}}},
-        {"Rail",
+        {Backend::TransportationTypes::TransportationMode::Train,
          {{"color", QColor(Qt::darkGray)},
           {"width", 5},
           {"style", static_cast<int>(Qt::SolidLine)},
           {"offset", 0}}},
-        {"Ship",
+        {Backend::TransportationTypes::TransportationMode::Ship,
          {{"color", QColor(Qt::blue)},
           {"width", 5},
           {"style", static_cast<int>(Qt::SolidLine)},
@@ -43,7 +49,7 @@ const QMap<QString, QMap<QString, QVariant>>
 
 ConnectionLine::ConnectionLine(
     QGraphicsItem *startItem, QGraphicsItem *endItem,
-    const QString                 &connectionType,
+    Backend::TransportationTypes::TransportationMode connectionType,
     const QMap<QString, QVariant> &properties,
     const QString &region, QGraphicsItem *parent)
     : GraphicsObjectBase(parent)
@@ -54,6 +60,9 @@ ConnectionLine::ConnectionLine(
     , m_id(getNewConnectionID())
     , m_isHovered(false)
 {
+    qCDebug(lcGuiScene) << "ConnectionLine::ConnectionLine:"
+                        << "id=" << m_id
+                        << "type=" << Backend::transportationModeToString(m_connectionType);
     // Set higher z-value to ensure visibility
     setZValue(4);
 
@@ -73,9 +82,14 @@ ConnectionLine::ConnectionLine(
         m_properties["Region"] = region;
     }
 
-    // Create label
+    // Create label. Label text is the YAML-canonical first letter —
+    // "t" / "r" / "s" uppercased → "T" / "R" / "S". Distinct across
+    // the three active modes (Truck / Train→"rail" / Ship).
     m_label = new ConnectionLabel(this);
-    m_label->setText(m_connectionType.at(0));
+    m_label->setText(
+        Backend::transportationModeToString(m_connectionType)
+            .toUpper()
+            .left(1));
 
     // Set label color based on connection type
     QColor color = CONNECTION_STYLES.value(m_connectionType)
@@ -104,16 +118,26 @@ void ConnectionLine::setRegion(const QString &region)
     }
 }
 
-void ConnectionLine::setConnectionType(const QString &type)
+void ConnectionLine::setConnectionType(
+    Backend::TransportationTypes::TransportationMode type)
 {
-    if (m_connectionType != type
-        && CONNECTION_STYLES.contains(type))
+    if (!CONNECTION_STYLES.contains(type))
+    {
+        qCWarning(lcGuiScene) << "ConnectionLine::setConnectionType:"
+                              << "invalid type" << static_cast<int>(type);
+        return;
+    }
+    if (m_connectionType != type)
     {
         m_connectionType                = type;
-        m_properties["Connection type"] = type;
+        m_properties["Connection type"] =
+            Backend::transportationModeToString(type);
 
         // Update label
-        m_label->setText(type.at(0));
+        m_label->setText(
+            Backend::transportationModeToString(type)
+                .toUpper()
+                .left(1));
         QColor color = CONNECTION_STYLES.value(type)
                            .value("color")
                            .value<QColor>();
@@ -140,6 +164,7 @@ void ConnectionLine::setProperty(const QString  &key,
 
 void ConnectionLine::createConnections()
 {
+    qCDebug(lcGuiScene) << "ConnectionLine::createConnections:" << "id=" << m_id;
     // Connect to start and end items' position changes
     if (dynamic_cast<TerminalItem *>(m_startItem))
     {
@@ -178,9 +203,12 @@ void ConnectionLine::createConnections()
 
 void ConnectionLine::initializeProperties(QString region)
 {
+    qCDebug(lcGuiScene) << "ConnectionLine::initializeProperties:"
+                        << "id=" << m_id << "region=" << region;
     m_properties = {
         {"Type", "Connection"},
-        {"Connection type", m_connectionType},
+        {"Connection type",
+         Backend::transportationModeToString(m_connectionType)},
         {"Region", region},
         {"cost", "0.0"},             // USD
         {"travelTime", "0.0"},       // Hours
@@ -248,7 +276,7 @@ void ConnectionLine::updatePosition(const QPointF &newPos,
     if (lineLength > 0)
     {
         // Determine curve direction based on line orientation
-        if (m_connectionType != "Truck")
+        if (m_connectionType != Backend::TransportationTypes::TransportationMode::Truck)
         {
             // Choose perpendicular offset direction
             bool  isVertical = std::abs(dy) > std::abs(dx);
@@ -257,7 +285,7 @@ void ConnectionLine::updatePosition(const QPointF &newPos,
             if (isVertical)
             {
                 // For vertical alignments, curve horizontally
-                qreal nx = (m_connectionType == "Ship") ? 1.0 : -1.0;
+                qreal nx = (m_connectionType == Backend::TransportationTypes::TransportationMode::Ship) ? 1.0 : -1.0;
                 qreal ny = 0.0;
 
                 // Set control point
@@ -268,7 +296,7 @@ void ConnectionLine::updatePosition(const QPointF &newPos,
             {
                 // For horizontal alignments, curve vertically
                 qreal nx = 0.0;
-                qreal ny = (m_connectionType == "Rail") ? -1.0 : 1.0;
+                qreal ny = (m_connectionType == Backend::TransportationTypes::TransportationMode::Train) ? -1.0 : 1.0;
 
                 // Set control point
                 ctrlX = midX + nx * offset;
@@ -299,7 +327,7 @@ void ConnectionLine::updatePosition(const QPointF &newPos,
                .value("width")
                .toInt());
 
-    if (m_connectionType == "Truck")
+    if (m_connectionType == Backend::TransportationTypes::TransportationMode::Truck)
     {
         // Simple rectangle for straight lines
         m_boundingRect = QRectF(
@@ -357,6 +385,8 @@ QLineF ConnectionLine::calculateOffsetLine(
 
     if (length == 0)
     {
+        qCDebug(lcGuiScene) << "ConnectionLine::calculateOffsetLine:"
+                            << "zero-length line, returning original";
         return originalLine;
     }
 
@@ -405,7 +435,7 @@ QPainterPath ConnectionLine::shape() const
 
     // Create a narrow rectangle along the line for
     // selection
-    if (m_connectionType == "Truck")
+    if (m_connectionType == Backend::TransportationTypes::TransportationMode::Truck)
     {
         // For straight line
         qreal angle =
@@ -465,7 +495,7 @@ void ConnectionLine::paint(
     QPainterPath path;
     path.moveTo(m_line.p1());
 
-    if (m_connectionType == "Truck")
+    if (m_connectionType == Backend::TransportationTypes::TransportationMode::Truck)
     {
         path.lineTo(m_line.p2());
     }
@@ -489,6 +519,9 @@ void ConnectionLine::paint(
 void ConnectionLine::updateProperties(
     const QMap<QString, QVariant> &newProperties)
 {
+    qCDebug(lcGuiScene) << "ConnectionLine::updateProperties:"
+                        << "id=" << m_id
+                        << "propertyCount=" << newProperties.size();
     for (auto it = newProperties.constBegin();
          it != newProperties.constEnd(); ++it)
     {
@@ -535,6 +568,7 @@ void ConnectionLine::hoverLeaveEvent(
 
 QMap<QString, QVariant> ConnectionLine::toDict() const
 {
+    qCDebug(lcGuiScene) << "ConnectionLine::toDict:" << "id=" << m_id;
     QMap<QString, QVariant> data;
 
     // Store IDs for serialization
@@ -593,7 +627,8 @@ QMap<QString, QVariant> ConnectionLine::toDict() const
     data["start_item_type"] = startItemType;
     data["end_item_id"]     = endItemId;
     data["end_item_type"]   = endItemType;
-    data["connection_type"] = m_connectionType;
+    data["connection_type"] =
+        Backend::transportationModeToString(m_connectionType);
     data["properties"]      = m_properties;
     data["selected"]        = isSelected();
     data["z_value"]         = zValue();
@@ -610,6 +645,10 @@ ConnectionLine *ConnectionLine::fromDict(
     const QMap<int, QGraphicsItem *> &terminalsByID,
     QGraphicsScene *globalScene, QGraphicsItem *parent)
 {
+    qCDebug(lcGuiScene) << "ConnectionLine::fromDict:"
+                        << "startId=" << data.value("start_item_id")
+                        << "endId=" << data.value("end_item_id")
+                        << "type=" << data.value("connection_type");
     // Find terminals
     int startId = data["start_item_id"].toInt();
     int endId   = data["end_item_id"].toInt();
@@ -619,15 +658,15 @@ ConnectionLine *ConnectionLine::fromDict(
 
     if (!startItem)
     {
-        qWarning() << "Start terminal with ID" << startId
-                   << "not found";
+        qCWarning(lcGuiScene) << "Start terminal with ID" << startId
+                             << "not found";
         return nullptr;
     }
 
     if (!endItem)
     {
-        qWarning() << "End terminal with ID" << endId
-                   << "not found";
+        qCWarning(lcGuiScene) << "End terminal with ID" << endId
+                             << "not found";
         return nullptr;
     }
 
@@ -676,10 +715,13 @@ ConnectionLine *ConnectionLine::fromDict(
         }
     }
 
-    // Create connection line
+    // Create connection line. Legacy serialization stored the type
+    // as a string; accept either case-form via the case-insensitive
+    // `transportationModeFromString` helper.
     ConnectionLine *connection = new ConnectionLine(
         startItem, endItem,
-        data.value("connection_type", "Truck").toString(),
+        Backend::transportationModeFromString(
+            data.value("connection_type", "truck").toString()),
         data.value("properties").toMap(),
         data.value("region", "Default Region").toString(),
         parent);
@@ -750,7 +792,7 @@ void ConnectionLine::createAnimationVisual(
 
     path.moveTo(m_line.p1());
 
-    if (m_connectionType == "Truck")
+    if (m_connectionType == Backend::TransportationTypes::TransportationMode::Truck)
     {
         path.lineTo(m_line.p2());
     }
@@ -768,6 +810,57 @@ void ConnectionLine::createAnimationVisual(
     overlay->setParentItem(this);
 
     m_animObject->setOverlay(overlay);
+}
+
+bool ConnectionLine::matchesConnection(
+    const QString &fromId, const QString &toId,
+    Backend::TransportationTypes::TransportationMode mode) const
+{
+    if (m_connectionType != mode) return false;
+
+    QString sId, eId;
+
+    if (auto *t = dynamic_cast<TerminalItem *>(m_startItem))
+        sId = t->getTerminalId();
+    else if (auto *g =
+                 dynamic_cast<GlobalTerminalItem *>(m_startItem))
+        sId = g->getTerminalId();
+
+    if (auto *t = dynamic_cast<TerminalItem *>(m_endItem))
+        eId = t->getTerminalId();
+    else if (auto *g =
+                 dynamic_cast<GlobalTerminalItem *>(m_endItem))
+        eId = g->getTerminalId();
+
+    if (sId.isEmpty() || eId.isEmpty()) return false;
+
+    return (sId == fromId && eId == toId)
+        || (sId == toId && eId == fromId);
+}
+
+void ConnectionLine::refreshFromModel()
+{
+    qCDebug(lcGuiScene)
+        << "ConnectionLine::refreshFromModel:"
+        << "id=" << m_id;
+
+    if (m_connection)
+    {
+        m_properties = m_connection->properties;
+        m_properties["Connection type"] =
+            Backend::transportationModeToString(
+                m_connection->mode);
+        m_properties["Region"] = m_connection->region;
+    }
+    else if (m_global)
+    {
+        m_properties = m_global->properties;
+        m_properties["Connection type"] =
+            Backend::transportationModeToString(
+                m_global->mode);
+    }
+
+    update();
 }
 
 } // namespace GUI

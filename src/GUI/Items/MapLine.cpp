@@ -1,4 +1,5 @@
 #include "MapLine.h"
+#include "Backend/Commons/LogCategories.h"
 #include "GUI/Items/AnimationObject.h"
 
 #include <QGraphicsScene>
@@ -25,6 +26,13 @@ MapLine::MapLine(const QString &referenceNetworkID,
     , baseWidth(1)
     , pen(Qt::black, baseWidth)
 {
+    qCInfo(lcGuiScene)
+        << "MapLine::MapLine:"
+        << "networkID=" << referenceNetworkID
+        << "region=" << region
+        << "start=" << startPoint
+        << "end=" << endPoint;
+
     this->m_properties["Network_ID"] = referenceNetworkID;
     this->m_properties["region"]     = region;
 
@@ -40,6 +48,9 @@ void MapLine::setColor(const QColor &color)
 {
     if (pen.color() != color)
     {
+        qCDebug(lcGuiScene)
+            << "MapLine::setColor:"
+            << "color=" << color.name();
         pen.setColor(color);
         emit colorChanged(color);
         update();
@@ -50,6 +61,10 @@ void MapLine::setPen(const QPen &newPen)
 {
     if (pen != newPen)
     {
+        qCDebug(lcGuiScene)
+            << "MapLine::setPen:"
+            << "color=" << newPen.color().name()
+            << "width=" << newPen.width();
         QColor oldColor = pen.color();
         pen             = newPen;
 
@@ -65,6 +80,10 @@ void MapLine::setPen(const QPen &newPen)
 void MapLine::setPoints(const QPointF &newStartPoint,
                         const QPointF &newEndPoint)
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::setPoints:"
+        << "start=" << newStartPoint
+        << "end=" << newEndPoint;
     startPoint = newStartPoint;
     endPoint   = newEndPoint;
     update();
@@ -84,6 +103,11 @@ void MapLine::paint(QPainter                       *painter,
                     const QStyleOptionGraphicsItem *option,
                     QWidget                        *widget)
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::paint:"
+        << "start=" << startPoint
+        << "end=" << endPoint;
+
     // Get the current view scale
     QGraphicsScene *itemScene = scene();
     if (!itemScene || itemScene->views().isEmpty())
@@ -114,6 +138,11 @@ void MapLine::paint(QPainter                       *painter,
 void MapLine::mousePressEvent(
     QGraphicsSceneMouseEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::mousePressEvent:"
+        << "button=" << event->button()
+        << "region=" << m_properties.value("region").toString();
+
     emit clicked(this);
 
     // Select all lines in the same region when this line is
@@ -127,6 +156,8 @@ void MapLine::selectNetworkLines()
 {
     if (!scene())
     {
+        qCWarning(lcGuiScene)
+            << "MapLine::selectNetworkLines: no scene";
         return;
     }
 
@@ -147,6 +178,10 @@ void MapLine::selectNetworkLines()
 
 QMap<QString, QVariant> MapLine::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::toDict:"
+        << "networkID=" << m_properties.value("Network_ID").toString();
+
     QMap<QString, QVariant> data;
     data["referenced_network_ID"] =
         m_properties.value("Network_ID");
@@ -174,6 +209,10 @@ QMap<QString, QVariant> MapLine::toDict() const
 MapLine *
 MapLine::fromDict(const QMap<QString, QVariant> &data)
 {
+    qCInfo(lcGuiScene)
+        << "MapLine::fromDict:"
+        << "networkID=" << data.value("referenced_network_ID").toString();
+
     // Extract start and end points
     QMap<QString, QVariant> startPointDict =
         data["start_point"].toMap();
@@ -211,6 +250,10 @@ void MapLine::clearAnimationVisuals()
 
 void MapLine::createAnimationVisual(const QColor &color)
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::createAnimationVisual:"
+        << "color=" << color.name();
+
     // Create a path item as an overlay
     QPainterPath path;
     path.moveTo(startPoint);

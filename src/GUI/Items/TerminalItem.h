@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Backend/Scenario/InterfaceConversion.h"
+#include "Backend/Scenario/TerminalPlacement.h"
 #include "GraphicsObjectBase.h"
 
 #include <QGraphicsObject>
@@ -41,8 +43,8 @@ public:
      * pairs
      * @param region Region the terminal belongs to
      * @param parent Parent graphics item (if any)
-     * @param terminalType Type of terminal (e.g., "Origin",
-     * "Sea Port Terminal")
+     * @param terminalType Type of terminal (e.g.,
+     * "Sea Port Terminal", "Intermodal Land Terminal")
      */
     TerminalItem(const QPixmap                 &pixmap,
                  const QMap<QString, QVariant> &properties =
@@ -119,6 +121,35 @@ public:
     {
         return m_properties;
     }
+
+    /**
+     * @brief Get the terminal's scenario role.
+     *
+     * Returns the placement's role when bound, or Transit (default)
+     * when unbound (legacy mode).
+     */
+    Backend::Scenario::TerminalPlacement::TerminalRole
+    getRole() const
+    {
+        using R = Backend::Scenario::TerminalPlacement::TerminalRole;
+        return m_placement ? m_placement->role : R::Transit;
+    }
+
+    /**
+     * @brief Typed view of the terminal's interface modes.
+     *
+     * When bound to a placement (factory path), returns the placement's
+     * typed `InterfaceSet` reshaped into the backend's InterfaceMap.
+     * When unbound (legacy pre-scenario), falls back to reading the
+     * property bag and translating strings → enums via
+     * InterfaceConversion::toBackendInterfaces.
+     *
+     * Single source of truth for GUI-side interface queries. Consumers
+     * (PathFindingWorker, UtilityFunctions) read enums, never strings.
+     * Plan 7 added this accessor to collapse five duplicated extractions.
+     */
+    Backend::Scenario::InterfaceConversion::InterfaceMap
+    availableInterfaces() const;
 
     /**
      * @brief Update terminal properties
@@ -201,6 +232,44 @@ public:
     fromDict(const QMap<QString, QVariant> &data,
              const QPixmap                 &pixmap,
              QGraphicsItem *parent = nullptr);
+
+    /**
+     * @brief Bind this item to a TerminalPlacement (non-owning).
+     *
+     * When bound, getID() returns the placement's id instead of the
+     * auto-generated UUID. The item's internal property snapshot
+     * (m_properties, m_region, m_terminalType) is refreshed from the
+     * placement at setPlacement-time.
+     *
+     * Passing nullptr unbinds — useful on documentReset.
+     *
+     * Cache-staleness contract: m_properties is a snapshot, not a live
+     * view. All mutations of the placement are expected to round-trip
+     * through ScenarioMutator → ScenarioDocument::terminalChanged →
+     * (Task 21) observer → setPlacement() again, which refreshes the
+     * snapshot in one place.
+     */
+    void setPlacement(Backend::Scenario::TerminalPlacement *placement);
+
+    /// Non-owning placement pointer, or nullptr for legacy mode.
+    Backend::Scenario::TerminalPlacement *placement() const
+    {
+        return m_placement;
+    }
+
+    /// Domain id: the bound TerminalPlacement::id, or empty when unbound
+    /// (legacy pre-scenario flow). Callers that need a document-addressable
+    /// terminal id (mutator args, backend server requests) read this; no
+    /// fallback to UUID — empty is a meaningful "unbound" signal.
+    /// Implementation in .cpp (needs TerminalPlacement's full definition).
+    QString getTerminalId() const;
+
+protected:
+    /// Scene-registration hook: terminal id when bound, else empty so the
+    /// base's sceneRegistryKey() falls back to the auto-UUID.
+    QString domainKey() const override { return getTerminalId(); }
+
+public:
 
 signals:
     /**
@@ -312,6 +381,11 @@ private:
     bool    m_wasSelected;   ///< Previous selection state
     GlobalTerminalItem
         *m_globalTerminalItem; ///< Linked global terminal
+
+    /// Non-owning pointer into ScenarioDocument's terminals map. When
+    /// non-null, this item is a VIEW of the placement; when null, the
+    /// item operates in legacy property-bag-only mode.
+    Backend::Scenario::TerminalPlacement *m_placement = nullptr;
 
     // Static ID management
     static QMap<QString, int>

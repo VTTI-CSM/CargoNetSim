@@ -1,4 +1,8 @@
 #include "RegionCenterPoint.h"
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/Scenario/ScenarioRuntime.h"
+#include "GUI/MainWindow.h"
+#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Widgets/GraphicsView.h"
 
 #include <QApplication>
@@ -23,6 +27,11 @@ RegionCenterPoint::RegionCenterPoint(
     , color(color)
     , properties(properties)
 {
+    qCInfo(lcGuiScene)
+        << "RegionCenterPoint::RegionCenterPoint:"
+        << "region=" << region
+        << "color=" << color.name();
+
     // Set high Z-value to ensure visibility
     setZValue(100);
 
@@ -49,6 +58,10 @@ RegionCenterPoint::RegionCenterPoint(
 
 void RegionCenterPoint::updateCoordinates(QPointF geoPoint)
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::updateCoordinates:"
+        << "geoPoint=" << geoPoint;
+
     QString oldLon = properties["Longitude"].toString();
     QString oldLat = properties["Latitude"].toString();
 
@@ -75,6 +88,10 @@ void RegionCenterPoint::updateCoordinates(QPointF geoPoint)
 void RegionCenterPoint::updateSharedCoordinates(
     QPointF geoPoint)
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::updateSharedCoordinates:"
+        << "geoPoint=" << geoPoint;
+
     QString oldLon =
         properties["Shared Longitude"].toString();
     QString oldLat =
@@ -108,6 +125,10 @@ void RegionCenterPoint::setRegion(const QString &newRegion)
             .toString()
         != newRegion)
     {
+        qCDebug(lcGuiScene)
+            << "RegionCenterPoint::setRegion:"
+            << "old=" << properties.value("Region").toString()
+            << "new=" << newRegion;
         QString oldRegion =
             properties.value("Region", "Default Region")
                 .toString();
@@ -120,6 +141,9 @@ void RegionCenterPoint::setColor(const QColor &newColor)
 {
     if (color != newColor)
     {
+        qCDebug(lcGuiScene)
+            << "RegionCenterPoint::setColor:"
+            << "color=" << newColor.name();
         color = newColor;
         emit colorChanged(color);
         update();
@@ -129,6 +153,10 @@ void RegionCenterPoint::setColor(const QColor &newColor)
 void RegionCenterPoint::updateProperties(
     const QMap<QString, QVariant> &newProperties)
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::updateProperties:"
+        << "count=" << newProperties.size();
+
     for (auto it = newProperties.constBegin();
          it != newProperties.constEnd(); ++it)
     {
@@ -139,21 +167,34 @@ void RegionCenterPoint::updateProperties(
 
 void RegionCenterPoint::updateCoordinatesFromPosition()
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::updateCoordinatesFromPosition:"
+        << "pos=" << pos();
+
     QGraphicsScene *graphicsScene = scene();
     if (!graphicsScene || graphicsScene->views().isEmpty())
     {
+        qCWarning(lcGuiScene)
+            << "RegionCenterPoint::updateCoordinatesFromPosition:"
+            << "no scene or views";
         return;
     }
 
     QGraphicsView *view = graphicsScene->views().first();
     if (!view)
     {
+        qCWarning(lcGuiScene)
+            << "RegionCenterPoint::updateCoordinatesFromPosition:"
+            << "null view";
         return;
     }
     GraphicsView *viewObj =
         dynamic_cast<GraphicsView *>(view);
     if (!viewObj)
     {
+        qCWarning(lcGuiScene)
+            << "RegionCenterPoint::updateCoordinatesFromPosition:"
+            << "view is not a GraphicsView";
         return;
     }
 
@@ -171,6 +212,11 @@ void RegionCenterPoint::paint(
     QPainter                       *painter,
     const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::paint:"
+        << "region=" << properties.value("Region").toString()
+        << "pos=" << pos();
+
     // Draw outer circle
     painter->setPen(QPen(Qt::black, 2));
     painter->setBrush(QBrush(color));
@@ -193,6 +239,12 @@ void RegionCenterPoint::paint(
 void RegionCenterPoint::mousePressEvent(
     QGraphicsSceneMouseEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::mousePressEvent:"
+        << "region=" << properties.value("Region").toString()
+        << "button=" << event->button()
+        << "scenePos=" << event->scenePos();
+
     dragOffset = event->pos();
     emit clicked(this);
     QGraphicsObject::mousePressEvent(event);
@@ -202,6 +254,10 @@ QVariant
 RegionCenterPoint::itemChange(GraphicsItemChange change,
                               const QVariant    &value)
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::itemChange:"
+        << "change=" << change;
+
     if (change == ItemPositionHasChanged && scene())
     {
         // Update coordinates when position changes
@@ -209,6 +265,38 @@ RegionCenterPoint::itemChange(GraphicsItemChange change,
 
         // Emit position changed signal
         emit positionChanged(pos());
+
+        // Persist coordinates to backend on drag release
+        if (m_regionSpec && !getRegion().isEmpty())
+        {
+            auto *view = scene()->views().isEmpty()
+                ? nullptr
+                : qobject_cast<
+                      CargoNetSim::GUI::GraphicsView *>(
+                      scene()->views().first());
+            if (view)
+            {
+                auto *mw = qobject_cast<
+                    CargoNetSim::GUI::MainWindow *>(
+                    view->window());
+                if (mw && mw->runtime())
+                {
+                    const QPointF latLon =
+                        view->sceneToWGS84(pos());
+                    CargoNetSim::GUI::Scenario::
+                        ScenarioMutator::
+                            updateRegionLocalOrigin(
+                                &mw->runtime()->document(),
+                                getRegion(), latLon);
+                    qCDebug(lcGuiScene)
+                        << "RegionCenterPoint:"
+                        << "persisted coordinates"
+                        << getRegion()
+                        << "lat=" << latLon.y()
+                        << "lon=" << latLon.x();
+                }
+            }
+        }
     }
 
     return QGraphicsObject::itemChange(change, value);
@@ -217,6 +305,9 @@ RegionCenterPoint::itemChange(GraphicsItemChange change,
 void RegionCenterPoint::hoverEnterEvent(
     QGraphicsSceneHoverEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::hoverEnterEvent:"
+        << "region=" << properties.value("Region").toString();
     setCursor(QCursor(Qt::PointingHandCursor));
     QGraphicsObject::hoverEnterEvent(event);
 }
@@ -224,12 +315,19 @@ void RegionCenterPoint::hoverEnterEvent(
 void RegionCenterPoint::hoverLeaveEvent(
     QGraphicsSceneHoverEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::hoverLeaveEvent:"
+        << "region=" << properties.value("Region").toString();
     unsetCursor();
     QGraphicsObject::hoverLeaveEvent(event);
 }
 
 QMap<QString, QVariant> RegionCenterPoint::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::toDict:"
+        << "region=" << properties.value("Region").toString();
+
     QMap<QString, QVariant> data;
 
     // Create position map
@@ -251,6 +349,10 @@ QMap<QString, QVariant> RegionCenterPoint::toDict() const
 RegionCenterPoint *RegionCenterPoint::fromDict(
     const QMap<QString, QVariant> &data)
 {
+    qCInfo(lcGuiScene)
+        << "RegionCenterPoint::fromDict:"
+        << "region=" << data.value("region").toString();
+
     // Parse color from the hex string
     QColor color(data.value("color", "#000000").toString());
 
@@ -279,6 +381,28 @@ RegionCenterPoint *RegionCenterPoint::fromDict(
         data.value("z_value", 2).toDouble());
 
     return instance;
+}
+
+void RegionCenterPoint::refreshFromSpec(
+    const Backend::Scenario::RegionSpec *spec)
+{
+    if (!spec) return;
+
+    qCDebug(lcGuiScene)
+        << "RegionCenterPoint::refreshFromSpec:"
+        << "region=" << spec->name;
+
+    properties["Latitude"]  = spec->localOrigin.latitude;
+    properties["Longitude"] = spec->localOrigin.longitude;
+    properties["Shared Latitude"]  =
+        spec->globalPosition.latitude;
+    properties["Shared Longitude"] =
+        spec->globalPosition.longitude;
+
+    if (!spec->color.isEmpty())
+        color = QColor(spec->color);
+
+    update();
 }
 
 } // namespace GUI

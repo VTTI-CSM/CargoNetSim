@@ -1,11 +1,13 @@
 #pragma once
 
+#include "Backend/Scenario/InterfaceConversion.h"
 #include "GraphicsObjectBase.h"
 
 #include <QGraphicsObject>
 #include <QPixmap>
 #include <QPointF>
 #include <QString>
+#include <optional>
 
 namespace CargoNetSim
 {
@@ -53,14 +55,50 @@ public:
     /**
      * @brief Set the linked terminal item
      * @param terminalItem The terminal item to link
+     *
+     * **Scene-registration invariant:** this item's `getID()` returns
+     * the linked terminal's id when linked. Callers are expected to
+     * link the terminal BEFORE adding this item to a scene via
+     * `addItemWithId`. Re-linking after registration leaves the scene's
+     * registry key stale — if you ever need that flow, also re-register.
      */
     void setLinkedTerminalItem(TerminalItem *terminalItem);
+
+    /// Domain id: the linked TerminalItem's terminal id, or empty when the
+    /// link isn't set or the linked terminal is unbound. No fallback to
+    /// UUID — callers that want QObject identity call getID() directly.
+    /// Implementation in .cpp (needs TerminalItem's full definition).
+    QString getTerminalId() const;
+
+    /// Delegates to the linked TerminalItem's typed interface accessor.
+    /// Empty map when no terminal is linked. Callers get enums, not
+    /// strings — consistent with TerminalItem::availableInterfaces.
+    Backend::Scenario::InterfaceConversion::InterfaceMap
+    availableInterfaces() const;
 
     /**
      * @brief Updates the item's appearance based on
      * properties from linked terminal
      */
     void updateFromLinkedTerminal();
+
+    /**
+     * @brief Compute this item's global WGS84 position from its
+     *        linked TerminalItem's placement + the matching
+     *        RegionCenterPoint's RegionSpec model (found in the scene).
+     *
+     * Formula (design spec §4):
+     *   global_lon = region.globalPosition.longitude
+     *              + (placement.latLon.longitude - region.localOrigin.longitude)
+     *   global_lat = region.globalPosition.latitude
+     *              + (placement.latLon.latitude  - region.localOrigin.latitude)
+     *
+     * Pure computation — kept public and separate from the projection
+     * step so tests can exercise it without a live GraphicsView. Returns
+     * std::nullopt when the linked terminal / placement / matching
+     * RegionCenterPoint isn't reachable.
+     */
+    std::optional<QPointF> computeGlobalLatLon() const;
 
     /**
      * @brief Serializes the GlobalTerminalItem to a
@@ -105,6 +143,9 @@ signals:
                                TerminalItem *newTerminal);
 
 protected:
+    /// Scene-registration hook: delegate to the linked terminal's domain id.
+    QString domainKey() const override { return getTerminalId(); }
+
     /**
      * @brief Returns the bounding rectangle of this item
      * @return The bounding rectangle

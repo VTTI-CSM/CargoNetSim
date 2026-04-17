@@ -1,6 +1,7 @@
 #include "MapPoint.h"
+#include "Backend/Commons/LogCategories.h"
 #include "GUI/Controllers/UtilityFunctions.h"
-#include "GUI/Controllers/ViewController.h"
+#include "GUI/Controllers/TerminalController.h"
 #include "GUI/MainWindow.h"
 #include "TerminalItem.h"
 
@@ -34,6 +35,15 @@ MapPoint::MapPoint(
     , m_color(Qt::black)
     , m_properties(properties)
 {
+    qCInfo(lcGuiScene)
+        << "MapPoint::MapPoint:"
+        << "id=" << m_id
+        << "networkID=" << referencedNetworkID
+        << "region=" << region
+        << "shape=" << shape
+        << "pos=" << sceneCoordinates
+        << "hasTerminal=" << (terminal != nullptr);
+
     // Override properties if they were given differently
     // or initialize them if they are missing
     this->m_properties["x"] = m_sceneCoordinate.x();
@@ -56,6 +66,12 @@ MapPoint::MapPoint(
 
 void MapPoint::setLinkedTerminal(TerminalItem *newTerminal)
 {
+    qCDebug(lcGuiScene)
+        << "MapPoint::setLinkedTerminal:"
+        << "id=" << m_id
+        << "old=" << (m_terminal ? "valid" : "null")
+        << "new=" << (newTerminal ? "valid" : "null");
+
     TerminalItem *oldTerminal = m_terminal;
     m_terminal                  = newTerminal;
 
@@ -80,6 +96,10 @@ void MapPoint::setColor(const QColor &newColor)
 {
     if (m_color != newColor)
     {
+        qCDebug(lcGuiScene)
+            << "MapPoint::setColor:"
+            << "id=" << m_id
+            << "color=" << newColor.name();
         m_color = newColor;
         emit colorChanged(m_color);
         update();
@@ -89,6 +109,11 @@ void MapPoint::setColor(const QColor &newColor)
 void MapPoint::updateProperties(
     const QMap<QString, QVariant> &newProperties)
 {
+    qCDebug(lcGuiScene)
+        << "MapPoint::updateProperties:"
+        << "id=" << m_id
+        << "count=" << newProperties.size();
+
     for (auto it = newProperties.constBegin();
          it != newProperties.constEnd(); ++it)
     {
@@ -99,6 +124,10 @@ void MapPoint::updateProperties(
 
 void MapPoint::setSceneCoordinate(const QPointF &newPos)
 {
+    qCDebug(lcGuiScene)
+        << "MapPoint::setSceneCoordinate:"
+        << "id=" << m_id
+        << "pos=" << newPos;
     m_sceneCoordinate = newPos;
     setPos(newPos);
     emit positionChanged(newPos);
@@ -127,6 +156,12 @@ void MapPoint::paint(QPainter *painter,
                      const QStyleOptionGraphicsItem *option,
                      QWidget                        *widget)
 {
+    qCDebug(lcGuiScene)
+        << "MapPoint::paint:"
+        << "id=" << m_id
+        << "shape=" << m_shape
+        << "hasTerminal=" << (m_terminal != nullptr);
+
     if (m_terminal)
     {
         // If linked to a m_terminal, draw m_terminal icon at
@@ -183,6 +218,12 @@ void MapPoint::paint(QPainter *painter,
 void MapPoint::mousePressEvent(
     QGraphicsSceneMouseEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "MapPoint::mousePressEvent:"
+        << "id=" << m_id
+        << "button=" << event->button()
+        << "scenePos=" << event->scenePos();
+
     if (event->button() == Qt::RightButton)
     {
         // Forward to context menu event handler
@@ -203,6 +244,9 @@ void MapPoint::mousePressEvent(
 void MapPoint::contextMenuEvent(
     QGraphicsSceneContextMenuEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "MapPoint::contextMenuEvent:"
+        << "id=" << m_id;
     showContextMenu(event);
     event->accept();
 }
@@ -210,82 +254,99 @@ void MapPoint::contextMenuEvent(
 void MapPoint::showContextMenu(
     QGraphicsSceneContextMenuEvent *event)
 {
+    qCDebug(lcGuiScene)
+        << "MapPoint::showContextMenu:"
+        << "id=" << m_id
+        << "hasTerminal=" << (m_terminal != nullptr);
+
     QMenu menu;
 
-    // Create sub-actions for terminal creation
+    // Plan 8: Origin/Destination are no longer terminal kinds — origin
+    // role is set on any physical terminal via PropertiesPanel's
+    // "Origin Configuration" group. The right-click menu becomes
+    // navigational: "Configure as Origin…" jumps PropertiesPanel to
+    // the linked terminal so the user can fill in the count + dest.
+
     QMenu *createTerminalMenu =
         menu.addMenu("Create Terminal at Node");
-
     QAction *originAction =
-        menu.addAction("Mark as Origin");
+        createTerminalMenu->addAction("Origin");
     QAction *destinationAction =
-        menu.addAction("Mark as Destination");
-
+        createTerminalMenu->addAction("Destination");
+    createTerminalMenu->addSeparator();
     QAction *seaTerminalAction =
         createTerminalMenu->addAction("Sea Terminal");
     QAction *intermodalTerminalAction =
-        createTerminalMenu->addAction(
-            "Intermodal Terminal");
+        createTerminalMenu->addAction("Intermodal Terminal");
     QAction *trainDepotAction =
         createTerminalMenu->addAction("Train Depot");
     QAction *parkingAction =
         createTerminalMenu->addAction("Parking");
+    QAction *facilityAction =
+        createTerminalMenu->addAction("Facility");
 
-    QAction *unlinkAction =
-        menu.addAction("Unlink Terminal");
+    QAction *configureOriginAction =
+        menu.addAction("Configure as Origin…");
+    configureOriginAction->setEnabled(m_terminal != nullptr);
+
+    QAction *unlinkAction = menu.addAction("Unlink Terminal");
     unlinkAction->setEnabled(m_terminal != nullptr);
 
     QAction *selectedAction = menu.exec(event->screenPos());
 
+    using Role = Backend::Scenario::TerminalPlacement::TerminalRole;
+
     if (selectedAction == originAction)
-    {
-        createTerminalAtPosition("Origin");
-    }
+        createTerminalAtPosition("Facility", Role::Origin);
     else if (selectedAction == destinationAction)
-    {
-        createTerminalAtPosition("Destination");
-    }
+        createTerminalAtPosition("Facility", Role::Destination);
     else if (selectedAction == seaTerminalAction)
-    {
         createTerminalAtPosition("Sea Port Terminal");
-    }
     else if (selectedAction == intermodalTerminalAction)
-    {
-        createTerminalAtPosition(
-            "Intermodal Land Terminal");
-    }
+        createTerminalAtPosition("Intermodal Land Terminal");
     else if (selectedAction == trainDepotAction)
-    {
         createTerminalAtPosition("Train Stop/Depot");
-    }
     else if (selectedAction == parkingAction)
-    {
         createTerminalAtPosition("Truck Parking");
+    else if (selectedAction == facilityAction)
+        createTerminalAtPosition("Facility");
+    else if (selectedAction == configureOriginAction && m_terminal)
+    {
+        if (auto *mw = qobject_cast<MainWindow *>(scene()->parent()))
+        {
+            UtilitiesFunctions::updatePropertiesPanel(mw, m_terminal);
+        }
     }
     else if (selectedAction == unlinkAction)
-    {
         setLinkedTerminal(nullptr);
-    }
 }
 
 void MapPoint::createTerminalAtPosition(
-    const QString &terminalType)
+    const QString &terminalType,
+    Backend::Scenario::TerminalPlacement::TerminalRole role)
 {
+    qCInfo(lcGuiScene)
+        << "MapPoint::createTerminalAtPosition:"
+        << "id=" << m_id
+        << "terminalType=" << terminalType
+        << "role=" << Backend::Scenario::roleToString(role);
+
     MainWindow *mainWindow =
         qobject_cast<MainWindow *>(scene()->parent());
 
     if (!mainWindow)
     {
+        qCWarning(lcGuiScene)
+            << "MapPoint::createTerminalAtPosition:"
+            << "no MainWindow";
         return;
     }
 
-    // Create terminal using ViewController
     TerminalItem *newTerminal =
-        ViewController::createTerminalAtPoint(
-            mainWindow,
+        mainWindow->terminalCtrl()->createTerminalAtPoint(
             m_properties.value("region", "Default Region")
                 .toString(),
-            terminalType, pos());
+            terminalType, pos(), role);
 
     // Link the newly created terminal to this map point
     if (newTerminal)
@@ -297,6 +358,10 @@ void MapPoint::createTerminalAtPosition(
 
 QMap<QString, QVariant> MapPoint::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "MapPoint::toDict:"
+        << "id=" << m_id;
+
     QMap<QString, QVariant> data;
 
     data["referenced_network_ID"] =
@@ -323,6 +388,11 @@ MapPoint *MapPoint::fromDict(
     const QMap<QString, QVariant>   &data,
     const QMap<int, TerminalItem *> &terminalsById)
 {
+    qCInfo(lcGuiScene)
+        << "MapPoint::fromDict:"
+        << "networkID=" << data.value("referenced_network_ID").toString()
+        << "shape=" << data.value("shape").toString();
+
     // Find linked terminal by ID if terminals dictionary is
     // provided
     TerminalItem *terminal = nullptr;
