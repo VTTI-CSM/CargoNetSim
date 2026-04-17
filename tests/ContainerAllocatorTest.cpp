@@ -1,4 +1,5 @@
 // tests/ContainerAllocatorTest.cpp
+#include <QCoreApplication>
 #include <QTest>
 #include <QVariantList>
 #include <QVariantMap>
@@ -75,6 +76,19 @@ class ContainerAllocatorTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase()
+    {
+        // Tier 1: construct the controller explicitly for this test
+        // binary. Parent to QCoreApplication::instance() so Qt cleans
+        // it up at the end of the binary's life. Guarded so repeated
+        // initTestCase calls in the same binary are safe.
+        if (!CargoNetSim::CargoNetSimController::instance())
+        {
+            new CargoNetSim::CargoNetSimController(
+                /*logger=*/nullptr, QCoreApplication::instance());
+        }
+    }
+
     void test_allocate_single_origin_single_destination()
     {
         ScenarioDocument doc;

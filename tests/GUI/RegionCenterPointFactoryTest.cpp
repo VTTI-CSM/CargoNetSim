@@ -1,5 +1,7 @@
+#include <QCoreApplication>
 #include <QTest>
 
+#include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Scenario/RegionSpec.h"
 #include "GUI/Items/RegionCenterPoint.h"
 #include "GUI/Scenario/RegionCenterPointFactory.h"
@@ -12,6 +14,19 @@ class RegionCenterPointFactoryTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase()
+    {
+        // Tier 1: construct the controller explicitly for this test
+        // binary. Parent to QCoreApplication::instance() so Qt cleans
+        // it up at the end of the binary's life. Guarded so repeated
+        // initTestCase calls in the same binary are safe.
+        if (!CargoNetSim::CargoNetSimController::instance())
+        {
+            new CargoNetSim::CargoNetSimController(
+                /*logger=*/nullptr, QCoreApplication::instance());
+        }
+    }
+
     void test_returns_null_on_null_region()
     {
         GraphicsScene scene;
