@@ -14,9 +14,11 @@
  */
 #pragma once
 #include "Backend/Models/Path.h"
+#include "Backend/Scenario/PathMetrics.h"
 #include <QBrush>
 #include <QCheckBox>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QHeaderView>
 #include <QLabel>
 #include <QMap>
@@ -249,7 +251,17 @@ public:
      * (-1.0). The table view is automatically refreshed
      * after adding the paths.
      */
-    void addPaths(const QList<Backend::Path *> &paths);
+    /// Plan 8.2: additive signature extension. Existing callers that
+    /// pass only the path list continue to work (maps default to empty).
+    /// When non-empty, predicted/actual metric columns populate per path id.
+    void addPaths(
+        const QList<Backend::Path *>                     &paths,
+        const QHash<int, Backend::Scenario::PathMetrics> &predicted = {},
+        const QHash<int, Backend::Scenario::PathMetrics> &actual    = {});
+
+    /// Post-run update. Calls refreshRow for each pathId present.
+    void setActualMetrics(
+        const QHash<int, Backend::Scenario::PathMetrics> &actual);
 
     /**
      * @brief Gets the size of the paths in the table
@@ -624,6 +636,14 @@ private:
     QPushButton *m_unselectAllButton;
 
     PathScrollEventFilter *m_scrollEventFilter;
+
+    /// Plan 8.2: per-path predicted/actual metrics and row mapping.
+    QHash<int, Backend::Scenario::PathMetrics> m_predicted;
+    QHash<int, Backend::Scenario::PathMetrics> m_actual;
+    QHash<int /*pathId*/, int /*row*/>         m_rowByPathId;
+
+    /// Plan 8.2: rewrite columns 5..15 for a given pathId row.
+    void refreshRow(int pathId);
 };
 
 } // namespace GUI

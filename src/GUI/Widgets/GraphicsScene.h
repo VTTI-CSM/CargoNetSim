@@ -37,6 +37,15 @@ public:
     void addItemWithId(GraphicsObjectBase *item,
                        const QString      &id);
 
+    /**
+     * @brief Remove every tracked item: clears the `itemsByType` registry
+     *        then delegates to QGraphicsScene::clear() which deletes the
+     *        items themselves. Use this (not QGraphicsScene::clear()) on
+     *        teardown, otherwise the type-indexed registry retains
+     *        dangling pointers. Consumed by GUI::Scenario::SceneRepopulator.
+     */
+    void clearAll();
+
     // Get item by type and ID
     template <typename T> T *getItemById(const QString &id)
     {
@@ -168,6 +177,11 @@ public:
     {
         m_globalPositionMode = isInGlobalPositionMode;
     }
+    bool isInPickDestinationMode() const
+    {
+        return m_pickDestinationMode;
+    }
+    void setIsInPickDestinationMode(bool enabled);
     void setConnectedFirstItem(QVariant connectedFirstItem)
     {
         m_connectFirstItem = connectedFirstItem;
@@ -177,6 +191,16 @@ public:
     {
         m_measurementTool = measurementTool;
     }
+
+signals:
+    /**
+     * @brief Emitted when the user picks a destination
+     *        terminal in pick-destination mode
+     * @param terminalId   The terminal's unique ID
+     * @param terminalName The terminal's display name
+     */
+    void destinationPicked(const QString &terminalId,
+                           const QString &terminalName);
 
 protected:
     /**
@@ -208,6 +232,9 @@ private:
     bool m_globalPositionMode; ///< Flag indicating if
                                ///< setting global position
                                ///< mode is active
+    bool m_pickDestinationMode; ///< Flag indicating if
+                                ///< pick-destination mode is
+                                ///< active
 
     // Objects used for connection and measurement modes
     QVariant

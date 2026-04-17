@@ -1,5 +1,7 @@
 #include "SetCoordinatesDialog.h"
 
+#include "Backend/Commons/LogCategories.h"
+
 namespace CargoNetSim
 {
 namespace GUI
@@ -10,6 +12,9 @@ SetCoordinatesDialog::SetCoordinatesDialog(
     QWidget *parent)
     : QDialog(parent)
 {
+    qCDebug(lcGuiUtil)
+        << "SetCoordinatesDialog: constructing for"
+        << terminalName << "at" << geoPoint;
     // Set window properties
     setWindowTitle(
         tr("Set Global Position for %1").arg(terminalName));
@@ -85,11 +90,18 @@ SetCoordinatesDialog::SetCoordinatesDialog(
 
 QPointF SetCoordinatesDialog::getCoordinates() const
 {
-    return QPointF(lonInput->value(), latInput->value());
+    const QPointF coords(lonInput->value(), latInput->value());
+    qCDebug(lcGuiUtil)
+        << "SetCoordinatesDialog::getCoordinates ->"
+        << coords;
+    return coords;
 }
 
 void SetCoordinatesDialog::onCoordinatesChanged()
 {
+    qCDebug(lcGuiUtil)
+        << "SetCoordinatesDialog::onCoordinatesChanged -> lat"
+        << latInput->value() << "lon" << lonInput->value();
     // Emit signal with new coordinate values
     emit coordinatesChanged(
         QPointF(lonInput->value(), latInput->value()));

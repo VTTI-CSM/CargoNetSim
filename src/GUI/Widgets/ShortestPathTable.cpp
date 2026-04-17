@@ -12,7 +12,6 @@
  */
 
 #include "ShortestPathTable.h"
-#include "GUI/Controllers/ViewController.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Utils/IconCreator.h" // For icon creation utilities
 #include "GUI/Utils/PathReportExporter.h"
@@ -26,6 +25,7 @@
 #include <QVariant>
 #include <QtWidgets/qscrollarea.h>
 #include <stdexcept>
+#include "Backend/Commons/LogCategories.h"
 
 // Register meta-type for storing widgets in QVariant
 Q_DECLARE_METATYPE(QWidget *)
@@ -169,8 +169,7 @@ ShortestPathsTable::ShortestPathsTable(QWidget *parent)
 
         connect(this, &ShortestPathsTable::showPathSignal,
                 [this, mainWindow](int pathId) {
-                    ViewController::flashPathLines(
-                        mainWindow, pathId);
+                    mainWindow->flashPathLines(pathId);
                 });
     }
 }
@@ -242,17 +241,33 @@ void ShortestPathsTable::createTableWidget()
     // Create table widget
     m_table = new QTableWidget(this);
 
-    // Configure table structure
-    m_table->setColumnCount(5);
+    // Configure table structure.
+    //
+    // Plan 8.2: 16 columns total — the original 5 plus 6 predicted
+    // per-vehicle metrics (cols 5..10) and 5 actual per-vehicle
+    // metrics (cols 11..15). Actual lacks a dedicated fuel column
+    // because SegmentCostMath does not surface a fuel key during
+    // post-simulation extraction; its energy value already reflects
+    // the actual fuel burn.
+    m_table->setColumnCount(23);
     m_table->setHorizontalHeaderLabels({
-        tr("Select"),  // Column 0: Checkbox for selection
-        tr("Path ID"), // Column 1: Path identifier
-        tr("Terminal Path"),  // Column 2: Visual
-                              // representation of the path
-        tr("Predicted Cost"), // Column 3: Analysis-based
-                              // cost prediction
-        tr("Actual Cost")     // Column 4: Simulation-based
-                              // actual cost
+        tr("Select"),                tr("Path ID"),
+        tr("Terminal Path"),         tr("Predicted Cost"),
+        tr("Actual Cost"),
+        // Predicted per-vehicle (cols 5-10)
+        tr("P. Distance (km)"),      tr("P. Time (h)"),
+        tr("P. Fuel/Veh"),           tr("P. Energy/Veh (kWh)"),
+        tr("P. CO₂/Veh (t)"), tr("P. Risk/Veh"),
+        // Actual per-vehicle (cols 11-15 — no fuel key from
+        // SegmentCostMath)
+        tr("A. Distance (km)"),      tr("A. Time (h)"),
+        tr("A. Energy/Veh (kWh)"),   tr("A. CO₂/Veh (t)"),
+        tr("A. Risk/Veh"),
+        // Allocator counts and per-container metrics (cols 16-22)
+        tr("Containers"),            tr("Vehicles"),
+        tr("P. Fuel/Cont"),          tr("P. Energy/Cont (kWh)"),
+        tr("P. CO₂/Cont (t)"),
+        tr("A. Energy/Cont (kWh)"),  tr("A. CO₂/Cont (t)"),
     });
 
     // Configure selection behavior
@@ -285,6 +300,11 @@ void ShortestPathsTable::createTableWidget()
     header->setSectionResizeMode(
         4, QHeaderView::ResizeToContents); // Auto-size for
                                            // costs
+
+    // Plan 8.2 + Plan 10: auto-size the metric columns (5..22).
+    for (int c = 5; c < 23; ++c)
+        header->setSectionResizeMode(
+            c, QHeaderView::ResizeToContents);
 
     // Set custom delegate for terminal path visualization
     m_table->setItemDelegate(
@@ -378,8 +398,22 @@ void ShortestPathsTable::createSelectionPanel()
  * object and adding it to the internal data structure.
  */
 void ShortestPathsTable::addPaths(
-    const QList<Backend::Path *> &paths)
+    const QList<Backend::Path *>                     &paths,
+    const QHash<int, Backend::Scenario::PathMetrics> &predicted,
+    const QHash<int, Backend::Scenario::PathMetrics> &actual)
 {
+    qCDebug(lcGuiPathTable) << "ShortestPathsTable::addPaths:"
+                            << "pathCount=" << paths.size();
+    // Plan 8.2: merge any supplied per-path metrics. Existing
+    // callers that pass only the path list leave these maps empty,
+    // so legacy behavior is preserved byte-for-byte.
+    for (auto it = predicted.constBegin();
+         it != predicted.constEnd(); ++it)
+        m_predicted.insert(it.key(), it.value());
+    for (auto it = actual.constBegin();
+         it != actual.constEnd(); ++it)
+        m_actual.insert(it.key(), it.value());
+
     // Sort the paths by total path cost
     QVector<Backend::Path *> tempPaths(paths.begin(),
                                        paths.end());
@@ -395,7 +429,7 @@ void ShortestPathsTable::addPaths(
         if (!path)
         {
             // Skip null paths
-            qWarning() << "Skipping null path in addPaths";
+            qCWarning(lcGuiPathTable) << "Skipping null path in addPaths";
             continue;
         }
 
@@ -418,7 +452,7 @@ void ShortestPathsTable::addPaths(
         catch (const std::exception &ex)
         {
             // Handle any exceptions during path processing
-            qWarning() << "Error adding path:" << ex.what();
+            qCWarning(lcGuiPathTable) << "Error adding path:" << ex.what();
             delete path; // Clean up on error
         }
     }
@@ -449,10 +483,11 @@ void ShortestPathsTable::updatePredictionCosts(
     int pathId, double totalCost, double edgeCost,
     double terminalCost)
 {
+    qCDebug(lcGuiPathTable) << "ShortestPathTable: updating cost field:" << "pathId=" << pathId;
     // Check if the path exists in our data
     if (!m_pathData.contains(pathId))
     {
-        qWarning()
+        qCWarning(lcGuiPathTable)
             << "Path ID" << pathId
             << "not found for prediction cost update";
         return;
@@ -464,8 +499,8 @@ void ShortestPathsTable::updatePredictionCosts(
     // Validate path pointer
     if (!pathData->path)
     {
-        qWarning() << "Path object is null for path ID"
-                   << pathId;
+        qCWarning(lcGuiPathTable) << "Path object is null for path ID"
+                                  << pathId;
         return;
     }
 
@@ -510,7 +545,7 @@ void ShortestPathsTable::updatePredictionCosts(
     }
     catch (const std::exception &ex)
     {
-        qWarning()
+        qCWarning(lcGuiPathTable)
             << "Error updating prediction costs for path"
             << pathId << ":" << ex.what();
     }
@@ -535,7 +570,7 @@ void ShortestPathsTable::updateSimulationCosts(
     // Check if the path exists in our data
     if (!m_pathData.contains(pathId))
     {
-        qWarning()
+        qCWarning(lcGuiPathTable)
             << "Path ID" << pathId
             << "not found for simulation cost update";
         return;
@@ -601,7 +636,7 @@ ShortestPathsTable::createPathRow(int             pathId,
     // Check if path pointer is valid
     if (!pathData->path)
     {
-        qWarning()
+        qCWarning(lcGuiPathTable)
             << "Cannot create path row: path is null for ID"
             << pathId;
         return new QWidget(); // Return empty widget on
@@ -637,7 +672,7 @@ ShortestPathsTable::createPathRow(int             pathId,
     // Validate terminal and segment data
     if (terminals.isEmpty())
     {
-        qWarning() << "No terminals for path ID" << pathId;
+        qCWarning(lcGuiPathTable) << "No terminals for path ID" << pathId;
         contentLayout->addWidget(
             new QLabel(tr("No terminal data")));
         contentLayout->addStretch();
@@ -663,7 +698,7 @@ ShortestPathsTable::createPathRow(int             pathId,
     {
         if (!terminals[i])
         {
-            qWarning()
+            qCWarning(lcGuiPathTable)
                 << "Null terminal in path ID" << pathId;
             continue; // Skip null terminals
         }
@@ -801,12 +836,16 @@ QPixmap ShortestPathsTable::createArrowPixmap(
  */
 void ShortestPathsTable::refreshTable()
 {
+    qCDebug(lcGuiPathTable) << "ShortestPathsTable::refreshTable:"
+                            << "pathCount=" << m_pathData.size();
     // Set flag to prevent recursive UI updates during
     // refresh
     m_updatingUI = true;
 
     // Clear the table while preserving header
     m_table->setRowCount(0);
+    // Plan 8.2: row indices are rebuilt below; reset the map.
+    m_rowByPathId.clear();
 
     // Add rows for each visible path
     for (auto it = m_pathData.begin();
@@ -824,6 +863,8 @@ void ShortestPathsTable::refreshTable()
         // Add a new row at the end of the table
         int row = m_table->rowCount();
         m_table->insertRow(row);
+        // Plan 8.2: remember row index for refreshRow updates.
+        m_rowByPathId.insert(pathId, row);
 
         // Create checkbox widget for the select column
         auto checkboxWidget = new QWidget();
@@ -936,6 +977,9 @@ void ShortestPathsTable::refreshTable()
         auto actualItem =
             new QTableWidgetItem(actualCostText);
         m_table->setItem(row, 4, actualItem);
+
+        // Plan 8.2: populate per-vehicle metric columns.
+        refreshRow(pathId);
     }
 
     // Clear UI update flag
@@ -1091,6 +1135,8 @@ void ShortestPathsTable::onSelectionChanged()
 
     // Get the currently selected path ID
     int pathId = getSelectedPathId();
+    qCDebug(lcGuiPathTable) << "ShortestPathsTable::onSelectionChanged:"
+                            << "pathId=" << pathId;
 
     // Enable export button if either a path is selected or
     // any path is checked
@@ -1128,6 +1174,7 @@ void ShortestPathsTable::onItemCheckedChanged(int row,
  */
 void ShortestPathsTable::onCompareButtonClicked()
 {
+    qCDebug(lcGuiPathTable) << "ShortestPathsTable::onCompareButtonClicked: begin";
     // Get IDs of all checked paths
     QVector<int> checkedPaths = getCheckedPathIds();
 
@@ -1155,6 +1202,7 @@ void ShortestPathsTable::onCompareButtonClicked()
  */
 void ShortestPathsTable::onExportButtonClicked()
 {
+    qCInfo(lcGuiPathTable) << "ShortestPathsTable::onExportButtonClicked: begin";
     // Get IDs of all checked paths
     QVector<int> checkedPaths = getCheckedPathIds();
 
@@ -1189,6 +1237,7 @@ void ShortestPathsTable::onExportButtonClicked()
  */
 void ShortestPathsTable::onExportAllButtonClicked()
 {
+    qCInfo(lcGuiPathTable) << "ShortestPathsTable::onExportAllButtonClicked: begin";
     // Export all paths to PDF (empty vector means all
     // paths)
     exportPathsToPdf(QVector<int>());
@@ -1299,6 +1348,8 @@ void ShortestPathsTable::onUnselectAllButtonClicked()
 void ShortestPathsTable::exportPathsToPdf(
     const QVector<int> &pathIds)
 {
+    qCInfo(lcGuiPathTable) << "ShortestPathsTable::exportPathsToPdf:"
+                           << "pathIds=" << pathIds.size();
     // Get path data for the specified IDs
     QList<const PathData *> pathsToExport;
 
@@ -1377,6 +1428,68 @@ void ShortestPathsTable::exportPathsToPdf(
         exporter.exportPathsWithDialog(pathsToExport, this,
                                        defaultFilename);
     }
+}
+
+// ---------------------------------------------------------------
+// Plan 8.2: per-path predicted/actual metric column support.
+// ---------------------------------------------------------------
+
+void ShortestPathsTable::setActualMetrics(
+    const QHash<int, Backend::Scenario::PathMetrics> &actual)
+{
+    for (auto it = actual.constBegin();
+         it != actual.constEnd(); ++it)
+    {
+        m_actual.insert(it.key(), it.value());
+        refreshRow(it.key());
+    }
+}
+
+void ShortestPathsTable::refreshRow(int pathId)
+{
+    const int row = m_rowByPathId.value(pathId, -1);
+    if (row < 0)
+        return;
+
+    auto          fmt  = [](double v) {
+        return QString::number(v, 'f', 2);
+    };
+    const QString dash = QStringLiteral("—");
+    auto          cell = [&](bool valid, double v) {
+        return new QTableWidgetItem(valid ? fmt(v) : dash);
+    };
+
+    const auto &p = m_predicted.value(pathId);
+    const auto &a = m_actual.value(pathId);
+
+    // Predicted per-vehicle (cols 5..10)
+    m_table->setItem(row, 5, cell(p.valid, p.distanceKm));
+    m_table->setItem(row, 6, cell(p.valid, p.travelTimeHours));
+    m_table->setItem(row, 7, cell(p.valid, p.fuelPerVehicle));
+    m_table->setItem(row, 8, cell(p.valid, p.energyPerVehicle));
+    m_table->setItem(row, 9, cell(p.valid, p.carbonPerVehicle));
+    m_table->setItem(row, 10, cell(p.valid, p.riskPerVehicle));
+
+    // Actual per-vehicle (cols 11..15; no fuel column — see
+    // createTableWidget note).
+    m_table->setItem(row, 11, cell(a.valid, a.distanceKm));
+    m_table->setItem(row, 12, cell(a.valid, a.travelTimeHours));
+    m_table->setItem(row, 13, cell(a.valid, a.energyPerVehicle));
+    m_table->setItem(row, 14, cell(a.valid, a.carbonPerVehicle));
+    m_table->setItem(row, 15, cell(a.valid, a.riskPerVehicle));
+
+    // Allocator counts and per-container metrics (cols 16..22)
+    m_table->setItem(row, 16, new QTableWidgetItem(
+        p.valid ? QString::number(p.containerCount) : dash));
+    m_table->setItem(row, 17, new QTableWidgetItem(
+        p.valid ? QString::number(p.vehiclesNeeded) : dash));
+
+    m_table->setItem(row, 18, cell(p.valid, p.fuelPerContainer));
+    m_table->setItem(row, 19, cell(p.valid, p.energyPerContainer));
+    m_table->setItem(row, 20, cell(p.valid, p.carbonPerContainer));
+
+    m_table->setItem(row, 21, cell(a.valid, a.energyPerContainer));
+    m_table->setItem(row, 22, cell(a.valid, a.carbonPerContainer));
 }
 
 } // namespace GUI

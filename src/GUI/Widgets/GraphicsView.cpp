@@ -12,11 +12,12 @@
 #include <QWindow>
 #include <cmath>
 
-#include "../Controllers/ViewController.h"
+#include "../Controllers/TerminalController.h"
 #include "../Items/DistanceMeasurementTool.h"
 #include "../Items/TerminalItem.h"
 #include "../MainWindow.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Commons/LogCategories.h"
 #include "GUI/Widgets/GraphicsScene.h"
 
 namespace CargoNetSim
@@ -178,13 +179,13 @@ GraphicsView::sceneToWGS84(const QPointF &scenePos) const
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Exception in sceneToWGS84:"
+        qCWarning(lcGuiScene) << "Exception in sceneToWGS84:"
                    << e.what();
         return QPointF(0.0, 0.0);
     }
     catch (...)
     {
-        qWarning() << "Unknown exception in sceneToWGS84";
+        qCWarning(lcGuiScene) << "Unknown exception in sceneToWGS84";
         return QPointF(0.0, 0.0);
     }
 }
@@ -240,13 +241,13 @@ QPointF GraphicsView::wgs84ToScene(QPointF point) const
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Exception in wgs84ToScene:"
+        qCWarning(lcGuiScene) << "Exception in wgs84ToScene:"
                    << e.what();
         return QPointF(0, 0);
     }
     catch (...)
     {
-        qWarning() << "Unknown exception in wgs84ToScene";
+        qCWarning(lcGuiScene) << "Unknown exception in wgs84ToScene";
         return QPointF(0, 0);
     }
 }
@@ -254,6 +255,7 @@ QPointF GraphicsView::wgs84ToScene(QPointF point) const
 QPointF GraphicsView::convertCoordinates(
     const QPointF &point, const QString &direction) const
 {
+    qCDebug(lcGuiScene) << "GraphicsView::convertCoordinates: direction=" << direction;
     try
     {
         // Safety check for input values
@@ -343,13 +345,13 @@ QPointF GraphicsView::convertCoordinates(
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Exception in convertCoordinates:"
+        qCWarning(lcGuiScene) << "Exception in convertCoordinates:"
                    << e.what();
         return QPointF(0, 0);
     }
     catch (...)
     {
-        qWarning()
+        qCWarning(lcGuiScene)
             << "Unknown exception in convertCoordinates";
         return QPointF(0, 0);
     }
@@ -364,6 +366,7 @@ void GraphicsView::drawBackground(QPainter     *painter,
     // Early exit if grid is disabled
     if (!_gridEnabled)
     {
+        qCWarning(lcGuiScene) << "drawBackground: grid disabled, skipping draw";
         return;
     }
 
@@ -385,6 +388,7 @@ void GraphicsView::drawBackground(QPainter     *painter,
             || visibleRect.height() <= 0
             || visibleRect.height() > 1e15)
         {
+            qCWarning(lcGuiScene) << "drawBackground: invalid viewport dimensions, skipping draw";
             painter->restore();
             return;
         }
@@ -702,13 +706,13 @@ void GraphicsView::drawBackground(QPainter     *painter,
     catch (const std::exception &e)
     {
         // Log the exception but don't crash
-        qWarning() << "Exception in drawBackground:"
+        qCWarning(lcGuiScene) << "Exception in drawBackground:"
                    << e.what();
     }
     catch (...)
     {
         // Catch any other unexpected exceptions
-        qWarning() << "Unknown exception in drawBackground";
+        qCWarning(lcGuiScene) << "Unknown exception in drawBackground";
     }
 
     // Always restore the painter state - must be executed
@@ -767,13 +771,13 @@ void GraphicsView::wheelEvent(QWheelEvent *event)
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Exception in wheelEvent:"
+        qCWarning(lcGuiScene) << "Exception in wheelEvent:"
                    << e.what();
         event->accept();
     }
     catch (...)
     {
-        qWarning() << "Unknown exception in wheelEvent";
+        qCWarning(lcGuiScene) << "Unknown exception in wheelEvent";
         event->accept();
     }
 }
@@ -822,7 +826,7 @@ void GraphicsView::mousePressEvent(QMouseEvent *event)
             {
                 scene->addItemWithId(
                     m_measurementTool,
-                    m_measurementTool->getID());
+                    m_measurementTool->sceneRegistryKey());
             }
             m_measurementTool->setStartPoint(scenePos);
             m_measurementTool->setEndPoint(
@@ -960,7 +964,7 @@ void GraphicsView::mouseMoveEvent(QMouseEvent *event)
         }
         catch (...)
         {
-            qWarning() << "Exception handling measurement "
+            qCWarning(lcGuiScene) << "Exception handling measurement "
                           "tool update";
         }
 
@@ -968,13 +972,13 @@ void GraphicsView::mouseMoveEvent(QMouseEvent *event)
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Exception in mouseMoveEvent:"
+        qCWarning(lcGuiScene) << "Exception in mouseMoveEvent:"
                    << e.what();
         QGraphicsView::mouseMoveEvent(event);
     }
     catch (...)
     {
-        qWarning() << "Unknown exception in mouseMoveEvent";
+        qCWarning(lcGuiScene) << "Unknown exception in mouseMoveEvent";
         QGraphicsView::mouseMoveEvent(event);
     }
 }
@@ -1181,51 +1185,11 @@ void GraphicsView::dropEvent(QDropEvent *event)
         QListWidgetItem *sourceItem = listWidget->item(row);
         QString          terminalType = sourceItem->text();
 
-        // Check for uniqueness constraints (Only one
-        // Origin/Destination terminal allowed)
-        if (terminalType == "Origin"
-            || terminalType == "Destination")
-        {
-            bool terminalExists = false;
-            if (scene())
-            {
-                for (QGraphicsItem *item : scene()->items())
-                {
-                    if (TerminalItem *terminal =
-                            dynamic_cast<TerminalItem *>(
-                                item))
-                    {
-                        if (terminal->getTerminalType()
-                            == terminalType)
-                        {
-                            terminalExists = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (terminalExists)
-            {
-                // Show message in status bar
-                if (QWidget *mainWindow = window())
-                {
-                    QStatusBar *statusBar =
-                        mainWindow
-                            ->findChild<QStatusBar *>();
-                    if (statusBar)
-                    {
-                        statusBar->showMessage(
-                            QString("Only one %1 terminal "
-                                    "allowed.")
-                                .arg(terminalType),
-                            2000);
-                    }
-                }
-                event->ignore();
-                return;
-            }
-        }
+        // Plan 8: the Origin/Destination uniqueness gate is gone — any
+        // physical terminal kind can be marked as an origin via the
+        // PropertiesPanel "Origin Configuration" group, and a terminal
+        // becomes a destination by being referenced as one. Multiple
+        // origins per scenario are valid.
 
         // Create terminal using ViewController
         QObject *sceneParent =
@@ -1239,11 +1203,11 @@ void GraphicsView::dropEvent(QDropEvent *event)
                         .getRegionDataController()
                         ->getCurrentRegion();
 
-            // Create terminal using ViewController
-            ViewController::createTerminalAtPoint(
-                qobject_cast<MainWindow *>(
-                    scene()->parent()),
-                currentRegion, terminalType, dropPos);
+            auto *mw = qobject_cast<MainWindow *>(
+                scene()->parent());
+            if (mw && mw->terminalCtrl())
+                mw->terminalCtrl()->createTerminalAtPoint(
+                    currentRegion, terminalType, dropPos);
 
             // Show confirmation in status bar
             if (QWidget *mainWindow = window())
@@ -1323,7 +1287,7 @@ void GraphicsView::updateScrollBarRanges()
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Exception in updateScrollBarRanges:"
+        qCWarning(lcGuiScene) << "Exception in updateScrollBarRanges:"
                    << e.what();
 
         // In case of exception, set a safe default range
@@ -1332,7 +1296,7 @@ void GraphicsView::updateScrollBarRanges()
     }
     catch (...)
     {
-        qWarning()
+        qCWarning(lcGuiScene)
             << "Unknown exception in updateScrollBarRanges";
 
         // In case of exception, set a safe default range
@@ -1361,7 +1325,7 @@ void GraphicsView::fitInView(
         if (!rect.isValid() || rect.width() <= 0
             || rect.height() <= 0)
         {
-            qWarning() << "Invalid rect in fitInView, "
+            qCWarning(lcGuiScene) << "Invalid rect in fitInView, "
                           "using default view";
             return;
         }
@@ -1378,7 +1342,7 @@ void GraphicsView::fitInView(
         if (currentScale <= 0
             || !std::isfinite(currentScale))
         {
-            qWarning() << "Invalid scale in fitInView";
+            qCWarning(lcGuiScene) << "Invalid scale in fitInView";
             _zoom = 0;
             return;
         }
@@ -1409,11 +1373,11 @@ void GraphicsView::fitInView(
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Exception in fitInView:" << e.what();
+        qCWarning(lcGuiScene) << "Exception in fitInView:" << e.what();
     }
     catch (...)
     {
-        qWarning() << "Unknown exception in fitInView";
+        qCWarning(lcGuiScene) << "Unknown exception in fitInView";
     }
 }
 

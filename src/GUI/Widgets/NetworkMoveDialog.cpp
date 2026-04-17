@@ -1,4 +1,5 @@
 #include "NetworkMoveDialog.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Controllers/RegionDataController.h"
 #include "GUI/MainWindow.h"
@@ -19,6 +20,8 @@ NetworkMoveDialog::NetworkMoveDialog(
     , mainWindow(mainWindow)
     , regionName(regionName)
 {
+    qCInfo(lcGuiNetwork) << "NetworkMoveDialog::NetworkMoveDialog: opening for region"
+                      << regionName << "projected:" << isProjectedCoords;
     setWindowTitle("Move Network");
     setMinimumWidth(450);
 
@@ -159,10 +162,15 @@ NetworkMoveDialog::NetworkMoveDialog(
     updateNetworkSelectionUI();
 }
 
-NetworkMoveDialog::~NetworkMoveDialog() {}
+NetworkMoveDialog::~NetworkMoveDialog()
+{
+    qCInfo(lcGuiNetwork) << "NetworkMoveDialog::~NetworkMoveDialog: closing";
+}
 
 void NetworkMoveDialog::populateNetworkLists()
 {
+    qCDebug(lcGuiNetwork) << "NetworkMoveDialog::populateNetworkLists: loading for region"
+                       << regionName;
     // Clear existing items
     trainNetworkCombo->clear();
     truckNetworkCombo->clear();
@@ -174,7 +182,11 @@ void NetworkMoveDialog::populateNetworkLists()
             ->getRegionData(regionName);
 
     if (!regionData)
+    {
+        qCWarning(lcGuiNetwork) << "NetworkMoveDialog::populateNetworkLists: null regionData for"
+                             << regionName;
         return;
+    }
 
     // Populate train networks
     QStringList trainNetworks =
@@ -230,6 +242,7 @@ void NetworkMoveDialog::populateNetworkLists()
 
 void NetworkMoveDialog::onTrainGroupToggled(bool checked)
 {
+    qCDebug(lcGuiNetwork) << "NetworkMoveDialog::onTrainGroupToggled:" << checked;
     if (checked)
     {
         // Uncheck truck group
@@ -270,6 +283,7 @@ void NetworkMoveDialog::onTrainGroupToggled(bool checked)
 
 void NetworkMoveDialog::onTruckGroupToggled(bool checked)
 {
+    qCDebug(lcGuiNetwork) << "NetworkMoveDialog::onTruckGroupToggled:" << checked;
     if (checked)
     {
         // Uncheck train group
@@ -310,6 +324,8 @@ void NetworkMoveDialog::onTruckGroupToggled(bool checked)
 
 void NetworkMoveDialog::updateNetworkSelectionUI()
 {
+    qCDebug(lcGuiNetwork) << "NetworkMoveDialog::updateNetworkSelectionUI: selected"
+                       << selectedNetworkName;
     // Update based on current selections
     if (trainGroupBox->isChecked()
         && trainNetworkCombo->currentIndex() >= 0)

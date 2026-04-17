@@ -7,13 +7,16 @@
 #include <QtGui/qevent.h>
 
 #include "../Controllers/UtilityFunctions.h"
-#include "../Controllers/ViewController.h"
+#include "../Controllers/SceneVisibilityController.h"
+#include "../Controllers/ConnectionController.h"
 #include "../Items/ConnectionLine.h"
 #include "../Items/DistanceMeasurementTool.h"
 #include "../Items/GlobalTerminalItem.h"
+#include "../Items/MapPoint.h"
 #include "../Items/TerminalItem.h"
 #include "../MainWindow.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Commons/LogCategories.h"
 #include "GUI/Controllers/BasicButtonController.h"
 #include "GUI/Widgets/GraphicsView.h"
 
@@ -29,14 +32,33 @@ GraphicsScene::GraphicsScene(QObject *parent)
     , m_unlinkTerminalMode(false)
     , m_measureMode(false)
     , m_globalPositionMode(false)
+    , m_pickDestinationMode(false)
     , m_connectFirstItem(QVariant())
     , m_measurementTool(nullptr)
 {
 }
 
+void GraphicsScene::setIsInPickDestinationMode(bool enabled)
+{
+    m_pickDestinationMode = enabled;
+    qCDebug(lcGuiScene)
+        << "GraphicsScene::setIsInPickDestinationMode:"
+        << enabled;
+    if (!views().isEmpty())
+    {
+        if (enabled)
+            views().first()->setCursor(Qt::CrossCursor);
+        else
+            views().first()->unsetCursor();
+    }
+}
+
 void GraphicsScene::addItemWithId(GraphicsObjectBase *item,
                                   const QString      &id)
 {
+    qCDebug(lcGuiScene) << "GraphicsScene::addItemWithId:"
+                        << "id=" << id
+                        << "type=" << typeid(*item).name();
     // First add the item to the scene using the base class
     // method
     QGraphicsScene::addItem(item);
@@ -58,6 +80,17 @@ void GraphicsScene::addItemWithId(GraphicsObjectBase *item,
     itemsByType[className][id] = item;
 }
 
+void GraphicsScene::clearAll()
+{
+    qCInfo(lcGuiScene) << "GraphicsScene::clearAll:"
+                       << "typeCount=" << itemsByType.size()
+                       << "sceneItemCount=" << items().size();
+    // Drop registry references FIRST so the subsequent delete in
+    // QGraphicsScene::clear() cannot leave us with dangling pointers.
+    itemsByType.clear();
+    QGraphicsScene::clear();
+}
+
 void GraphicsScene::mousePressEvent(
     QGraphicsSceneMouseEvent *event)
 {
@@ -65,6 +98,8 @@ void GraphicsScene::mousePressEvent(
     {
         if (!parent())
         {
+            qCWarning(lcGuiScene) << "GraphicsScene::mousePressEvent:"
+                                  << "no parent, ignoring";
             return;
         }
 
@@ -73,15 +108,17 @@ void GraphicsScene::mousePressEvent(
 
         if (!mainWindowObj)
         {
+            qCWarning(lcGuiScene) << "GraphicsScene::mousePressEvent:"
+                                  << "parent is not MainWindow";
             return;
-            qDebug() << "Could not extract "
-                        "MainWindow object from "
-                        "view parent";
         }
 
         // Handle global position setting mode
         if (m_globalPositionMode)
         {
+            qCDebug(lcGuiScene) << "GraphicsScene::mousePressEvent:"
+                                << "globalPositionMode at"
+                                << event->scenePos();
             QList<QGraphicsItem *> clickedItems =
                 items(event->scenePos());
             bool terminalFound = false;
@@ -97,6 +134,8 @@ void GraphicsScene::mousePressEvent(
                 {
                     if (views().isEmpty())
                     {
+                        qCWarning(lcGuiScene) << "GraphicsScene::mousePressEvent:"
+                                              << "no views in globalPositionMode";
                         return;
                     }
 
@@ -142,9 +181,103 @@ void GraphicsScene::mousePressEvent(
                 return;
             }
         }
+        // Handle pick-destination mode
+        else if (m_pickDestinationMode)
+        {
+            qCDebug(lcGuiScene)
+                << "GraphicsScene::mousePressEvent:"
+                << "pickDestinationMode at"
+                << event->scenePos();
+
+            // Search ALL items at the click position for
+            // a TerminalItem, GlobalTerminalItem, or a
+            // MapPoint with a linked terminal. itemAt()
+            // only returns the topmost item which may be
+            // a MapPoint overlapping the terminal icon.
+            const auto allAtPos = items(event->scenePos());
+            QString termId, termName;
+
+            for (QGraphicsItem *candidate : allAtPos)
+            {
+                // Direct TerminalItem hit
+                if (auto *terminal =
+                        dynamic_cast<TerminalItem *>(
+                            candidate))
+                {
+                    termId = terminal->getTerminalId();
+                    termName =
+                        terminal->getProperty("Name")
+                            .toString();
+                    qCDebug(lcGuiScene)
+                        << "GraphicsScene: pick found"
+                        << "TerminalItem" << termId;
+                    break;
+                }
+                // Direct GlobalTerminalItem hit
+                if (auto *global =
+                        dynamic_cast<GlobalTerminalItem *>(
+                            candidate))
+                {
+                    termId = global->getTerminalId();
+                    if (global->getLinkedTerminalItem())
+                        termName =
+                            global->getLinkedTerminalItem()
+                                ->getProperty("Name")
+                                .toString();
+                    else
+                        termName = termId;
+                    qCDebug(lcGuiScene)
+                        << "GraphicsScene: pick found"
+                        << "GlobalTerminalItem" << termId;
+                    break;
+                }
+                // MapPoint with a linked terminal
+                if (auto *mp =
+                        dynamic_cast<MapPoint *>(
+                            candidate))
+                {
+                    if (mp->getLinkedTerminal())
+                    {
+                        auto *linked =
+                            mp->getLinkedTerminal();
+                        termId = linked->getTerminalId();
+                        termName =
+                            linked->getProperty("Name")
+                                .toString();
+                        qCDebug(lcGuiScene)
+                            << "GraphicsScene: pick found"
+                            << "MapPoint->Terminal"
+                            << termId;
+                        break;
+                    }
+                }
+            }
+
+            if (!termId.isEmpty())
+            {
+                qCDebug(lcGuiScene)
+                    << "GraphicsScene::mousePressEvent:"
+                    << "destinationPicked" << termId
+                    << termName;
+                setIsInPickDestinationMode(false);
+                emit destinationPicked(termId, termName);
+            }
+            else
+            {
+                qCDebug(lcGuiScene)
+                    << "GraphicsScene::mousePressEvent:"
+                    << "pickDestinationMode: no terminal"
+                    << "found at click position,"
+                    << "staying in pick mode";
+            }
+            return;
+        }
         // Handle measurement mode
         else if (m_measureMode)
         {
+            qCDebug(lcGuiScene) << "GraphicsScene::mousePressEvent:"
+                                << "measureMode at"
+                                << event->scenePos();
             QPointF scenePos = event->scenePos();
 
             if (!m_measurementTool)
@@ -158,7 +291,7 @@ void GraphicsScene::mousePressEvent(
                             dynamic_cast<GraphicsView *>(
                                 views().first()));
                     addItemWithId(m_measurementTool,
-                                  m_measurementTool->getID());
+                                  m_measurementTool->sceneRegistryKey());
                     m_measurementTool->setStartPoint(
                         scenePos);
 
@@ -229,10 +362,14 @@ void GraphicsScene::mousePressEvent(
         // Handle connection mode
         else if (m_connectMode)
         {
+            qCDebug(lcGuiScene) << "GraphicsScene::mousePressEvent:"
+                                << "connectMode at"
+                                << event->scenePos();
             // Get the current connection
             // type and region
-            QString currentConnectionType =
-                mainWindowObj->getConnectionType();
+            const Backend::TransportationTypes::TransportationMode
+                currentConnectionType =
+                    mainWindowObj->getConnectionType();
 
             QString currentRegion =
                 CargoNetSim::CargoNetSimController::
@@ -280,7 +417,9 @@ void GraphicsScene::mousePressEvent(
                         QString("Selected first terminal. "
                                 "Click another terminal to "
                                 "create a %1 connection.")
-                            .arg(currentConnectionType),
+                            .arg(Backend::TransportationTypes::
+                                     toString(
+                                         currentConnectionType)),
                         3000);
                 }
                 else
@@ -367,9 +506,9 @@ void GraphicsScene::mousePressEvent(
                     // Call createConnectionLine utility
                     // function
                     ConnectionLine *connection =
-                        ViewController::
-                            createConnectionLine(
-                                mainWindowObj, firstItem,
+                        mainWindowObj->connectionCtrl()
+                            ->createConnectionLine(
+                                firstItem,
                                 secondItem,
                                 currentConnectionType);
 
@@ -383,9 +522,8 @@ void GraphicsScene::mousePressEvent(
                             2000);
 
                         // Update scene visibility
-                        ViewController::
-                            updateSceneVisibility(
-                                mainWindowObj);
+                        mainWindowObj->sceneVisibility()
+                            ->updateSceneVisibility();
 
                         // Set the second terminal
                         // as the first for the next
@@ -425,19 +563,21 @@ void GraphicsScene::mousePressEvent(
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Exception in "
-                      "GraphicsScene::mousePressEvent:"
-                   << e.what();
+        qCWarning(lcGuiScene) << "Exception in "
+                                 "GraphicsScene::mousePressEvent:"
+                              << e.what();
     }
     catch (...)
     {
-        qWarning() << "Unknown exception in "
-                      "GraphicsScene::mousePressEvent";
+        qCWarning(lcGuiScene) << "Unknown exception in "
+                                 "GraphicsScene::mousePressEvent";
     }
 }
 
 void GraphicsScene::keyPressEvent(QKeyEvent *event)
 {
+    qCDebug(lcGuiScene) << "GraphicsScene::keyPressEvent:"
+                        << "key=" << event->key();
     // For Delete key, pass it up to MainWindow
     if (event->key() == Qt::Key_Delete
         || event->key() == Qt::Key_Backspace)

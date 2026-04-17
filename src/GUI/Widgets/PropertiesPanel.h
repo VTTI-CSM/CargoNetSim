@@ -25,6 +25,7 @@ class RegionCenterPoint;
 class ConnectionLine;
 class BackgroundPhotoItem;
 class MapPoint;
+class DestinationListEditor;
 class PropertiesPanel : public QWidget
 {
     Q_OBJECT
@@ -47,8 +48,8 @@ signals:
         const QMap<QString, QVariant> &properties);
     void requestRefresh();
 public slots:
+    void clearIfShowing(QGraphicsItem *item);
     void saveProperties();
-    void openContainerManager(TerminalItem *item);
 private slots:
     void onCoordSystemChanged(int index);
     void onDwellMethodChanged(const QString &method,
@@ -83,7 +84,13 @@ private:
     void addCostSection(TerminalItem *item);
     void addCustomsSection(TerminalItem *item);
     void addDwellTimeSection(TerminalItem *item);
-    void addContainerManagement(TerminalItem *item);
+
+    /// Plan 8: sole authoring surface for origin role + destination
+    /// routing. Always visible on every terminal — any physical kind
+    /// can become an origin by setting count > 0. Writes through
+    /// ScenarioMutator::setProperty so the typed store stays consistent.
+    void addOriginConfigurationSection(TerminalItem *item);
+    void addRoleSection(TerminalItem *item);
     // Helper method for coordinate fields
     void addCoordinateField(const QString     &key,
                             const QVariant    &value,
@@ -136,6 +143,7 @@ private:
     QPushButton             *saveButton;
     QGraphicsItem           *currentItem;
     QMap<QString, QWidget *> editFields;
+    QMetaObject::Connection  m_pickConnection;
 };
 } // namespace GUI
 } // namespace CargoNetSim

@@ -1,4 +1,5 @@
 #include "TrainManagerDialog.h"
+#include "Backend/Commons/LogCategories.h"
 
 #include <QAction>
 #include <QDialogButtonBox>
@@ -29,11 +30,13 @@ TrainManagerDialog::TrainManagerDialog(QWidget *parent)
     , m_loadButton(nullptr)
     , m_deleteButton(nullptr)
 {
+    qCInfo(lcGuiNetwork) << "TrainManagerDialog::TrainManagerDialog: opening";
     initUI();
 }
 
 void TrainManagerDialog::initUI()
 {
+    qCDebug(lcGuiNetwork) << "TrainManagerDialog::initUI: building UI";
     setWindowTitle(tr("Train Manager"));
     setMinimumSize(800, 600);
 
@@ -149,6 +152,7 @@ void TrainManagerDialog::initUI()
 void TrainManagerDialog::setTrains(
     const QVector<Backend::Train *> trains)
 {
+    qCDebug(lcGuiNetwork) << "TrainManagerDialog::setTrains: count" << trains.size();
     m_trains = trains;
     updateTable();
     emit trainListChanged();
@@ -162,15 +166,18 @@ TrainManagerDialog::getTrains() const
 
 void TrainManagerDialog::loadTrains()
 {
+    qCDebug(lcGuiNetwork) << "TrainManagerDialog::loadTrains: opening file dialog";
     QString fileName = QFileDialog::getOpenFileName(
         this, tr("Load Trains File"), QString(),
         tr("DAT Files (*.dat);;All Files (*)"));
 
     if (fileName.isEmpty())
     {
+        qCDebug(lcGuiNetwork) << "TrainManagerDialog::loadTrains: cancelled";
         return;
     }
 
+    qCDebug(lcGuiNetwork) << "TrainManagerDialog::loadTrains: reading" << fileName;
     try
     {
         QVector<Backend::Train *> newTrains =
@@ -178,6 +185,7 @@ void TrainManagerDialog::loadTrains()
 
         if (newTrains.isEmpty())
         {
+            qCWarning(lcGuiNetwork) << "TrainManagerDialog::loadTrains: no trains in file";
             QMessageBox::warning(
                 this, tr("Warning"),
                 tr("No trains were found in the selected "
@@ -186,6 +194,8 @@ void TrainManagerDialog::loadTrains()
             return;
         }
 
+        qCInfo(lcGuiNetwork) << "TrainManagerDialog::loadTrains: loaded"
+                         << newTrains.size() << "trains from" << fileName;
         m_trains.append(newTrains);
         updateTable();
 
@@ -199,6 +209,7 @@ void TrainManagerDialog::loadTrains()
     }
     catch (const std::exception &e)
     {
+        qCWarning(lcGuiNetwork) << "TrainManagerDialog::loadTrains: exception" << e.what();
         QMessageBox::critical(
             this, tr("Error"),
             tr("Failed to load trains: %1").arg(e.what()));
@@ -211,10 +222,12 @@ void TrainManagerDialog::deleteTrain()
     int currentRow = m_table->currentRow();
     if (currentRow < 0 || currentRow >= m_trains.size())
     {
+        qCWarning(lcGuiNetwork) << "TrainManagerDialog::deleteTrain: invalid row" << currentRow;
         return;
     }
 
     QString trainId = m_trains[currentRow]->getUserId();
+    qCDebug(lcGuiNetwork) << "TrainManagerDialog::deleteTrain: confirming deletion of" << trainId;
 
     // Confirm deletion
     QMessageBox::StandardButton reply =
@@ -230,6 +243,7 @@ void TrainManagerDialog::deleteTrain()
         return;
     }
 
+    qCInfo(lcGuiNetwork) << "TrainManagerDialog::deleteTrain: confirmed deletion of" << trainId;
     // Delete train and update UI
     m_trains.removeAt(currentRow);
     updateTable();
@@ -241,6 +255,7 @@ void TrainManagerDialog::deleteTrain()
 
 void TrainManagerDialog::updateTable()
 {
+    qCDebug(lcGuiNetwork) << "TrainManagerDialog::updateTable: refreshing" << m_trains.size() << "trains";
     m_table->setRowCount(0);
 
     for (const auto &train : m_trains)
@@ -297,6 +312,7 @@ void TrainManagerDialog::updateTable()
 
 void TrainManagerDialog::updateTrainDetails()
 {
+    qCDebug(lcGuiNetwork) << "TrainManagerDialog::updateTrainDetails: row" << m_table->currentRow();
     int currentRow = m_table->currentRow();
     if (currentRow < 0 || currentRow >= m_trains.size())
     {

@@ -1,6 +1,7 @@
 #include "SettingsWidget.h"
 
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Scenario/PropertyKeys.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Utils/IconCreator.h"
 #include <QDialog>
@@ -16,6 +17,9 @@
 #include <QTableWidgetItem>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include "Backend/Commons/LogCategories.h"
+
+namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
 
 namespace CargoNetSim
 {
@@ -52,6 +56,7 @@ SettingsWidget::SettingsWidget(QWidget *parent)
 
 void SettingsWidget::initUI()
 {
+    qCDebug(lcGuiUtil) << "SettingsWidget::initUI: setting up transport mode parameters";
     // Main layout for the widget
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -434,6 +439,7 @@ void SettingsWidget::initUI()
 
 void SettingsWidget::updateFuelTable()
 {
+    qCDebug(lcGuiUtil) << "SettingsWidget::updateFuelTable: fuel types:" << fuelTypes.size();
     fuelTable->setRowCount(
         fuelTypes.size()); // Set row count to match number
                            // of fuel types
@@ -524,9 +530,12 @@ void SettingsWidget::updateFuelData(const QString &fuelType,
                                     const QString &key,
                                     const QVariant &value)
 {
+    qCDebug(lcGuiUtil) << "SettingsWidget::updateFuelData:"
+                       << "fuel=" << fuelType << "key=" << key;
     if (fuelTypes.contains(fuelType))
     {
         fuelTypes[fuelType][key] = value;
+        qCDebug(lcGuiUtil) << "SettingsWidget: fuel parameter updated:" << key << "=" << value;
 
         // If unit changes, update the suffixes in the table
         if (key == "unit")
@@ -567,6 +576,7 @@ void SettingsWidget::updateFuelData(const QString &fuelType,
 
 void SettingsWidget::addFuelType()
 {
+    qCDebug(lcGuiUtil) << "SettingsWidget::addFuelType: begin";
     // Create a dialog to get the fuel type name
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Add Fuel Type"));
@@ -654,6 +664,7 @@ void SettingsWidget::updateFuelTypeDropdowns()
 
 bool SettingsWidget::loadSettings()
 {
+    qCInfo(lcGuiUtil) << "SettingsWidget::loadSettings: begin";
     try
     {
         // load settings from the controller
@@ -665,6 +676,8 @@ bool SettingsWidget::loadSettings()
                            .getConfigController()
                            ->getAllParams();
 
+        qCDebug(lcGuiUtil) << "SettingsWidget::loadSettings: loaded"
+                           << settings.size() << "top-level sections";
         // Apply simulation settings
         if (settings.contains("simulation"))
         {
@@ -676,9 +689,9 @@ bool SettingsWidget::loadSettings()
                     simSettings["time_step"].toInt());
 
             // Load the average time value of money
-            if (simSettings.contains("time_value_of_money"))
+            if (simSettings.contains(PK::Mode::TimeValueOfMoney))
                 averageTimeValueSpin->setValue(
-                    simSettings["time_value_of_money"]
+                    simSettings[PK::Mode::TimeValueOfMoney]
                         .toDouble());
 
             // Load the use_mode_specific flag
@@ -794,39 +807,39 @@ bool SettingsWidget::loadSettings()
 
                 // Load mode-specific time value of money
                 if (shipSettings.contains(
-                        "time_value_of_money"))
+                        PK::Mode::TimeValueOfMoney))
                     shipTimeValueSpin->setValue(
-                        shipSettings["time_value_of_money"]
+                        shipSettings[PK::Mode::TimeValueOfMoney]
                             .toDouble());
 
-                if (shipSettings.contains("average_speed"))
+                if (shipSettings.contains(PK::Mode::AverageSpeed))
                     shipSpeedSpin->setValue(
-                        shipSettings["average_speed"]
+                        shipSettings[PK::Mode::AverageSpeed]
                             .toDouble());
 
                 if (shipSettings.contains(
-                        "average_fuel_consumption"))
+                        PK::Mode::AverageFuelConsumption))
                     shipFuelSpin->setValue(
                         shipSettings
-                            ["average_fuel_consumption"]
+                            [PK::Mode::AverageFuelConsumption]
                                 .toDouble());
 
                 if (shipSettings.contains(
-                        "average_container_number"))
+                        PK::Mode::AverageContainerNumber))
                     shipContainers->setValue(
                         shipSettings
-                            ["average_container_number"]
+                            [PK::Mode::AverageContainerNumber]
                                 .toInt());
 
-                if (shipSettings.contains("risk_factor"))
+                if (shipSettings.contains(PK::Mode::RiskFactor))
                     shipRiskSpin->setValue(
-                        shipSettings["risk_factor"]
+                        shipSettings[PK::Mode::RiskFactor]
                             .toDouble());
 
-                if (shipSettings.contains("fuel_type"))
+                if (shipSettings.contains(PK::Mode::FuelType))
                 {
                     QString shipFuelTypeName =
-                        shipSettings["fuel_type"]
+                        shipSettings[PK::Mode::FuelType]
                             .toString();
                     int idx = shipFuelType->findText(
                         shipFuelTypeName);
@@ -845,44 +858,44 @@ bool SettingsWidget::loadSettings()
 
                 // Load mode-specific time value of money
                 if (railSettings.contains(
-                        "time_value_of_money"))
+                        PK::Mode::TimeValueOfMoney))
                     trainTimeValueSpin->setValue(
-                        railSettings["time_value_of_money"]
+                        railSettings[PK::Mode::TimeValueOfMoney]
                             .toDouble());
 
-                if (railSettings.contains("average_speed"))
+                if (railSettings.contains(PK::Mode::AverageSpeed))
                     trainSpeedSpin->setValue(
-                        railSettings["average_speed"]
+                        railSettings[PK::Mode::AverageSpeed]
                             .toDouble());
 
-                if (railSettings.contains("use_network"))
+                if (railSettings.contains(PK::Mode::UseNetwork))
                     trainUseNetwork->setChecked(
-                        railSettings["use_network"]
+                        railSettings[PK::Mode::UseNetwork]
                             .toBool());
 
                 if (railSettings.contains(
-                        "average_fuel_consumption"))
+                        PK::Mode::AverageFuelConsumption))
                     trainFuelSpin->setValue(
                         railSettings
-                            ["average_fuel_consumption"]
+                            [PK::Mode::AverageFuelConsumption]
                                 .toDouble());
 
                 if (railSettings.contains(
-                        "average_container_number"))
+                        PK::Mode::AverageContainerNumber))
                     trainContainers->setValue(
                         railSettings
-                            ["average_container_number"]
+                            [PK::Mode::AverageContainerNumber]
                                 .toInt());
 
-                if (railSettings.contains("risk_factor"))
+                if (railSettings.contains(PK::Mode::RiskFactor))
                     trainRiskSpin->setValue(
-                        railSettings["risk_factor"]
+                        railSettings[PK::Mode::RiskFactor]
                             .toDouble());
 
-                if (railSettings.contains("fuel_type"))
+                if (railSettings.contains(PK::Mode::FuelType))
                 {
                     QString trainFuelTypeName =
-                        railSettings["fuel_type"]
+                        railSettings[PK::Mode::FuelType]
                             .toString();
                     int idx = trainFuelType->findText(
                         trainFuelTypeName);
@@ -901,44 +914,44 @@ bool SettingsWidget::loadSettings()
 
                 // Load mode-specific time value of money
                 if (truckSettings.contains(
-                        "time_value_of_money"))
+                        PK::Mode::TimeValueOfMoney))
                     truckTimeValueSpin->setValue(
-                        truckSettings["time_value_of_money"]
+                        truckSettings[PK::Mode::TimeValueOfMoney]
                             .toDouble());
 
-                if (truckSettings.contains("average_speed"))
+                if (truckSettings.contains(PK::Mode::AverageSpeed))
                     truckSpeedSpin->setValue(
-                        truckSettings["average_speed"]
+                        truckSettings[PK::Mode::AverageSpeed]
                             .toDouble());
 
-                if (truckSettings.contains("use_network"))
+                if (truckSettings.contains(PK::Mode::UseNetwork))
                     truckUseNetwork->setChecked(
-                        truckSettings["use_network"]
+                        truckSettings[PK::Mode::UseNetwork]
                             .toBool());
 
                 if (truckSettings.contains(
-                        "average_fuel_consumption"))
+                        PK::Mode::AverageFuelConsumption))
                     truckFuelSpin->setValue(
                         truckSettings
-                            ["average_fuel_consumption"]
+                            [PK::Mode::AverageFuelConsumption]
                                 .toDouble());
 
                 if (truckSettings.contains(
-                        "average_container_number"))
+                        PK::Mode::AverageContainerNumber))
                     truckContainers->setValue(
                         truckSettings
-                            ["average_container_number"]
+                            [PK::Mode::AverageContainerNumber]
                                 .toInt());
 
-                if (truckSettings.contains("risk_factor"))
+                if (truckSettings.contains(PK::Mode::RiskFactor))
                     truckRiskSpin->setValue(
-                        truckSettings["risk_factor"]
+                        truckSettings[PK::Mode::RiskFactor]
                             .toDouble());
 
-                if (truckSettings.contains("fuel_type"))
+                if (truckSettings.contains(PK::Mode::FuelType))
                 {
                     QString truckFuelTypeName =
-                        truckSettings["fuel_type"]
+                        truckSettings[PK::Mode::FuelType]
                             .toString();
                     int idx = truckFuelType->findText(
                         truckFuelTypeName);
@@ -963,7 +976,7 @@ bool SettingsWidget::loadSettings()
     }
     catch (const std::exception &e)
     {
-        qWarning()
+        qCWarning(lcGuiUtil)
             << "Failed to load settings from config file:"
             << e.what();
         return false;
@@ -972,6 +985,7 @@ bool SettingsWidget::loadSettings()
 
 void SettingsWidget::applySettings()
 {
+    qCInfo(lcGuiUtil) << "SettingsWidget::applySettings: begin";
     // Collect fuel energy and prices data
     QMap<QString, QVariant> fuelEnergy;
     QMap<QString, QVariant> fuelPrices;
@@ -995,7 +1009,7 @@ void SettingsWidget::applySettings()
     // Simulation settings
     QMap<QString, QVariant> simulation;
     simulation["time_step"] = timeStepSpin->value();
-    simulation["time_value_of_money"] =
+    simulation[PK::Mode::TimeValueOfMoney] =
         averageTimeValueSpin->value();
     simulation["use_mode_specific"] =
         useSpecificTimeValues->isChecked();
@@ -1024,48 +1038,48 @@ void SettingsWidget::applySettings()
 
     // Ship settings
     QMap<QString, QVariant> shipSettings;
-    shipSettings["average_speed"] = shipSpeedSpin->value();
-    shipSettings["average_fuel_consumption"] =
+    shipSettings[PK::Mode::AverageSpeed] = shipSpeedSpin->value();
+    shipSettings[PK::Mode::AverageFuelConsumption] =
         shipFuelSpin->value();
-    shipSettings["average_container_number"] =
+    shipSettings[PK::Mode::AverageContainerNumber] =
         shipContainers->value();
-    shipSettings["risk_factor"] = shipRiskSpin->value();
-    shipSettings["fuel_type"] = shipFuelType->currentText();
-    shipSettings["time_value_of_money"] =
+    shipSettings[PK::Mode::RiskFactor] = shipRiskSpin->value();
+    shipSettings[PK::Mode::FuelType] = shipFuelType->currentText();
+    shipSettings[PK::Mode::TimeValueOfMoney] =
         shipTimeValueSpin->value();
     transportModes["ship"] = shipSettings;
 
     // Train settings
     QMap<QString, QVariant> trainSettings;
-    trainSettings["average_speed"] =
+    trainSettings[PK::Mode::AverageSpeed] =
         trainSpeedSpin->value();
-    trainSettings["use_network"] =
+    trainSettings[PK::Mode::UseNetwork] =
         trainUseNetwork->isChecked();
-    trainSettings["average_fuel_consumption"] =
+    trainSettings[PK::Mode::AverageFuelConsumption] =
         trainFuelSpin->value();
-    trainSettings["average_container_number"] =
+    trainSettings[PK::Mode::AverageContainerNumber] =
         trainContainers->value();
-    trainSettings["risk_factor"] = trainRiskSpin->value();
-    trainSettings["fuel_type"] =
+    trainSettings[PK::Mode::RiskFactor] = trainRiskSpin->value();
+    trainSettings[PK::Mode::FuelType] =
         trainFuelType->currentText();
-    trainSettings["time_value_of_money"] =
+    trainSettings[PK::Mode::TimeValueOfMoney] =
         trainTimeValueSpin->value();
     transportModes["rail"] = trainSettings;
 
     // Truck settings
     QMap<QString, QVariant> truckSettings;
-    truckSettings["average_speed"] =
+    truckSettings[PK::Mode::AverageSpeed] =
         truckSpeedSpin->value();
-    truckSettings["use_network"] =
+    truckSettings[PK::Mode::UseNetwork] =
         truckUseNetwork->isChecked();
-    truckSettings["average_fuel_consumption"] =
+    truckSettings[PK::Mode::AverageFuelConsumption] =
         truckFuelSpin->value();
-    truckSettings["average_container_number"] =
+    truckSettings[PK::Mode::AverageContainerNumber] =
         truckContainers->value();
-    truckSettings["risk_factor"] = truckRiskSpin->value();
-    truckSettings["fuel_type"] =
+    truckSettings[PK::Mode::RiskFactor] = truckRiskSpin->value();
+    truckSettings[PK::Mode::FuelType] =
         truckFuelType->currentText();
-    truckSettings["time_value_of_money"] =
+    truckSettings[PK::Mode::TimeValueOfMoney] =
         truckTimeValueSpin->value();
     transportModes["truck"] = truckSettings;
 
@@ -1107,6 +1121,8 @@ QMap<QString, QVariant> SettingsWidget::getSettings() const
 void SettingsWidget::showEnergyCalculator(
     const QString &mode)
 {
+    qCDebug(lcGuiUtil) << "SettingsWidget::showEnergyCalculator:"
+                       << "mode=" << mode;
     QDialog dialog(this);
     dialog.setWindowTitle(
         tr("Energy Consumption Calculator"));
@@ -1123,7 +1139,7 @@ void SettingsWidget::showEnergyCalculator(
         {
             currentFuelConsumption =
                 transportModes[mode]
-                    .toMap()["average_fuel_consumption"]
+                    .toMap()[PK::Mode::AverageFuelConsumption]
                     .toDouble();
         }
     }
@@ -1291,6 +1307,8 @@ SettingsWidget::createDwellTimeParameters(
 void SettingsWidget::onDwellMethodChanged(
     const QString &method, QGroupBox *dwellGroup)
 {
+    qCDebug(lcGuiUtil) << "SettingsWidget::onDwellMethodChanged:"
+                       << "method=" << method;
     // Remove old parameter fields
     QFormLayout *oldParamLayout = nullptr;
     for (int i = 0; i < dwellGroup->layout()->count(); ++i)

@@ -13,11 +13,12 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "Backend/Commons/LogCategories.h"
 #include "../Controllers/NetworkController.h"
 #include "../MainWindow.h"
 #include "../Widgets/ColorPickerDialog.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "GUI/Controllers/ViewController.h"
+#include "GUI/Controllers/SceneVisibilityController.h"
 
 namespace CargoNetSim
 {
@@ -172,6 +173,8 @@ void NetworkManagerDialog::onSelectionChanged(
 void NetworkManagerDialog::addNetwork(
     const QString &networkType)
 {
+    qCDebug(lcGuiNetwork) << "NetworkManagerDialog::addNetwork:"
+                       << "type=" << networkType;
     if (!mainWindow)
         return;
 
@@ -230,6 +233,9 @@ void NetworkManagerDialog::deleteNetwork(
 
     QListWidgetItem *currentItem =
         listWidget->currentItem();
+    qCDebug(lcGuiNetwork) << "NetworkManagerDialog::deleteNetwork:"
+                       << "type=" << networkType
+                       << "name=" << (currentItem ? currentItem->text() : "(none)");
 
     if (!currentItem)
     {
@@ -282,6 +288,8 @@ void NetworkManagerDialog::deleteNetwork(
 void NetworkManagerDialog::renameNetwork(
     const QString &networkType)
 {
+    qCDebug(lcGuiNetwork) << "NetworkManagerDialog::renameNetwork:"
+                       << "type=" << networkType;
     QListWidget *listWidget = findChild<QListWidget *>(
         networkType.toLower().replace(" ", "_") + "_list");
 
@@ -337,6 +345,8 @@ void NetworkManagerDialog::renameNetwork(
 void NetworkManagerDialog::changeNetworkColor(
     const QString &networkType)
 {
+    qCDebug(lcGuiNetwork) << "NetworkManagerDialog::changeNetworkColor:"
+                       << "type=" << networkType;
     QListWidget *listWidget = findChild<QListWidget *>(
         networkType.toLower().replace(" ", "_") + "_list");
 
@@ -391,6 +401,8 @@ void NetworkManagerDialog::changeNetworkColor(
 void NetworkManagerDialog::updateNetworkList(
     const QString &networkType)
 {
+    qCDebug(lcGuiNetwork) << "NetworkManagerDialog::updateNetworkList:"
+                       << "type=" << networkType;
     const bool isTrainNetwork =
         (networkType == "Rail Network");
     const QString listWidgetName =
@@ -538,8 +550,8 @@ void NetworkManagerDialog::onItemCheckedChanged(
 
     // Update visibility of scene
     // items
-    ViewController::changeNetworkVisibility(
-        mainWindow, networkName, isVisible);
+    mainWindow->sceneVisibility()->changeNetworkVisibility(
+        networkName, isVisible);
 }
 
 QPixmap
@@ -560,6 +572,7 @@ NetworkManagerDialog::createColorPixmap(const QColor &color,
 
 void NetworkManagerDialog::clear()
 {
+    qCDebug(lcGuiNetwork) << "NetworkManagerDialog::clear: begin";
     // Clear both list widgets
     QListWidget *trainList =
         findChild<QListWidget *>("rail_network_list");

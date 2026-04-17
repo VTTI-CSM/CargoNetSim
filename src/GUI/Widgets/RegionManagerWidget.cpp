@@ -1,9 +1,10 @@
 #include "RegionManagerWidget.h"
-#include "../Controllers/ViewController.h"
+#include "../Controllers/RegionController.h"
 #include "../Items/RegionCenterPoint.h"
 #include "../MainWindow.h"
 #include "../Utils/ColorUtils.h"
 #include "../Widgets/ColorPickerDialog.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 
 #include <QColor>
@@ -78,6 +79,27 @@ void RegionManagerWidget::setupUI()
     updateButtonStates();
     connect(regionList, &QListWidget::itemSelectionChanged,
             this, &RegionManagerWidget::updateButtonStates);
+
+    // Refresh the list whenever the authoritative region store changes.
+    // Without these, the "Open Scenario" path populates
+    // RegionDataController (via ScenarioApplier::applyRegions) but this
+    // widget keeps showing the pre-load snapshot — regions appear on the
+    // canvas but never in the manager.
+    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
+                    .getRegionDataController();
+    if (rdc)
+    {
+        connect(rdc, &Backend::RegionDataController::regionAdded,
+                this, [this](const QString &) { updateRegionList(); });
+        connect(rdc, &Backend::RegionDataController::regionRemoved,
+                this, [this](const QString &) { updateRegionList(); });
+        connect(rdc, &Backend::RegionDataController::regionRenamed,
+                this, [this](const QString &, const QString &) {
+                    updateRegionList();
+                });
+        connect(rdc, &Backend::RegionDataController::regionsCleared,
+                this, [this]() { updateRegionList(); });
+    }
 }
 
 void RegionManagerWidget::updateRegionList()
@@ -132,6 +154,8 @@ void RegionManagerWidget::changeRegionColor()
     }
 
     QString regionName = currentItem->text();
+    qCDebug(lcGuiUtil) << "RegionManagerWidget::changeRegionColor:"
+                       << "name=" << regionName;
     QColor  currentColor =
         CargoNetSim::CargoNetSimController::getInstance()
             .getRegionDataController()
@@ -172,7 +196,7 @@ void RegionManagerWidget::changeRegionColor()
             updateRegionList();
 
             // Update visuals
-            // ViewController::updateSceneVisibility(mainWindow);
+            // mainWindow->sceneVisibility()->updateSceneVisibility();
             // ViewController::updateGlobalMapScene(mainWindow);
 
             mainWindow->showStatusBarMessage(
@@ -185,6 +209,7 @@ void RegionManagerWidget::changeRegionColor()
 
 void RegionManagerWidget::addRegion()
 {
+    qCDebug(lcGuiUtil) << "RegionManagerWidget::addRegion: begin";
     bool    ok;
     QString newRegionName = QInputDialog::getText(
         this, tr("Add Region"),
@@ -220,8 +245,8 @@ void RegionManagerWidget::addRegion()
                                 color);
 
         // Create region center point
-        ViewController::createRegionCenter(
-            mainWindow, newRegionName, color, QPointF(0, 0),
+        mainWindow->regionCtrl()->createRegionCenter(
+            newRegionName, color, QPointF(0, 0),
             false);
 
         // // Update UI
@@ -240,6 +265,8 @@ void RegionManagerWidget::renameRegion()
     }
 
     QString oldName = currentItem->text();
+    qCDebug(lcGuiUtil) << "RegionManagerWidget::renameRegion:"
+                       << "name=" << oldName;
     bool    ok;
     QString newName = QInputDialog::getText(
         this, tr("Rename Region"), tr("Enter new name:"),
@@ -263,16 +290,21 @@ void RegionManagerWidget::renameRegion()
             return;
         }
 
-        // Update main window's region data
+        // Update main window's region data.
+        // NOTE: RegionDataController::renameRegion emits
+        // signals that may rebuild this widget's list,
+        // invalidating currentItem. Do NOT access
+        // currentItem after this call.
         CargoNetSim::CargoNetSimController::getInstance()
             .getRegionDataController()
             ->renameRegion(oldName, newName);
 
-        ViewController::renameRegion(mainWindow, oldName,
-                                     newName);
+        mainWindow->regionCtrl()->renameRegion(oldName,
+                                              newName);
 
-        // Update UI
-        currentItem->setText(newName);
+        // Refresh the list (currentItem is stale after
+        // the signals above may have rebuilt it).
+        updateRegionList();
     }
 }
 
@@ -286,6 +318,8 @@ void RegionManagerWidget::deleteRegion()
     }
 
     QString regionName = currentItem->text();
+    qCDebug(lcGuiUtil) << "RegionManagerWidget::deleteRegion:"
+                       << "name=" << regionName;
     int     reply      = QMessageBox::question(
         this, tr("Delete Region"),
         tr("Are you sure you want to delete region '%1'?\n"
@@ -328,7 +362,7 @@ void RegionManagerWidget::deleteRegion()
         updateButtonStates();
 
         // // Update visuals
-        // ViewController::updateSceneVisibility(mainWindow);
+        // mainWindow->sceneVisibility()->updateSceneVisibility();
         // ViewController::updateGlobalMapScene(mainWindow);
     }
 }
@@ -390,7 +424,7 @@ void RegionManagerWidget::clearRegions()
     // }
 
     // Update visuals
-    // ViewController::updateSceneVisibility(mainWindow);
+    // mainWindow->sceneVisibility()->updateSceneVisibility();
     // ViewController::updateGlobalMapScene(mainWindow);
     updateButtonStates();
 }

@@ -1,4 +1,5 @@
 #include "ShipManagerDialog.h"
+#include "Backend/Commons/LogCategories.h"
 
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -24,6 +25,7 @@ ShipManagerDialog::ShipManagerDialog(QWidget *parent)
     : QDialog(parent)
     , m_ships()
 {
+    qCInfo(lcGuiNetwork) << "ShipManagerDialog::ShipManagerDialog: opening";
     setWindowTitle(tr("Ship Manager"));
     setMinimumSize(1000, 700);
 
@@ -32,6 +34,7 @@ ShipManagerDialog::ShipManagerDialog(QWidget *parent)
 
 void ShipManagerDialog::initUI()
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::initUI: building UI";
     QVBoxLayout *layout = new QVBoxLayout(this);
 
     // Create toolbar
@@ -143,15 +146,18 @@ void ShipManagerDialog::initUI()
 
 void ShipManagerDialog::loadShips()
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::loadShips: opening file dialog";
     QString fileName = QFileDialog::getOpenFileName(
         this, tr("Load Ships File"), QString(),
         tr("DAT Files (*.dat);;All Files (*)"));
 
     if (fileName.isEmpty())
     {
+        qCDebug(lcGuiNetwork) << "ShipManagerDialog::loadShips: cancelled";
         return;
     }
 
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::loadShips: reading" << fileName;
     try
     {
         QList<CargoNetSim::Backend::Ship *> loadedShips =
@@ -159,12 +165,15 @@ void ShipManagerDialog::loadShips()
 
         if (loadedShips.isEmpty())
         {
+            qCWarning(lcGuiNetwork) << "ShipManagerDialog::loadShips: no valid ships in file";
             QMessageBox::warning(
                 this, tr("Warning"),
                 tr("No valid ships found in the file."));
             return;
         }
 
+        qCInfo(lcGuiNetwork) << "ShipManagerDialog::loadShips: loaded"
+                         << loadedShips.size() << "ships from" << fileName;
         // Extend the existing ships list
         m_ships.append(loadedShips);
         updateTable();
@@ -179,6 +188,7 @@ void ShipManagerDialog::loadShips()
     }
     catch (const std::exception &e)
     {
+        qCWarning(lcGuiNetwork) << "ShipManagerDialog::loadShips: exception" << e.what();
         QMessageBox::critical(
             this, tr("Error"),
             tr("Failed to load ships: %1").arg(e.what()));
@@ -190,6 +200,7 @@ void ShipManagerDialog::deleteShip()
     int currentRow = m_table->currentRow();
     if (currentRow < 0)
     {
+        qCWarning(lcGuiNetwork) << "ShipManagerDialog::deleteShip: no row selected";
         QMessageBox::warning(
             this, tr("Warning"),
             tr("Please select a ship to delete."));
@@ -208,6 +219,8 @@ void ShipManagerDialog::deleteShip()
 
     if (reply == QMessageBox::Yes)
     {
+        qCInfo(lcGuiNetwork) << "ShipManagerDialog::deleteShip: confirmed deletion of"
+                         << shipId;
         // Store the ship ID before removal
         emit shipDeleted(shipId);
 
@@ -220,6 +233,7 @@ void ShipManagerDialog::deleteShip()
 
 void ShipManagerDialog::updateTable()
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::updateTable: refreshing" << m_ships.size() << "ships";
     // Clear the table
     m_table->setRowCount(0);
 
@@ -288,6 +302,7 @@ void ShipManagerDialog::updateTable()
 
 void ShipManagerDialog::updateDetails()
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::updateDetails: row" << m_table->currentRow();
     int currentRow = m_table->currentRow();
     if (currentRow < 0 || currentRow >= m_ships.size())
     {
@@ -461,6 +476,7 @@ QList<Backend::Ship *> ShipManagerDialog::getShips() const
 void ShipManagerDialog::setShips(
     const QList<Backend::Ship *> &ships)
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::setShips: count" << ships.size();
     m_ships = ships;
     updateTable();
 }
