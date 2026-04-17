@@ -1,4 +1,23 @@
 #include "MainWindow.h"
+#include "GUI/Utils/ApplicationLogger.h"
+#include "Backend/Commons/LogCategories.h"
+
+#include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Controllers/RegionDataController.h"
+#include "Backend/Scenario/Connection.h"
+#include "Backend/Scenario/GlobalLink.h"
+#include "Backend/Scenario/NodeLinkage.h"
+#include "Backend/Scenario/RegionSpec.h"
+#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Scenario/ScenarioRuntime.h"
+#include "Backend/Scenario/TerminalPlacement.h"
+#include "GUI/Items/ConnectionLine.h"
+#include "GUI/Items/MapPoint.h"
+#include "GUI/Scenario/ConnectionLineFactory.h"
+#include "GUI/Scenario/MapPointFactory.h"
+#include "GUI/Scenario/RegionCenterPointFactory.h"
+#include "GUI/Scenario/SceneRepopulator.h"
+#include "GUI/Scenario/TerminalItemFactory.h"
 
 #include <QApplication>
 #include <QBuffer>
@@ -43,10 +62,15 @@
 
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Controllers/BasicButtonController.h"
+#include "Controllers/ConnectionController.h"
 #include "Controllers/NetworkController.h"
+#include "Controllers/NetworkDrawingController.h"
+#include "Controllers/RegionController.h"
+#include "Controllers/SceneVisibilityController.h"
+#include "Controllers/TerminalController.h"
 #include "Controllers/ToolbarController.h"
 #include "Controllers/UtilityFunctions.h"
-#include "Controllers/ViewController.h"
+#include "Backend/Scenario/NetworkLookup.h"
 
 #include "Serializers/ProjectSerializer.h"
 
@@ -70,52 +94,442 @@ MainWindow::MainWindow()
     : CustomMainWindow()
     , heartbeatController_(nullptr)
 {
-    // Initialize region management
-    CargoNetSim::CargoNetSimController::getInstance()
-        .getRegionDataController()
-        ->addRegion("Default Region");
-    CargoNetSim::CargoNetSimController::getInstance()
-        .getRegionDataController()
-        ->setRegionVariable("Default Region", "color",
-                            QColor(Qt::green));
-    CargoNetSim::CargoNetSimController::getInstance()
-        .getRegionDataController()
-        ->setCurrentRegion("DefaultRegion");
+    qCInfo(lcGui) << "MainWindow::MainWindow: begin";
 
     selectedTerminal_ = nullptr;
     tableWasVisible_  = false;
     previousTabIndex_ = 0;
 
-    // Setup UI components
+    // Setup UI components (must happen before controllers
+    // and setRuntime because both need scenes/views).
     initializeUI();
 
-    // Create default region center
-    QColor regionColor =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getRegionVariableAs<QColor>("Default Region",
-                                          "color");
+    // Create sub-controllers BEFORE setRuntime — setRuntime
+    // triggers changeRegion which calls
+    // sceneVisibility()->updateSceneVisibility(). Controllers
+    // must exist before that call.
+    m_sceneVisibility = new SceneVisibilityController(
+        regionScene_, globalMapScene_, this, this);
+    m_terminalCtrl = new TerminalController(
+        regionScene_, regionView_, globalMapScene_,
+        globalMapView_, this, this, this);
+    m_networkDrawing = new NetworkDrawingController(
+        regionScene_, regionView_, m_terminalCtrl,
+        this, this, this);
+    m_connectionCtrl = new ConnectionController(
+        regionScene_, globalMapScene_, this, this, this);
+    m_regionCtrl = new RegionController(
+        regionScene_, m_sceneVisibility, this, this, this);
 
-    ViewController::createRegionCenter(
-        this, "Default Region", regionColor, QPoint(0, 0),
-        true);
+    qCDebug(lcGui)
+        << "MainWindow::MainWindow: creating initial"
+           " empty scenario";
+    // Create an empty scenario with a default region.
+    // This ensures runtime() is NEVER null during normal
+    // operation — all terminal creation goes through the
+    // modern ScenarioMutator path with ScenarioDocument
+    // binding.
+    {
+        auto doc = std::make_unique<
+            Backend::Scenario::ScenarioDocument>();
+        Backend::Scenario::RegionSpec defaultRegion;
+        defaultRegion.name =
+            QStringLiteral("Default Region");
+        defaultRegion.color = QStringLiteral("#00FF00");
+        defaultRegion.localOrigin    = {0.0, 0.0};
+        defaultRegion.globalPosition = {0.0, 0.0};
+        doc->addRegion(defaultRegion);
+        auto runtime = std::make_unique<
+            Backend::Scenario::ScenarioRuntime>(
+            std::move(doc));
+        if (runtime->load())
+            setRuntime(std::move(runtime));
+        else
+            qCCritical(lcGui)
+                << "MainWindow: failed to initialize"
+                   " empty scenario at startup";
+    }
 
-    // Initialize heartbeat controller
+    connect(m_networkDrawing,
+            &NetworkDrawingController::coordinatesNeedUpdate,
+            this, &MainWindow::updateAllCoordinates);
+    connect(m_connectionCtrl,
+            &ConnectionController::connectionRemoved,
+            propertiesPanel_,
+            &PropertiesPanel::clearIfShowing);
+    connect(m_connectionCtrl,
+            &ConnectionController::terminalUnlinked,
+            propertiesPanel_,
+            &PropertiesPanel::clearIfShowing);
+
+    qCDebug(lcGui)
+        << "MainWindow::MainWindow: initializing"
+           " heartbeat controller";
     heartbeatController_ = new HeartbeatController(this);
     heartbeatController_->initialize();
 
-    // Set window title
     setWindowTitle("CargoNetSim: Multimodal Freight "
                    "Operations Optimizer");
     resize(1000, 700);
 
     showStatusBarMessage("Ready.");
 
-    // Update hte regions combo box
     BasicButtonController::updateRegionComboBox(this);
-
-    // Setup the signals
     BasicButtonController::setupSignals(this);
+}
+
+void MainWindow::setRuntime(
+    std::unique_ptr<Backend::Scenario::ScenarioRuntime> rt)
+{
+    qCInfo(lcGui) << "MainWindow::setRuntime: begin";
+    // Clear BOTH scenes before swapping — scene items hold non-owning
+    // pointers into the outgoing runtime's ScenarioDocument. Destroying
+    // the old runtime while those pointers are still live would leave
+    // the items dangling. clearAll() drops the type-registry first
+    // (see Task 8's GraphicsScene::clearAll), then deletes items.
+    if (regionScene_)    regionScene_->clearAll();
+    if (globalMapScene_) globalMapScene_->clearAll();
+
+    m_runtime = std::move(rt);
+
+    auto *raw = m_runtime.get();
+    if (m_terminalCtrl)   m_terminalCtrl->setRuntime(raw);
+    if (m_connectionCtrl) m_connectionCtrl->setRuntime(raw);
+
+    subscribeDocumentObservers();
+
+    // Initial backfill: subscribe happens AFTER the document was parsed,
+    // so the per-item signals (regionAdded, terminalAdded, …) have
+    // already fired with no listener. Do one full rebuild here so the
+    // scene reflects the loaded document. No-op when rt is null
+    // (tear-down path). Callers are expected to have completed
+    // runtime->load() before calling setRuntime so the backend
+    // (RegionDataController) is ready for MapPoint rebuild.
+    if (m_runtime)
+    {
+        auto *doc = &m_runtime->document();
+        GUI::Scenario::SceneRepopulator::repopulate(doc, this);
+
+        qCDebug(lcGui) << "MainWindow::setRuntime:"
+                       << "regions=" << doc->regions.size()
+                       << "terminals=" << doc->terminals.size()
+                       << "connections=" << doc->connections.size();
+
+        // Auto-select the first loaded region so updateSceneVisibility
+        // hides non-current regions. Without this, every region's
+        // RegionCenterPoint and TerminalItems would stack visibly on
+        // the same regionScene (all regions share one scene; visibility
+        // is filtered by the current-region selector).
+        if (!doc->regions.isEmpty())
+        {
+            BasicButtonController::changeRegion(
+                this, doc->regions.firstKey());
+        }
+    }
+}
+
+void MainWindow::subscribeDocumentObservers()
+{
+    qCDebug(lcGui) << "MainWindow::subscribeDocumentObservers: wiring" << 15 << "observers";
+    using namespace Backend::Scenario;
+    if (!m_runtime) return;
+    auto *doc = &m_runtime->document();
+    auto *regionScene = regionScene_;
+
+    // Full rebuild on documentReset — same entry point used by
+    // File → Open Scenario (Task 19 when that lands).
+    connect(doc, &ScenarioDocument::documentReset,
+            this, [this, doc] {
+                GUI::Scenario::SceneRepopulator::repopulate(doc, this);
+            });
+
+    // Region lifecycle → RegionCenterPoint factory / removal.
+    connect(doc, &ScenarioDocument::regionAdded, this,
+            [this, doc, regionScene](const QString &name) {
+                auto it = doc->regions.find(name);
+                if (it != doc->regions.end())
+                    GUI::Scenario::RegionCenterPointFactory::fromRegionSpec(
+                        &it.value(), regionScene, this);
+            });
+    connect(doc, &ScenarioDocument::regionRemoved, this,
+            [regionScene](const QString &name) {
+                if (regionScene)
+                    regionScene->removeItemWithId<RegionCenterPoint>(name);
+            });
+
+    // Terminal lifecycle → TerminalItem factory / removal.
+    connect(doc, &ScenarioDocument::terminalAdded, this,
+            [this, doc, regionScene](const QString &id) {
+                auto it = doc->terminals.find(id);
+                if (it != doc->terminals.end())
+                    GUI::Scenario::TerminalItemFactory::fromPlacement(
+                        &it.value(), regionScene, this);
+            });
+    connect(doc, &ScenarioDocument::terminalRemoved, this,
+            [regionScene](const QString &id) {
+                if (regionScene)
+                    regionScene->removeItemWithId<TerminalItem>(id);
+            });
+
+    // Terminal data changed -> refresh the TerminalItem binding
+    // so role badge repaints and PropertiesPanel re-displays.
+    connect(doc, &ScenarioDocument::terminalChanged, this,
+            [this, doc, regionScene](const QString &id) {
+                qCDebug(lcGui)
+                    << "MainWindow: terminalChanged:" << id;
+                auto it = doc->terminals.find(id);
+                if (it == doc->terminals.end()) return;
+                auto *item =
+                    regionScene
+                        ? regionScene->getItemById<TerminalItem>(id)
+                        : nullptr;
+                if (item)
+                    item->setPlacement(&it.value());
+                // Refresh PropertiesPanel if it's showing
+                // this terminal.
+                if (item && selectedTerminal_ == item)
+                {
+                    propertiesPanel_->displayProperties(item);
+                }
+            });
+
+    // Connection property changed → refresh ConnectionLine
+    connect(doc, &ScenarioDocument::connectionChanged, this,
+        [this, regionScene](
+            const QString &fromId, const QString &toId,
+            Backend::TransportationTypes::TransportationMode
+                mode) {
+            qCDebug(lcGui)
+                << "MainWindow: connectionChanged:"
+                << fromId << "->" << toId;
+            for (auto *line :
+                 regionScene->getItemsByType<
+                     ConnectionLine>())
+            {
+                if (line->matchesConnection(
+                        fromId, toId, mode))
+                {
+                    line->refreshFromModel();
+                    break;
+                }
+            }
+            if (globalMapScene_)
+            {
+                for (auto *line :
+                     globalMapScene_->getItemsByType<
+                         ConnectionLine>())
+                {
+                    if (line->matchesConnection(
+                            fromId, toId, mode))
+                    {
+                        line->refreshFromModel();
+                        break;
+                    }
+                }
+            }
+        });
+
+    // GlobalLink property changed → refresh ConnectionLine
+    connect(doc, &ScenarioDocument::globalLinkChanged, this,
+        [this, regionScene](
+            const QString &fromId, const QString &toId,
+            Backend::TransportationTypes::TransportationMode
+                mode) {
+            qCDebug(lcGui)
+                << "MainWindow: globalLinkChanged:"
+                << fromId << "->" << toId;
+            for (auto *line :
+                 regionScene->getItemsByType<
+                     ConnectionLine>())
+            {
+                if (line->matchesConnection(
+                        fromId, toId, mode))
+                {
+                    line->refreshFromModel();
+                    break;
+                }
+            }
+            if (globalMapScene_)
+            {
+                for (auto *line :
+                     globalMapScene_->getItemsByType<
+                         ConnectionLine>())
+                {
+                    if (line->matchesConnection(
+                            fromId, toId, mode))
+                    {
+                        line->refreshFromModel();
+                        break;
+                    }
+                }
+            }
+        });
+
+    // Region data changed → refresh RegionCenterPoint
+    connect(doc, &ScenarioDocument::regionChanged, this,
+        [this, doc, regionScene](const QString &name) {
+            qCDebug(lcGui)
+                << "MainWindow: regionChanged:" << name;
+            auto *center =
+                regionScene
+                    ->getItemById<RegionCenterPoint>(name);
+            if (center)
+            {
+                auto it = doc->regions.find(name);
+                if (it != doc->regions.end())
+                    center->refreshFromSpec(&it.value());
+            }
+        });
+
+    // Linkage data changed → refresh MapPoint binding
+    connect(doc, &ScenarioDocument::linkageChanged, this,
+        [this, doc, regionScene](
+            const QString &terminalId,
+            const QString &networkName, int nodeId) {
+            qCDebug(lcGui)
+                << "MainWindow: linkageChanged:"
+                << terminalId << networkName << nodeId;
+            auto *mp = GUI::Scenario::MapPointFactory::
+                findByNetworkAndNode(
+                    regionScene, networkName, nodeId);
+            if (mp)
+            {
+                for (auto &l : doc->linkages)
+                {
+                    if (l.terminalId == terminalId
+                        && l.networkName == networkName
+                        && l.nodeId == nodeId)
+                    {
+                        mp->setLinkageModel(&l);
+                        break;
+                    }
+                }
+            }
+        });
+
+    // Linkage lifecycle → MapPoint factory / removal. The owning region
+    // is the one whose RegionData::findNetworkByName (Task 5.5) answers
+    // non-null for the linkage's networkName — one dispatch helper does
+    // the "rail or truck" disambiguation on our behalf.
+    connect(doc, &ScenarioDocument::linkageAdded, this,
+            [this, regionScene](const NodeLinkage &link) {
+                // Find-or-create. When a network has already been
+                // imported (legacy or factory path), its MapPoints live
+                // in the scene without a linkageModel. We bind them to
+                // the fresh NodeLinkage record here. If no MapPoint
+                // exists yet, fall through to the factory.
+                auto *mp = GUI::Scenario::MapPointFactory::findByNetworkAndNode(
+                    regionScene, link.networkName, link.nodeId);
+                // Look up the stored linkage pointer (signal delivers a
+                // copy; factory / model binding want a doc-owned ptr).
+                Backend::Scenario::NodeLinkage *stored = nullptr;
+                for (auto &s : m_runtime->document().linkages)
+                {
+                    if (s.terminalId  == link.terminalId
+                     && s.networkName == link.networkName
+                     && s.nodeId      == link.nodeId)
+                    {
+                        stored = &s;
+                        break;
+                    }
+                }
+                if (!mp)
+                {
+                    auto *rdc = CargoNetSim::CargoNetSimController
+                                    ::getInstance().getRegionDataController();
+                    if (!rdc || !regionScene || !stored) return;
+                    // Walk regions to find the one hosting this network
+                    // so the factory can project the node's coordinates.
+                    for (auto it = m_runtime->document().regions.begin();
+                         it != m_runtime->document().regions.end(); ++it)
+                    {
+                        auto *rd = rdc->getRegionData(it.key());
+                        if (!rd) continue;
+                        if (!rd->findNetworkByName(link.networkName)) continue;
+                        mp = GUI::Scenario::MapPointFactory::fromNodeLinkage(
+                            stored, rd, regionScene, this);
+                        break;
+                    }
+                    return;
+                }
+                // Existing MapPoint → bind model + visual terminal.
+                if (stored) mp->setLinkageModel(stored);
+                if (auto *term = regionScene
+                                    ->getItemById<TerminalItem>(
+                                        link.terminalId))
+                    mp->setLinkedTerminal(term);
+            });
+    connect(doc, &ScenarioDocument::linkageRemoved, this,
+            [regionScene](const QString &, const QString &networkName,
+                          int nodeId) {
+                // Unbind, don't delete. The MapPoint may outlive the
+                // linkage: legacy network-import paths create a
+                // MapPoint per node (linked or not). Removing the
+                // linkage returns the point to unlinked state; it
+                // stays visible until the network itself is removed.
+                auto *mp = GUI::Scenario::MapPointFactory::findByNetworkAndNode(
+                    regionScene, networkName, nodeId);
+                if (!mp) return;
+                mp->setLinkageModel(nullptr);
+                mp->setLinkedTerminal(nullptr);
+            });
+
+    // Connection lifecycle (region-local). The signal passes the
+    // connection by value; we look up the stored mutable pointer in the
+    // document (factory wants a non-owning pointer into doc->connections
+    // so ConnectionLine::connectionModel() can track it).
+    connect(doc, &ScenarioDocument::connectionAdded, this,
+            [this, regionScene](const Connection &c) {
+                if (!regionScene) return;
+                for (auto &stored : m_runtime->document().connections)
+                {
+                    if (stored.fromTerminalId == c.fromTerminalId
+                     && stored.toTerminalId   == c.toTerminalId
+                     && stored.mode           == c.mode)
+                    {
+                        GUI::Scenario::ConnectionLineFactory::fromConnection(
+                            &stored, regionScene, this);
+                        return;
+                    }
+                }
+            });
+    connect(doc, &ScenarioDocument::connectionRemoved, this,
+            [regionScene](const QString &from, const QString &to,
+                          Backend::TransportationTypes::TransportationMode mode) {
+                auto *line =
+                    GUI::Scenario::ConnectionLineFactory::findRegionConnection(
+                        regionScene, from, to, mode);
+                if (line && regionScene)
+                    regionScene->removeItemWithId<ConnectionLine>(
+                        line->sceneRegistryKey());
+            });
+
+    // GlobalLink lifecycle (cross-region, rendered in globalMapScene).
+    connect(doc, &ScenarioDocument::globalLinkAdded, this,
+            [this](const GlobalLink &g) {
+                if (!globalMapScene_) return;
+                for (auto &stored : m_runtime->document().globalLinks)
+                {
+                    if (stored.fromTerminalId == g.fromTerminalId
+                     && stored.toTerminalId   == g.toTerminalId
+                     && stored.mode           == g.mode)
+                    {
+                        GUI::Scenario::ConnectionLineFactory::fromGlobalLink(
+                            &stored, globalMapScene_, this);
+                        return;
+                    }
+                }
+            });
+    connect(doc, &ScenarioDocument::globalLinkRemoved, this,
+            [this](const QString &from, const QString &to,
+                   Backend::TransportationTypes::TransportationMode mode) {
+                auto *line =
+                    GUI::Scenario::ConnectionLineFactory::findGlobalLink(
+                        globalMapScene_, from, to, mode);
+                if (line && globalMapScene_)
+                    globalMapScene_->removeItemWithId<ConnectionLine>(
+                        line->sceneRegistryKey());
+            });
 }
 
 MainWindow::~MainWindow()
@@ -142,14 +556,15 @@ MainWindow::~MainWindow()
 
 void MainWindow::initializeUI()
 {
+    qCDebug(lcGui) << "MainWindow::initializeUI: begin";
     // Load the window icon
     QString imagePath      = ":/Logo25";
     auto    originalPixmap = QPixmap(imagePath);
 
     if (originalPixmap.isNull())
     {
-        qWarning() << "Failed to load logo image:"
-                   << imagePath;
+        qCWarning(lcGui) << "Failed to load logo image:"
+                         << imagePath;
         // Create a default splash pixmap
         originalPixmap = QPixmap(25, 25);
         originalPixmap.fill(Qt::white);
@@ -167,6 +582,7 @@ void MainWindow::initializeUI()
         setWindowIcon(appIcon);
     }
 
+    qCDebug(lcGui) << "MainWindow::initializeUI: scene creation";
     // Create tab widget for main view and global map
     tabWidget_ = new QTabWidget(this);
     tabWidget_->setTabsClosable(false);
@@ -209,17 +625,21 @@ void MainWindow::initializeUI()
 
     // Setup connection menu
     connectionMenu_ = new QMenu(this);
-    connectionTypes_ << "Truck" << "Rail" << "Ship";
-    currentConnectionType_ = "Truck";
+    using Mode = Backend::TransportationTypes::TransportationMode;
+    connectionTypes_ << Mode::Truck << Mode::Train << Mode::Ship;
+    currentConnectionType_ = Mode::Truck;
 
-    // Add connection types to menu
-    for (const QString &connType : connectionTypes_)
+    // Add connection types to menu. Use the display-friendly
+    // capitalized form from `TransportationTypes::toString` for the
+    // action label (users see "Truck" / "Train" / "Ship"), and keep
+    // the enum value in the triggered lambda.
+    for (Mode connType : connectionTypes_)
     {
-        QAction *action =
-            connectionMenu_->addAction(connType);
+        QAction *action = connectionMenu_->addAction(
+            Backend::TransportationTypes::toString(connType));
         action->setCheckable(true);
         connect(action, &QAction::triggered,
-                [this, connType](bool checked) {
+                [this, connType](bool) {
                     setConnectionType(connType);
                 });
     }
@@ -230,9 +650,11 @@ void MainWindow::initializeUI()
     // Setup docks
     setupDocks();
 
+    qCDebug(lcGui) << "MainWindow::initializeUI: toolbar setup";
     // Setup toolbar
     ToolbarController::setupToolbar(this);
 
+    qCDebug(lcGui) << "MainWindow::initializeUI: status bar setup";
     // Setup status bar
     setupStatusBar();
 
@@ -242,6 +664,7 @@ void MainWindow::initializeUI()
 
 void MainWindow::setupRegionMapScene()
 {
+    qCDebug(lcGui) << "MainWindow::setupRegionMapScene: begin";
     // Setup scene and view
     regionScene_ = new GraphicsScene(this);
     regionView_  = new GraphicsView(regionScene_);
@@ -254,6 +677,7 @@ void MainWindow::setupRegionMapScene()
 
 void MainWindow::setupGlobalMapScene()
 {
+    qCDebug(lcGui) << "MainWindow::setupGlobalMapScene: begin";
     globalMapScene_ = new GraphicsScene(this);
     globalMapView_  = new GraphicsView(globalMapScene_);
 
@@ -268,6 +692,7 @@ void MainWindow::setupGlobalMapScene()
 
 void MainWindow::setupDocks()
 {
+    qCDebug(lcGui) << "MainWindow::setupDocks: begin";
     // Properties panel dock
     propertiesDock_  = new QDockWidget("Properties", this);
     propertiesPanel_ = new PropertiesPanel(this);
@@ -365,6 +790,7 @@ void MainWindow::setupRegionManager()
 
 void MainWindow::setupLoggingTab()
 {
+    qCDebug(lcGui) << "MainWindow::setupLoggingTab: begin";
     // Create main layout for logging tab
     QGridLayout *layout = new QGridLayout(loggingTab_);
 
@@ -444,66 +870,27 @@ void MainWindow::setupLoggingTab()
 
 void MainWindow::startQueueProcessing()
 {
-    // Create timers for processing queues
-    logTimer_ = new QTimer(this);
-    connect(logTimer_, &QTimer::timeout, this,
-            &MainWindow::processLogQueue);
-    logTimer_->start(100);
+    // Direct signal connections replace the old timer-based
+    // polling. ApplicationLogger emits signals from the main
+    // thread after processing its event queue.
+    connect(ApplicationLogger::getInstance(),
+            &ApplicationLogger::newLogMessage, this,
+            &MainWindow::appendLog);
 
-    progressTimer_ = new QTimer(this);
-    connect(progressTimer_, &QTimer::timeout, this,
-            &MainWindow::processProgressQueue);
-    progressTimer_->start(100);
+    connect(
+        ApplicationLogger::getInstance(),
+        &ApplicationLogger::progressUpdated, this,
+        [this](int progress, int clientIndex) {
+            if (clientIndex >= 0
+                && clientIndex < progressBars_.size())
+                progressBars_[clientIndex]->setValue(
+                    progress);
+        });
 }
 
-void MainWindow::processLogQueue()
-{
-    // while (!ApplicationLogger::logQueueEmpty()) {
-    //     ApplicationLogger::LogMessage message =
-    //     ApplicationLogger::getNextLogMessage();
+void MainWindow::processLogQueue() {}
 
-    //     // Add to appropriate log widget in the logging
-    //     tab appendLog(message.text, message.widgetIndex,
-    //     message.isError);
-
-    //     // Also display important messages in the status
-    //     bar if (message.isError) {
-    //         // Show errors in the backend message area
-    //         with red color
-    //         updateBackendMessage(message.text, "error",
-    //         8000);
-    //     } else if
-    //     (message.text.toLower().contains("created") ||
-    //                message.text.toLower().contains("established")
-    //                ||
-    //                message.text.toLower().contains("success")
-    //                ||
-    //                message.text.toLower().contains("connected")
-    //                ||
-    //                message.text.toLower().contains("added"))
-    //                {
-    //         // Show success messages
-    //         updateBackendMessage(message.text, "success",
-    //         5000);
-    //     } else if (message.text.startsWith("Message
-    //     Sent:")) {
-    //         // Show API calls
-    //         updateBackendMessage(message.text, "info",
-    //         3000);
-    //     }
-    // }
-}
-
-void MainWindow::processProgressQueue()
-{
-    // while (!ApplicationLogger::progressQueueEmpty()) {
-    //     ApplicationLogger::ProgressInfo progress =
-    //     ApplicationLogger::getNextProgressUpdate(); if
-    //     (progress.clientIndex < progressBars_.size()) {
-    //         progressBars_[progress.clientIndex]->setValue(progress.value);
-    //     }
-    // }
-}
+void MainWindow::processProgressQueue() {}
 
 void MainWindow::appendLog(const QString &message,
                            int widgetIndex, bool isError)
@@ -697,20 +1084,20 @@ void MainWindow::setupStatusBar()
 }
 
 void MainWindow::setConnectionType(
-    const QString &connectionType)
+    Backend::TransportationTypes::TransportationMode connectionType)
 {
     currentConnectionType_ = connectionType;
 
-    // Uncheck all other actions
+    // Uncheck all other actions — actions were labelled with the
+    // display string via TransportationTypes::toString, so we match
+    // on that.
+    const QString currentLabel =
+        Backend::TransportationTypes::toString(connectionType);
     for (QAction *action : connectionMenu_->actions())
-    {
-        action->setChecked(action->text()
-                           == connectionType);
-    }
+        action->setChecked(action->text() == currentLabel);
 
     showStatusBarMessage(
-        QString("Connection type set to: %1")
-            .arg(connectionType),
+        QString("Connection type set to: %1").arg(currentLabel),
         2000);
 }
 
@@ -972,6 +1359,45 @@ void MainWindow::stopStatusProgress()
     }
 }
 
+// ---------------------------------------------------------------------------
+// StatusReporter overrides
+// ---------------------------------------------------------------------------
+
+void MainWindow::showMessage(const QString &msg, int ms)
+{
+    showStatusBarMessage(msg, ms);
+}
+
+void MainWindow::showError(const QString &msg, int ms)
+{
+    showStatusBarError(msg, ms);
+}
+
+void MainWindow::startProgress()
+{
+    startStatusProgress();
+}
+
+void MainWindow::stopProgress()
+{
+    stopStatusProgress();
+}
+
+void MainWindow::storeButtons()
+{
+    ToolbarController::storeButtonStates(this);
+}
+
+void MainWindow::disableButtons()
+{
+    ToolbarController::disableAllButtons(this);
+}
+
+void MainWindow::restoreButtons()
+{
+    ToolbarController::restoreButtonStates(this);
+}
+
 void MainWindow::processMessageQueue()
 {
     // If already processing a message, do nothing
@@ -1189,7 +1615,7 @@ void MainWindow::toggleShortestPathsTable(bool show)
     // }
 }
 
-void MainWindow::showError(const QString &errorText)
+void MainWindow::showErrorDialog(const QString &errorText)
 {
     QMessageBox msg;
     msg.setIcon(QMessageBox::Critical);
@@ -1258,6 +1684,7 @@ void MainWindow::clearBackendMessage()
 
 void MainWindow::shutdown()
 {
+    qCInfo(lcGui) << "MainWindow::shutdown: begin";
     // Signal application shutdown
     QApplication::quit();
 }
@@ -1324,7 +1751,7 @@ void MainWindow::assignSelectedToCurrentRegion()
         }
     }
 
-    // ViewController::updateSceneVisibility(this);
+    // sceneVisibility()->updateSceneVisibility();
     // ViewController::updateGlobalMapScene(this);
     showStatusBarMessage(
         "Selected items assigned to current region.", 2000);
@@ -1464,7 +1891,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
                                 globalMapScene_
                                     ->removeItemWithId<
                                         ConnectionLine>(
-                                        line->getID());
+                                        line->sceneRegistryKey());
                             }
                         }
 
@@ -1474,7 +1901,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
                             globalMapScene_
                                 ->removeItemWithId<
                                     GlobalTerminalItem>(
-                                    globalItem->getID());
+                                    globalItem->sceneRegistryKey());
                         }
                     }
                 }
@@ -1490,7 +1917,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
                             || line->endItem() == item))
                     {
                         currentScene->removeItemWithId<
-                            ConnectionLine>(line->getID());
+                            ConnectionLine>(line->sceneRegistryKey());
                     }
                 }
 
@@ -1512,7 +1939,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
                 {
                     currentScene
                         ->removeItemWithId<TerminalItem>(
-                            terminal->getID());
+                            terminal->sceneRegistryKey());
                 }
             }
             // Handle connection lines
@@ -1524,7 +1951,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
                 {
                     currentScene
                         ->removeItemWithId<ConnectionLine>(
-                            line->getID());
+                            line->sceneRegistryKey());
                 }
             }
             // Handle background photos
@@ -1536,7 +1963,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
                 {
                     currentScene->removeItemWithId<
                         BackgroundPhotoItem>(
-                        photo->getID());
+                        photo->sceneRegistryKey());
                 }
             }
             // Handle other item types as needed
@@ -1604,6 +2031,414 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     else
     {
         CustomMainWindow::keyPressEvent(event);
+    }
+}
+
+void MainWindow::flashPathLines(int pathId)
+{
+    if (!shortestPathTable_)
+    {
+        return;
+    }
+
+    // Get the selected path data
+    const ShortestPathsTable::PathData *pathData =
+        shortestPathTable_->getDataByPathId(pathId);
+
+    if (!pathData || !pathData->path)
+    {
+        qCWarning(lcGui)
+            << "Cannot flash path: Invalid path data for ID"
+            << pathId;
+        return;
+    }
+
+    // Get segments and terminals from the path
+    const QList<Backend::PathSegment *> &segments =
+        pathData->path->getSegments();
+    const QList<Backend::Terminal *> &terminals =
+        pathData->path->getTerminalsInPath();
+
+    // Process each segment
+    for (int i = 0; i < segments.size(); ++i)
+    {
+        Backend::PathSegment *segment = segments[i];
+        if (!segment)
+            continue;
+
+        // Get terminals for this segment
+        Backend::Terminal *startTerminal = terminals[i];
+        Backend::Terminal *endTerminal   = terminals[i + 1];
+
+        if (!startTerminal || !endTerminal)
+        {
+            qCWarning(lcGui) << "Cannot flash path: Missing "
+                                "terminals for segment"
+                             << i;
+            continue;
+        }
+
+        // Find corresponding terminal items in the scene
+        TerminalItem *startTerminalItem = nullptr;
+        TerminalItem *endTerminalItem   = nullptr;
+
+        for (auto terminal :
+             regionScene_->getItemsByType<TerminalItem>())
+        {
+            QString terminalName =
+                terminal->getProperty("Name").toString();
+
+            if (terminalName
+                == startTerminal->getDisplayName())
+            {
+                startTerminalItem = terminal;
+            }
+            else if (terminalName
+                     == endTerminal->getDisplayName())
+            {
+                endTerminalItem = terminal;
+            }
+
+            if (startTerminalItem && endTerminalItem)
+                break;
+        }
+
+        if (!startTerminalItem || !endTerminalItem)
+        {
+            qCWarning(lcGui) << "Cannot flash path: Unable to "
+                                "find terminal items for segment"
+                             << i;
+            continue;
+        }
+
+        // Get transportation mode
+        const Backend::TransportationTypes::TransportationMode
+            segmentMode = segment->getMode();
+
+        // Find connection line between these terminals
+        ConnectionLine *connection = nullptr;
+        for (auto line :
+             regionScene_->getItemsByType<ConnectionLine>())
+        {
+            if (((line->startItem() == startTerminalItem
+                  && line->endItem() == endTerminalItem)
+                 || (line->startItem() == endTerminalItem
+                     && line->endItem()
+                            == startTerminalItem))
+                && line->connectionType() == segmentMode)
+            {
+                connection = line;
+                break;
+            }
+        }
+
+        if (!connection)
+        {
+            qCWarning(lcGui) << "Cannot flash path: Unable to "
+                                "find connection line for segment"
+                             << i;
+            continue;
+        }
+
+        // If ship mode, flash the connection line only
+        if (segmentMode
+            == Backend::TransportationTypes::
+                TransportationMode::Ship)
+        {
+            // Flash the connection line
+            connection->flash(
+                true,
+                QColor(Qt::blue)); // Blue for ship
+        }
+        // For train or truck, flash the network map lines
+        else
+        {
+            // Determine network type
+            NetworkType networkType;
+            if (segmentMode
+                == Backend::TransportationTypes::
+                    TransportationMode::Train)
+            {
+                networkType = NetworkType::Train;
+                // Choose dark gray for train
+                QColor flashColor = QColor(80, 80, 80);
+            }
+            else if (segmentMode
+                     == Backend::TransportationTypes::
+                         TransportationMode::Truck)
+            {
+                networkType = NetworkType::Truck;
+                // Choose magenta for truck
+                QColor flashColor = QColor(255, 0, 255);
+            }
+
+            QString regionName =
+                startTerminalItem->getRegion();
+
+            // Get map points for both terminals
+            QList<MapPoint *> sourcePoints =
+                UtilitiesFunctions::getMapPointsOfTerminal(
+                    regionScene_, startTerminalItem,
+                    regionName, "*", networkType);
+
+            QList<MapPoint *> targetPoints =
+                UtilitiesFunctions::getMapPointsOfTerminal(
+                    regionScene_, endTerminalItem,
+                    regionName, "*", networkType);
+
+            // Find matching network points
+            auto networkPairs = UtilitiesFunctions::
+                getCommonNetworksOfNetworkType(sourcePoints,
+                                               targetPoints,
+                                               networkType);
+
+            if (networkPairs.isEmpty())
+            {
+                qCWarning(lcGui)
+                    << "Cannot flash path: No common "
+                       "network points found for segment"
+                    << i;
+                continue;
+            }
+
+            // Take the first pair
+            MapPoint *sourcePoint =
+                networkPairs.first().first;
+            MapPoint *targetPoint =
+                networkPairs.first().second;
+
+            if (!sourcePoint || !targetPoint)
+            {
+                qCWarning(lcGui) << "Cannot flash path: Invalid "
+                                    "network points";
+                continue;
+            }
+
+            // Get network information
+            QObject *networkObj =
+                sourcePoint->getReferenceNetwork();
+            if (!networkObj)
+            {
+                qCWarning(lcGui) << "Cannot flash path: Unable "
+                                    "to get reference network";
+                continue;
+            }
+
+            Backend::NetworkKind kind{};
+            const QString        networkName =
+                Backend::Scenario::NetworkLookup::networkNameOf(
+                    networkObj, &kind);
+            // Sanity: the point's referenced network must match the
+            // flash-path's declared network type.
+            const bool kindMatches =
+                !networkName.isEmpty()
+                && ((networkType == NetworkType::Train
+                     && kind == Backend::NetworkKind::Rail)
+                    || (networkType == NetworkType::Truck
+                        && kind == Backend::NetworkKind::Truck));
+            if (!kindMatches)
+            {
+                qCWarning(lcGui) << "Cannot flash path: network type "
+                                    "mismatch between point and path";
+                continue;
+            }
+
+            if (networkName.isEmpty())
+            {
+                qCWarning(lcGui) << "Cannot flash path: Unable "
+                                    "to determine network name";
+                continue;
+            }
+
+            // Get node IDs
+            QString sourceNodeId =
+                sourcePoint->getReferencedNetworkNodeID();
+            QString targetNodeId =
+                targetPoint->getReferencedNetworkNodeID();
+
+            bool validSourceID, validTargetID;
+            int  sourceID =
+                sourceNodeId.toInt(&validSourceID);
+            int targetID =
+                targetNodeId.toInt(&validTargetID);
+
+            if (!validSourceID || !validTargetID)
+            {
+                qCWarning(lcGui) << "Cannot flash path: Invalid "
+                                    "node IDs";
+                continue;
+            }
+
+            // Get map lines for the shortest path
+            QList<MapLine *> pathMapLines =
+                NetworkController::getShortestPathMapLines(
+                    this, regionName, networkName,
+                    networkType, sourceID, targetID);
+
+            // Flash each map line with appropriate color
+            QColor flashColor =
+                (networkType == NetworkType::Train)
+                    ? QColor(Qt::darkGray) // Dark gray for
+                                           // train
+                    : QColor(
+                          Qt::magenta); // Magenta for truck
+
+            for (MapLine *mapLine : pathMapLines)
+            {
+                mapLine->flash(false, flashColor);
+            }
+        }
+    }
+}
+
+void MainWindow::addBackgroundPhoto()
+{
+    try
+    {
+        // Open file dialog (using non-native dialog for
+        // consistency)
+        QString fileName = QFileDialog::getOpenFileName(
+            nullptr, "Select Background Photo", "",
+            "Images (*.png *.jpg *.bmp)", nullptr,
+            QFileDialog::DontUseNativeDialog);
+
+        if (fileName.isEmpty())
+        {
+            return;
+        }
+
+        QPixmap pixmap(fileName);
+        if (pixmap.isNull())
+        {
+            QMessageBox::warning(this, "Error",
+                                 "Failed to load image.");
+            return;
+        }
+
+        // Check which tab is currently active
+        if (tabWidget_->currentWidget()
+            == tabWidget_->widget(0))
+        { // Main view tab
+            // Create a new BackgroundPhotoItem for the main
+            // view
+            QString currentRegion =
+                CargoNetSim::CargoNetSimController::
+                    getInstance()
+                        .getRegionDataController()
+                        ->getCurrentRegion();
+            BackgroundPhotoItem *background =
+                new BackgroundPhotoItem(pixmap,
+                                        currentRegion);
+            QObject::connect(
+                background, &BackgroundPhotoItem::clicked,
+                [this](BackgroundPhotoItem *item) {
+                    UtilitiesFunctions::
+                        updatePropertiesPanel(this, item);
+                });
+            QObject::connect(
+                background,
+                &BackgroundPhotoItem::positionChanged,
+                [background,
+                 this](const QPointF &pos) {
+                    if (propertiesPanel_->getCurrentItem()
+                        == background)
+                    {
+                        propertiesPanel_
+                            ->updatePositionFields(pos);
+                    }
+                });
+
+            // Place the photo at the center of the main
+            // view
+            QPointF viewCenter =
+                regionView_->mapToScene(
+                    regionView_->viewport()
+                        ->rect()
+                        .center());
+
+            double lat, lon;
+            auto   wgsPoint =
+                regionView_->sceneToWGS84(viewCenter);
+            lat = wgsPoint.x();
+            lon = wgsPoint.y();
+            background->getProperties()["Latitude"] =
+                QString::number(lat, 'f', 6);
+            background->getProperties()["Longitude"] =
+                QString::number(lon, 'f', 6);
+            background->setPos(viewCenter);
+
+            regionScene_->addItemWithId(
+                background, background->sceneRegistryKey());
+
+            CargoNetSim::CargoNetSimController::
+                getInstance()
+                    .getRegionDataController()
+                    ->setRegionVariable(
+                        currentRegion,
+                        "backgroundPhotoItem",
+                        QVariant::fromValue(background));
+        }
+        else
+        { // Global map tab
+            // Create a new BackgroundPhotoItem for the
+            // global map
+            BackgroundPhotoItem *background =
+                new BackgroundPhotoItem(pixmap, "global");
+            QObject::connect(
+                background, &BackgroundPhotoItem::clicked,
+                [this](BackgroundPhotoItem *item) {
+                    UtilitiesFunctions::
+                        updatePropertiesPanel(this, item);
+                });
+            QObject::connect(
+                background,
+                &BackgroundPhotoItem::positionChanged,
+                [background, this](const QPointF &pos) {
+                    if (propertiesPanel_->getCurrentItem()
+                        == background)
+                    {
+                        propertiesPanel_
+                            ->updatePositionFields(pos);
+                    }
+                });
+
+            // Place the photo at the center of the global
+            // map view
+            QPointF viewCenter =
+                globalMapView_->mapToScene(
+                    globalMapView_->viewport()
+                        ->rect()
+                        .center());
+
+            double lat, lon;
+            auto   wgsPoint =
+                regionView_->sceneToWGS84(viewCenter);
+            lon = wgsPoint.x();
+            lat = wgsPoint.y();
+            background->getProperties()["Latitude"] =
+                QString::number(lat, 'f', 6);
+            background->getProperties()["Longitude"] =
+                QString::number(lon, 'f', 6);
+            background->setPos(viewCenter);
+
+            globalMapScene_->addItemWithId(
+                background, background->sceneRegistryKey());
+            CargoNetSim::CargoNetSimController::
+                getInstance()
+                    .getRegionDataController()
+                    ->setGlobalVariable(
+                        "globalBackgroundPhotoItem",
+                        QVariant::fromValue(background));
+        }
+    }
+    catch (const std::exception &e)
+    {
+        qCWarning(lcGui) << "Error in addBackgroundPhoto:"
+                         << e.what();
+        QMessageBox::warning(
+            this, "Error",
+            QString("Failed to add background photo: %1")
+                .arg(e.what()));
     }
 }
 

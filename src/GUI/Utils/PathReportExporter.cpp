@@ -17,6 +17,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QtCore/QtCore>
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -34,6 +35,8 @@ bool PathReportExporter::exportSinglePath(
 {
     if (!pathData || !pathData->path)
     {
+        qCWarning(lcGuiUtil) << "PathReportExporter::exportSinglePath:"
+                             << "null pathData or path";
         return false;
     }
 
@@ -57,14 +60,14 @@ bool PathReportExporter::exportSinglePath(
         }
         catch (const std::exception &e)
         {
-            qWarning()
+            qCWarning(lcGuiUtil)
                 << "Failed to export report:" << e.what();
             return false;
         }
     }
     else
     {
-        qWarning() << "Failed to export report:";
+        qCWarning(lcGuiUtil) << "Failed to export report:";
         return false;
     }
 }
@@ -76,6 +79,8 @@ bool PathReportExporter::exportMultiplePaths(
 {
     if (pathData.isEmpty())
     {
+        qCWarning(lcGuiUtil) << "PathReportExporter::exportMultiplePaths:"
+                             << "empty pathData list";
         return false;
     }
 
@@ -95,14 +100,14 @@ bool PathReportExporter::exportMultiplePaths(
         }
         catch (const std::exception &e)
         {
-            qWarning()
+            qCWarning(lcGuiUtil)
                 << "Failed to export report:" << e.what();
             return false;
         }
     }
     else
     {
-        qWarning() << "Failed to export report:";
+        qCWarning(lcGuiUtil) << "Failed to export report:";
         return false;
     }
 }
@@ -129,6 +134,8 @@ bool PathReportExporter::exportPathsWithDialog(
     if (filePath.isEmpty())
     {
         // User canceled
+        qCDebug(lcGuiUtil) << "PathReportExporter::exportPathsWithDialog:"
+                           << "user cancelled file dialog";
         return false;
     }
 
@@ -167,6 +174,8 @@ bool PathReportExporter::previewReport(
 {
     if (pathData.isEmpty())
     {
+        qCWarning(lcGuiUtil) << "PathReportExporter::previewReport:"
+                             << "empty pathData list";
         QMessageBox::warning(
             parent, tr("Preview Error"),
             tr("No path data available to preview."));
@@ -183,6 +192,8 @@ bool PathReportExporter::previewReport(
 
         if (!tempFile.open())
         {
+            qCWarning(lcGuiUtil) << "PathReportExporter::previewReport:"
+                                 << "failed to create temp file";
             QMessageBox::critical(
                 parent, tr("Preview Error"),
                 tr("Failed to create temporary file for "
@@ -195,6 +206,8 @@ bool PathReportExporter::previewReport(
         auto report = generator.generateReport();
         if (!report)
         {
+            qCWarning(lcGuiUtil) << "PathReportExporter::previewReport:"
+                                 << "report generation returned null";
             QMessageBox::critical(
                 parent, tr("Preview Error"),
                 tr("Failed to generate report for "

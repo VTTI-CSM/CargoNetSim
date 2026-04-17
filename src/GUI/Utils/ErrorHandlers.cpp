@@ -11,6 +11,7 @@
 #include <QThreadPool>
 #include <exception>
 #include <iostream>
+#include "Backend/Commons/LogCategories.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -44,6 +45,8 @@ ErrorHandlers &ErrorHandlers::getInstance()
 
 void ErrorHandlers::installExceptionHandlers()
 {
+    qCInfo(lcGuiUtil) << "ErrorHandlers::installExceptionHandlers:"
+                      << "installing handlers";
     // Set the Qt message handler
     qInstallMessageHandler(qtMessageHandler);
 
@@ -107,7 +110,7 @@ void ErrorHandlers::installExceptionHandlers()
     // For Qt6, we don't have direct thread pool exception
     // handling Instead log a message about proper thread
     // handling
-    qDebug() << "Exception handlers installed!";
+    qCInfo(lcGuiUtil) << "Exception handlers installed!";
 }
 
 void ErrorHandlers::handleException(
@@ -234,9 +237,13 @@ void ErrorHandlers::writeToErrorLog(
         stream << errorText << "\n";
 
         logFile.close();
+        // NOTE: Cannot use qCDebug here -- this function is
+        // called from qtMessageHandler and would recurse.
     }
     else
     {
+        // NOTE: Cannot use qCWarning here -- this function is
+        // called from qtMessageHandler and would recurse.
         std::cerr << "Failed to write to error log: "
                   << logPath.toStdString() << std::endl;
     }

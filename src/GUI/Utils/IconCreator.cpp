@@ -1,4 +1,7 @@
 #include "IconCreator.h"
+
+#include "Backend/Commons/LogCategories.h"
+
 #include <QBrush>
 #include <QColor>
 #include <QFont>
@@ -27,6 +30,7 @@ namespace IconFactory
 //------------------------------------------------------------------------------
 QMap<QString, QPixmap> createTerminalIcons()
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createTerminalIcons()";
     QMap<QString, QPixmap> icons;
 
     // Define modern colors
@@ -36,45 +40,6 @@ QMap<QString, QPixmap> createTerminalIcons()
     QColor intermodal_orange("#FB8C00"); // Material Orange
     QColor train_gray("#424242");  // Material Dark Gray
     QColor truck_green("#2E7D32"); // Material Green
-
-    // --- Origin (Modern circular design with subtle
-    // gradient) ---
-    {
-        QPixmap pixmap(32, 32);
-        pixmap.fill(Qt::transparent);
-        QPainter painter(&pixmap);
-        painter.setRenderHint(QPainter::Antialiasing);
-        QLinearGradient gradient(8, 8, 24, 24);
-        gradient.setColorAt(0, origin_red);
-        gradient.setColorAt(1, origin_red.darker(120));
-        painter.setBrush(gradient);
-        painter.setPen(QPen(Qt::black, 1));
-        painter.drawEllipse(8, 8, 16, 16);
-        painter.end();
-        icons.insert("Origin", pixmap);
-    }
-
-    // --- Destination (Modern marker design) ---
-    {
-        QPixmap pixmap(32, 32);
-        pixmap.fill(Qt::transparent);
-        QPainter painter(&pixmap);
-        painter.setRenderHint(QPainter::Antialiasing);
-        QPainterPath path;
-        path.moveTo(16, 4);
-        path.lineTo(24, 20);
-        path.lineTo(16, 16);
-        path.lineTo(8, 20);
-        path.closeSubpath();
-        QLinearGradient gradient(16, 4, 16, 20);
-        gradient.setColorAt(0, dest_blue);
-        gradient.setColorAt(1, dest_blue.darker(120));
-        painter.setBrush(gradient);
-        painter.setPen(QPen(Qt::black, 1));
-        painter.drawPath(path);
-        painter.end();
-        icons.insert("Destination", pixmap);
-    }
 
     // --- Sea Port Terminal (Ship and container design) ---
     {
@@ -170,6 +135,32 @@ QMap<QString, QPixmap> createTerminalIcons()
         icons.insert("Truck Parking", pixmap);
     }
 
+    // --- Facility (Factory / Warehouse) ---
+    {
+        QPixmap pixmap(32, 32);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QColor brown(0x5D, 0x40, 0x37);
+        painter.setBrush(brown);
+        painter.setPen(QPen(Qt::black, 1));
+        painter.drawRect(6, 8, 20, 20);
+        QColor lightBrown(0x79, 0x55, 0x48);
+        painter.setBrush(lightBrown);
+        painter.drawRect(13, 16, 6, 12);
+        // Roof
+        QPolygon roof;
+        roof << QPoint(4, 8) << QPoint(16, 2)
+             << QPoint(28, 8);
+        painter.setBrush(QColor(0x3E, 0x27, 0x23));
+        painter.drawPolygon(roof);
+        painter.end();
+        icons.insert(QStringLiteral("Facility"), pixmap);
+        qCDebug(lcGuiUtil)
+            << "IconCreator::createTerminalIcons: Facility"
+            << "size=" << pixmap.size();
+    }
+
     return icons;
 }
 
@@ -178,6 +169,7 @@ QMap<QString, QPixmap> createTerminalIcons()
 //------------------------------------------------------------------------------
 QPixmap createConnectTerminalsPixmap(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createConnectTerminalsPixmap() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -199,6 +191,7 @@ QPixmap createConnectTerminalsPixmap(int size)
 //------------------------------------------------------------------------------
 QPixmap createAssignSelectedToCurrentRegionPixmap(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createAssignSelectedToCurrentRegionPixmap() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -245,6 +238,7 @@ QPixmap createAssignSelectedToCurrentRegionPixmap(int size)
 //------------------------------------------------------------------------------
 QPixmap createSetBackgroundColorPixmap(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createSetBackgroundColorPixmap() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -268,6 +262,7 @@ QPixmap createSetBackgroundColorPixmap(int size)
 //------------------------------------------------------------------------------
 QPixmap createMeasureDistancePixmap(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createMeasureDistancePixmap() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -293,6 +288,7 @@ QPixmap createMeasureDistancePixmap(int size)
 //------------------------------------------------------------------------------
 QPixmap createClearMeasurementsPixmap(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createClearMeasurementsPixmap() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -326,6 +322,7 @@ QPixmap createClearMeasurementsPixmap(int size)
 //------------------------------------------------------------------------------
 QPixmap createPropertiesIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createPropertiesIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -350,6 +347,7 @@ QPixmap createPropertiesIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createFreightTerminalLibraryIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createFreightTerminalLibraryIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -380,6 +378,7 @@ QPixmap createFreightTerminalLibraryIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createRegionManagerIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createRegionManagerIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -430,6 +429,7 @@ QPixmap createRegionManagerIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createSimulationSettingsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createSimulationSettingsIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -461,6 +461,7 @@ QPixmap createSimulationSettingsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createShowHideGridIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createShowHideGridIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -506,6 +507,7 @@ QPixmap createShowHideGridIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createFreightTrainIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createFreightTrainIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -629,6 +631,7 @@ QPixmap createFreightTrainIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createFreightTruckIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createFreightTruckIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -735,6 +738,7 @@ QPixmap createFreightTruckIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createNetworkManagerIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createNetworkManagerIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -790,6 +794,7 @@ QPixmap createNetworkManagerIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createLinkTerminalIcon()
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createLinkTerminalIcon()";
     QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -808,6 +813,7 @@ QPixmap createLinkTerminalIcon()
 //------------------------------------------------------------------------------
 QPixmap createUnlinkTerminalIcon()
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createUnlinkTerminalIcon()";
     QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -830,6 +836,7 @@ QPixmap createUnlinkTerminalIcon()
 //------------------------------------------------------------------------------
 QPixmap createLinkTerminalsToNetworkIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createLinkTerminalsToNetworkIcon() size=" << size;
     // Start with the base link terminal icon
     QPixmap pixmap = createLinkTerminalIcon();
 
@@ -853,6 +860,7 @@ QPixmap createLinkTerminalsToNetworkIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createUnlinkTerminalsToNetworkIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createUnlinkTerminalsToNetworkIcon() size=" << size;
     // Start with the base link terminal icon
     QPixmap pixmap = createUnlinkTerminalIcon();
 
@@ -876,6 +884,7 @@ QPixmap createUnlinkTerminalsToNetworkIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createAutoConnectTerminalsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createAutoConnectTerminalsIcon() size=" << size;
     QPixmap  pixmap = createConnectTerminalsPixmap(size);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -893,6 +902,7 @@ QPixmap createAutoConnectTerminalsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createConnectByInterfaceIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createConnectByInterfaceIcon() size=" << size;
     QPixmap  pixmap = createConnectTerminalsPixmap(size);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -923,6 +933,7 @@ QPixmap createConnectByInterfaceIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createCheckNetworkIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createCheckNetworkIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -978,6 +989,7 @@ QPixmap createCheckNetworkIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createMoveNetworkIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createMoveNetworkIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1046,6 +1058,7 @@ QPixmap createMoveNetworkIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createUnconnectTerminalsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createUnconnectTerminalsIcon() size=" << size;
     QPixmap  pixmap = createConnectTerminalsPixmap(size);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -1065,6 +1078,7 @@ QPixmap createUnconnectTerminalsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createSettingsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createSettingsIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1133,6 +1147,7 @@ QPixmap createSettingsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createNewProjectIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createNewProjectIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1168,6 +1183,7 @@ QPixmap createNewProjectIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createOpenProjectIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createOpenProjectIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1201,6 +1217,7 @@ QPixmap createOpenProjectIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createSaveProjectIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createSaveProjectIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1233,6 +1250,7 @@ QPixmap createSaveProjectIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createShortestPathsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createShortestPathsIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1293,6 +1311,7 @@ QPixmap createShortestPathsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createVerifySimulationIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createVerifySimulationIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1365,6 +1384,7 @@ QPixmap createVerifySimulationIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createPanModeIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createPanModeIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1459,6 +1479,7 @@ QPixmap createPanModeIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createShowHideTerminalsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createShowHideTerminalsIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1524,6 +1545,7 @@ QPixmap createShowHideTerminalsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createShowHideConnectionsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createShowHideConnectionsIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1622,6 +1644,7 @@ QPixmap createShowHideConnectionsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createShowEyeIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createShowEyeIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1686,6 +1709,7 @@ QPixmap createShowEyeIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createShowHidePathsTableIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createShowHidePathsTableIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1789,6 +1813,7 @@ QPixmap createShowHidePathsTableIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createThickWhiteArrowPixmap(int size, int width)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createThickWhiteArrowPixmap() size=" << size;
     QPixmap pixmap(width, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1823,6 +1848,7 @@ QPixmap createThickWhiteArrowPixmap(int size, int width)
 //------------------------------------------------------------------------------
 QPixmap createThickWhiteLinePixmap(int size, int width)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createThickWhiteLinePixmap() size=" << size;
     QPixmap pixmap(width, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1844,6 +1870,7 @@ QPixmap createThickWhiteLinePixmap(int size, int width)
 //------------------------------------------------------------------------------
 QPixmap createImportTrainsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createImportTrainsIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1895,6 +1922,7 @@ QPixmap createImportTrainsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createDeleteTrainIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createDeleteTrainIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1926,6 +1954,7 @@ QPixmap createDeleteTrainIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createImportShipsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createImportShipsIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -1982,6 +2011,7 @@ QPixmap createImportShipsIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createDeleteShipIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createDeleteShipIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -2017,6 +2047,7 @@ QPixmap createDeleteShipIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createTrainManagerIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createTrainManagerIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -2080,6 +2111,7 @@ QPixmap createTrainManagerIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createShipManagerIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createShipManagerIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -2143,6 +2175,7 @@ QPixmap createShipManagerIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createSetGlobalPositionIcon()
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createSetGlobalPositionIcon()";
     QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -2166,6 +2199,7 @@ QPixmap createSetGlobalPositionIcon()
 QPixmap createTransportationModePixmap(const QString &mode,
                                        int size, int width)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createTransportationModePixmap() mode=" << mode;
     // Create a pixmap for the transportation mode with text
     // and arrow
     QPixmap pixmap(width, 40);
@@ -2223,6 +2257,7 @@ QPixmap createTransportationModePixmap(const QString &mode,
 //------------------------------------------------------------------------------
 QPixmap createCalculatorIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createCalculatorIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -2328,6 +2363,7 @@ QPixmap createCalculatorIcon(int size)
 //------------------------------------------------------------------------------
 QPixmap createFilterConnectionsIcon(int size)
 {
+    qCDebug(lcGuiUtil) << "IconFactory::createFilterConnectionsIcon() size=" << size;
     QPixmap pixmap(size, size);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);

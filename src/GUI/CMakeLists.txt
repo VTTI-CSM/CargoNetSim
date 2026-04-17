@@ -5,7 +5,9 @@ set(GUI_SOURCES
 
     # Commons
     Commons/NetworkType.h
-    
+    Commons/TransportationModeConversion.cpp
+    Commons/TransportationModeConversion.h
+
     # Controllers
     Controllers/BasicButtonController.cpp
     Controllers/BasicButtonController.h
@@ -17,8 +19,17 @@ set(GUI_SOURCES
     Controllers/ToolbarController.h
     Controllers/UtilityFunctions.cpp
     Controllers/UtilityFunctions.h
-    Controllers/ViewController.cpp
-    Controllers/ViewController.h
+    Controllers/StatusReporter.h
+    Controllers/SceneVisibilityController.cpp
+    Controllers/SceneVisibilityController.h
+    Controllers/TerminalController.cpp
+    Controllers/TerminalController.h
+    Controllers/NetworkDrawingController.cpp
+    Controllers/NetworkDrawingController.h
+    Controllers/ConnectionController.cpp
+    Controllers/ConnectionController.h
+    Controllers/RegionController.cpp
+    Controllers/RegionController.h
     
     # Items
     Items/BackgroundPhotoItem.cpp
@@ -62,8 +73,6 @@ set(GUI_SOURCES
     Utils/IconCreator.h
     Utils/PathFindingWorker.h
     Utils/PathFindingWorker.cpp
-    Utils/SimulationValidationWorker.h
-    Utils/SimulationValidationWorker.cpp
     Utils/PathReportGenerator.h
     Utils/PathReportGenerator.cpp
     Utils/PathReportExporter.h
@@ -72,10 +81,10 @@ set(GUI_SOURCES
     # Widgets
     Widgets/ColorPickerDialog.cpp
     Widgets/ColorPickerDialog.h
-    Widgets/ContainerManagerWidget.cpp
-    Widgets/ContainerManagerWidget.h
     Widgets/CustomMainWindow.cpp
     Widgets/CustomMainWindow.h
+    Widgets/DestinationListEditor.cpp
+    Widgets/DestinationListEditor.h
     Widgets/GraphicsScene.cpp
     Widgets/GraphicsScene.h
     Widgets/GraphicsView.cpp
@@ -112,6 +121,22 @@ set(GUI_SOURCES
     Widgets/TerminalSelectionDialog.cpp
     Widgets/NetworkMoveDialog.h
     Widgets/NetworkMoveDialog.cpp
+
+    # GUI/Scenario — added by Plan 4
+    Scenario/ItemEventBinder.h
+    Scenario/ItemEventBinder.cpp
+    Scenario/TerminalItemFactory.h
+    Scenario/TerminalItemFactory.cpp
+    Scenario/MapPointFactory.h
+    Scenario/MapPointFactory.cpp
+    Scenario/RegionCenterPointFactory.h
+    Scenario/RegionCenterPointFactory.cpp
+    Scenario/ScenarioMutator.h
+    Scenario/ScenarioMutator.cpp
+    Scenario/SceneRepopulator.h
+    Scenario/SceneRepopulator.cpp
+    Scenario/ConnectionLineFactory.h
+    Scenario/ConnectionLineFactory.cpp
 )
 
 # Create the GUI library

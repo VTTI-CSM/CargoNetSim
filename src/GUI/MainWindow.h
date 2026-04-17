@@ -19,17 +19,27 @@
 #include <QtCore/qdatetime.h>
 
 #include "Controllers/HeartbeatController.h"
+#include "Controllers/StatusReporter.h"
 #include "GUI/Widgets/ScrollableToolBar.h"
 #include "GUI/Widgets/SpinnerWidget.h"
 #include "Items/GlobalTerminalItem.h"
 #include "Items/RegionCenterPoint.h"
 #include "Items/TerminalItem.h"
+#include "Backend/Commons/TransportationMode.h"
 #include "Widgets/CustomMainWindow.h"
 #include "Widgets/NetworkManagerDialog.h"
 #include "Widgets/RegionManagerWidget.h"
 
+#include <memory>
+
 namespace CargoNetSim
 {
+namespace Backend {
+namespace Scenario {
+class ScenarioRuntime;
+} // namespace Scenario
+} // namespace Backend
+
 namespace GUI
 {
 
@@ -42,11 +52,13 @@ class SplashScreen;
 class ToolbarController;
 class BasicButtonController;
 class NetworkController;
-class ViewController;
 class UtilitiesFunctions;
-class PathFindingWorker;
-class SimulationValidationWorker;
 class TerminalSelectionDialog;
+class SceneVisibilityController;
+class TerminalController;
+class NetworkDrawingController;
+class ConnectionController;
+class RegionController;
 
 /**
  * @brief Main application window for CargoNetSim
@@ -55,7 +67,7 @@ class TerminalSelectionDialog;
  * and manages the entire application UI, including
  * views, scenes, docks, and toolbars.
  */
-class MainWindow : public CustomMainWindow
+class MainWindow : public CustomMainWindow, public StatusReporter
 {
     Q_OBJECT
 
@@ -63,11 +75,8 @@ class MainWindow : public CustomMainWindow
     // BasicButtonController classes as a friend
     friend class ToolbarController;
     friend class BasicButtonController;
-    friend class ViewController;
     friend class NetworkController;
     friend class UtilitiesFunctions;
-    friend class PathFindingWorker;
-    friend class SimulationValidationWorker;
     friend class TerminalSelectionDialog;
 
 public:
@@ -87,6 +96,83 @@ public:
      * @return Pointer to the current GraphicsView
      */
     GraphicsView *getCurrentView() const;
+
+    /**
+     * @brief Gets the region (WGS84-projecting) view.
+     * @return Pointer to regionView_ (never null after construction).
+     *
+     * Public accessor exposed for GUI/Scenario factories that are not
+     * friends of MainWindow but need to project lat/lon into scene
+     * coordinates during repopulation.
+     */
+    GraphicsView *regionView() const { return regionView_; }
+
+    /**
+     * @brief Gets the global map view (Mercator-projecting).
+     * @return Pointer to globalMapView_.
+     */
+    GraphicsView *globalMapView() const { return globalMapView_; }
+
+    /**
+     * @brief Gets the currently loaded ScenarioRuntime, or nullptr if
+     *        no scenario has been opened yet (legacy GUI mode).
+     *
+     * Consumed by Tasks 14–16 (ViewController mutator delegations)
+     * and Task 21 (document-signal observers).
+     */
+    Backend::Scenario::ScenarioRuntime *runtime() const
+    {
+        return m_runtime.get();
+    }
+
+    /**
+     * @brief Install (or replace) the runtime. Takes ownership.
+     *
+     * Side effects:
+     *   - Before swapping, clears both scenes via GraphicsScene::clearAll
+     *     because scene items hold non-owning pointers into the previous
+     *     runtime's document; destroying the old runtime would leave them
+     *     dangling.
+     *   - Passing a null runtime unloads the current scenario.
+     *
+     * Observer subscription to the document's signals is wired in
+     * Task 21's `subscribeDocumentObservers()`.
+     */
+    void setRuntime(
+        std::unique_ptr<Backend::Scenario::ScenarioRuntime> rt);
+
+    /**
+     * @brief Gets the region scene (QGraphicsScene for the active
+     *        region-view tab).
+     * @return Pointer to regionScene_.
+     */
+    GraphicsScene *regionScene() const { return regionScene_; }
+
+    /**
+     * @brief Gets the global map scene.
+     * @return Pointer to globalMapScene_.
+     */
+    GraphicsScene *globalMapScene() const { return globalMapScene_; }
+
+    /**
+     * @brief Public accessor for the properties panel. Used by
+     *        GUI/Scenario/ItemEventBinder to hook up coordinate
+     *        refresh when a RegionCenterPoint is dragged without
+     *        needing friendship.
+     */
+    PropertiesPanel *propertiesPanel() const { return propertiesPanel_; }
+
+    // Sub-controller accessors
+    SceneVisibilityController *sceneVisibility() const
+    { return m_sceneVisibility; }
+    TerminalController *terminalCtrl() const
+    { return m_terminalCtrl; }
+    NetworkDrawingController *networkDrawing() const
+    { return m_networkDrawing; }
+    ConnectionController *connectionCtrl() const
+    { return m_connectionCtrl; }
+    RegionController *regionCtrl() const
+    { return m_regionCtrl; }
 
     /**
      * @brief Gets the currently active scene
@@ -132,6 +218,17 @@ public:
      */
     void updateAllCoordinates();
 
+    /**
+     * @brief Adds a background photo to the current view
+     */
+    void addBackgroundPhoto();
+
+    /**
+     * @brief Flashes the path lines for a selected path
+     * @param pathId ID of the path to visualize
+     */
+    void flashPathLines(int pathId);
+
     void showStatusBarMessage(QString message,
                               int     timeout = 0);
 
@@ -141,21 +238,31 @@ public:
     void startStatusProgress();
     void stopStatusProgress();
 
+    // StatusReporter implementation
+    void showMessage(const QString &msg, int ms = 3000) override;
+    void showError(const QString &msg, int ms = 5000) override;
+    void startProgress() override;
+    void stopProgress() override;
+    void storeButtons() override;
+    void disableButtons() override;
+    void restoreButtons() override;
+
     /**
      * @brief Gets the connection type
      * @return The current connection type
      */
-    QString getConnectionType() const
+    Backend::TransportationTypes::TransportationMode
+    getConnectionType() const
     {
         return currentConnectionType_;
     }
 
 public slots:
     /**
-     * @brief Displays an error message
+     * @brief Displays an error dialog
      * @param errorText The error message to display
      */
-    void showError(const QString &errorText);
+    void showErrorDialog(const QString &errorText);
 
     /**
      * @brief Updates server heartbeat information
@@ -213,6 +320,22 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
+    /// Owned ScenarioRuntime (null in legacy GUI mode — no scenario
+    /// opened). Lifetime tied to MainWindow. See Task 20 / Task 21.
+    std::unique_ptr<Backend::Scenario::ScenarioRuntime> m_runtime;
+
+    /// Subscribe this MainWindow to every ScenarioDocument signal on
+    /// the currently installed runtime: document mutations drive scene
+    /// rebuild / factory calls / item removal in one place. Called by
+    /// setRuntime() after the runtime swap. Safe to call with a null
+    /// m_runtime (no-ops).
+    ///
+    /// Qt's sender-auto-disconnect semantics: when the old runtime is
+    /// destroyed in setRuntime, its ScenarioDocument is destroyed, and
+    /// all connections that used it as sender tear down automatically.
+    /// No bookkeeping needed on MainWindow's side.
+    void subscribeDocumentObservers();
+
     // Message queue system
     struct StatusMessage
     {
@@ -292,7 +415,9 @@ private:
      * @brief Sets the current connection type
      * @param connectionType The type of connection to set
      */
-    void setConnectionType(const QString &connectionType);
+    void setConnectionType(
+        Backend::TransportationTypes::TransportationMode
+            connectionType);
 
     /**
      * @brief Assigns selected items to the current region
@@ -372,8 +497,12 @@ protected:
 
     // Connection management
     QMenu      *connectionMenu_;
-    QStringList connectionTypes_;
-    QString     currentConnectionType_;
+    /// Available transport modes for user-created connection lines.
+    /// Populated in the constructor with the three concrete modes.
+    QList<Backend::TransportationTypes::TransportationMode>
+        connectionTypes_;
+    Backend::TransportationTypes::TransportationMode
+        currentConnectionType_;
     TerminalItem *
         selectedTerminal_; // For linking terminals to nodes
 
@@ -387,7 +516,12 @@ protected:
     bool         tableWasVisible_;
 
     // Controllers
-    HeartbeatController *heartbeatController_;
+    HeartbeatController        *heartbeatController_;
+    SceneVisibilityController  *m_sceneVisibility  = nullptr;
+    TerminalController         *m_terminalCtrl     = nullptr;
+    NetworkDrawingController   *m_networkDrawing   = nullptr;
+    ConnectionController       *m_connectionCtrl   = nullptr;
+    RegionController           *m_regionCtrl       = nullptr;
 
     // Toolbar organization
     ScrollableToolBar *toolbar_;
