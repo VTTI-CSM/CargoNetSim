@@ -1,0 +1,171 @@
+#pragma once
+
+#include "Backend/Commons/TransportationMode.h"
+#include "Backend/Scenario/LinkageSource.h"
+#include "Backend/Scenario/TerminalPlacement.h"
+#include <QPointF>
+#include <QString>
+#include <QVariant>
+
+namespace CargoNetSim {
+namespace Backend {
+namespace Scenario {
+class ScenarioDocument;
+} // namespace Scenario
+} // namespace Backend
+
+namespace GUI {
+namespace Scenario {
+
+/**
+ * @brief GUI-side mutator facade over ScenarioDocument.
+ *
+ * Every GUI action that changes the scenario — create terminal, link
+ * terminal to a network node, create a connection, move a terminal,
+ * update region coordinates — routes through one static method here.
+ *
+ * Purpose: ensure CLI (Plan 5, which mutates via direct ScenarioDocument
+ * calls driven by YAML parsing) and GUI (this module, driven by user
+ * interaction) reach the same document with the same invariants enforced
+ * in one place.
+ *
+ * All methods are static and stateless; the document pointer is the only
+ * state, passed in at each call. Coordinates are supplied as QPointF using
+ * Qt's (x, y) = (longitude, latitude) convention.
+ */
+class ScenarioMutator
+{
+public:
+    // ---------------- terminals ----------------
+
+    /// Generates a unique id, populates default properties from
+    /// TerminalTypeDefaults for @p terminalType, and inserts the placement
+    /// at @p localLatLon via PositionMode::LatLon. Returns the generated id
+    /// on success, or an empty QString on failure.
+    static QString createTerminal(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &terminalType,
+        const QString                       &region,
+        const QPointF                       &localLatLon,
+        Backend::Scenario::TerminalPlacement::TerminalRole role =
+            Backend::Scenario::TerminalPlacement::TerminalRole::Transit);
+
+    static bool setTerminalRole(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &terminalId,
+        Backend::Scenario::TerminalPlacement::TerminalRole role);
+
+    static bool removeTerminal(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &terminalId);
+
+    static bool updateTerminalPosition(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &terminalId,
+        const QPointF                       &localLatLon);
+
+    /// Set or clear a single property on a terminal's property bag.
+    /// Sole authoring path for property-bag mutations from the GUI: the
+    /// caller hands a key+value, the mutator reads the current placement,
+    /// edits the bag, calls `ScenarioDocument::updateTerminal`, and the
+    /// document emits `terminalChanged(id)` so any TerminalItem view
+    /// can refresh its snapshot. Plan 8 introduces this so the new
+    /// PropertiesPanel "Origin Configuration" group writes through one
+    /// place instead of the legacy `TerminalItem::setProperty` direct-
+    /// snapshot path. Returns false if @p doc is null or @p terminalId
+    /// doesn't exist.
+    ///
+    /// To clear a key, pass an invalid QVariant (`QVariant{}`).
+    static bool setTerminalProperty(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &terminalId,
+        const QString                       &key,
+        const QVariant                      &value);
+
+    // ---------------- linkages ----------------
+
+    /// Link a terminal to a network node. @p networkName resolves to a
+    /// specific rail-or-truck network at runtime via
+    /// RegionData::findNetworkByName — the mutator does NOT take a
+    /// `networkType` because NodeLinkage intentionally does not store it
+    /// (see canonical-schema design: type is derived, not duplicated).
+    static bool linkTerminalToNode(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &terminalId,
+        const QString                       &networkName,
+        int                                  nodeId,
+        Backend::Scenario::LinkageSource     source);
+
+    static bool unlinkTerminalFromNode(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &terminalId,
+        const QString                       &networkName,
+        int                                  nodeId);
+
+    // ---------------- connections ----------------
+
+    /// Both endpoints must exist and belong to the same region; the
+    /// mutator derives `Connection.region` from the from-terminal so the
+    /// document-level invariant (from.region == to.region == c.region)
+    /// holds without the caller having to pass it separately.
+    static bool createConnection(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &fromTerminalId,
+        const QString                       &toTerminalId,
+        Backend::TransportationTypes::TransportationMode mode);
+
+    static bool removeConnection(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &fromTerminalId,
+        const QString                       &toTerminalId,
+        Backend::TransportationTypes::TransportationMode mode);
+
+    /// Cross-region GlobalLink creation. Unlike `createConnection`, the
+    /// endpoints do NOT need to live in the same region — global links
+    /// exist precisely to bridge regions. Both terminal ids must exist
+    /// in the document's `terminals` map (defense-in-depth beyond the
+    /// document's non-empty-id check).
+    static bool createGlobalLink(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &fromTerminalId,
+        const QString                       &toTerminalId,
+        Backend::TransportationTypes::TransportationMode mode);
+
+    static bool removeGlobalLink(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &fromTerminalId,
+        const QString                       &toTerminalId,
+        Backend::TransportationTypes::TransportationMode mode);
+
+    /// Set or update a single property on a connection or global link
+    /// identified by (fromId, toId, mode). Searches regional connections
+    /// first, then global links. Returns false if @p doc is null or no
+    /// matching entry is found.
+    static bool setConnectionProperty(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &fromId,
+        const QString                       &toId,
+        Backend::TransportationTypes::TransportationMode mode,
+        const QString                       &key,
+        const QVariant                      &value);
+
+    // ---------------- regions ----------------
+
+    /// Reads the current RegionSpec, edits its localOrigin, hands it back
+    /// to ScenarioDocument::updateRegion — the mutator never writes to
+    /// `regions[name]` directly; invariant enforcement + signal emission
+    /// stay owned by the document.
+    static bool updateRegionLocalOrigin(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &regionName,
+        const QPointF                       &latLon);
+
+    static bool updateRegionGlobalPosition(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &regionName,
+        const QPointF                       &latLon);
+};
+
+} // namespace Scenario
+} // namespace GUI
+} // namespace CargoNetSim
