@@ -12,8 +12,9 @@ namespace Backend
 {
 namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
 ConfigController::ConfigController(
-    const QString &configFile)
-    : m_configFile(configFile)
+    const QString &configFile, QObject *parent)
+    : QObject(parent)
+    , m_configFile(configFile)
 {
     // If file doesn't exist, create it with default values
     QFile file(m_configFile);

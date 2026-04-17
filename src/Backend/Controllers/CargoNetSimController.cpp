@@ -67,7 +67,7 @@ CargoNetSimController::CargoNetSimController(
         new Backend::VehicleController(this);
 
     m_configController = new Backend::ConfigController(
-        Backend::Utils::findConfigFilePath());
+        Backend::Utils::findConfigFilePath(), this);
 
     // Initialize client status tracking
     m_clientInitialized[Backend::ClientType::TruckClient] =
@@ -145,12 +145,6 @@ CargoNetSimController::~CargoNetSimController()
         m_terminalThread->quit();
         m_terminalThread->wait(3000);
         delete m_terminalThread;
-    }
-
-    if (m_configController)
-    {
-        delete m_configController;
-        m_configController = nullptr;
     }
 
     // Clean up controllers

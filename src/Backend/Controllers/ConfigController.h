@@ -1,20 +1,25 @@
 #pragma once
 #include <QDomDocument>
 #include <QDomElement>
+#include <QObject>
 #include <QString>
 #include <QVariantMap>
 namespace CargoNetSim
 {
 namespace Backend
 {
-class ConfigController
+class ConfigController : public QObject
 {
+    Q_OBJECT
 public:
     /**
      * @brief Constructor initializes with config file path
      * @param configFile Path to the XML configuration file
+     * @param parent    Optional QObject parent for lifetime
+     *                  management
      */
-    ConfigController(const QString &configFile);
+    explicit ConfigController(const QString &configFile,
+                              QObject       *parent = nullptr);
     /**
      * @brief Loads the configuration from the specified
      * file
