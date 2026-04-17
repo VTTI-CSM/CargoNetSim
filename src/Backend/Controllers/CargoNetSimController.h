@@ -383,10 +383,12 @@ protected:
     static CargoNetSimController *m_instance;
 
     // Tier 1 lifetime: replaces m_instance/m_instanceLock for the new
-    // non-creating API. Set by constructor, cleared by destructor.
-    // Accessed only from the main thread (construction and destruction
-    // are serialized by design). The legacy m_instance/m_instanceLock
-    // are removed in Task 9 once all callers have migrated.
+    // non-creating API. Set by the constructor and cleared by the
+    // destructor, both enforced on the main thread via qFatal. Reads
+    // from any thread are safe without synchronization because
+    // construction happens-before any worker thread is spawned and
+    // destruction happens-after all worker threads have joined.
+    // The legacy m_instance/m_instanceLock are removed in Task 9.
     static CargoNetSimController *s_instance;
 
 private:

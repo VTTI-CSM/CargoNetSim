@@ -9,6 +9,7 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Utils/Utils.h"
 #include <QCoreApplication>
+#include <QThread>
 
 namespace CargoNetSim
 {
@@ -58,10 +59,22 @@ CargoNetSimController::CargoNetSimController(
     , m_readyClientCount(0)
     , m_logger(logger)
 {
-    Q_ASSERT_X(s_instance == nullptr,
-               "CargoNetSimController",
-               "A CargoNetSimController instance already exists. "
-               "Only one may live at a time.");
+    // Release-build hard checks: these invariants hold the whole
+    // lifetime model together. Q_ASSERT_X would silently compile
+    // out in release, masking double-construction or off-thread
+    // construction until much later, far from the call site.
+    if (s_instance != nullptr)
+    {
+        qFatal("CargoNetSimController: attempted to construct a "
+               "second instance. Only one may live at a time.");
+    }
+    if (QCoreApplication::instance()
+        && QThread::currentThread()
+               != QCoreApplication::instance()->thread())
+    {
+        qFatal("CargoNetSimController: must be constructed on "
+               "the main (QCoreApplication) thread.");
+    }
     s_instance = this;
     // Keep legacy singleton pointer synchronized during migration so
     // the old getInstance(logger) auto-create path (still present
@@ -126,6 +139,18 @@ CargoNetSimController *CargoNetSimController::instance()
 
 CargoNetSimController::~CargoNetSimController()
 {
+    // Symmetric thread-affinity check with the constructor. Release-
+    // build hard check: destructing off-thread would leave the
+    // s_instance pointer in an inconsistent state for any worker
+    // thread still reading it.
+    if (QCoreApplication::instance()
+        && QThread::currentThread()
+               != QCoreApplication::instance()->thread())
+    {
+        qFatal("CargoNetSimController: must be destroyed on "
+               "the main (QCoreApplication) thread.");
+    }
+
     qCInfo(lcController) << "CargoNetSimController: shutting down";
     stopAll();
 
