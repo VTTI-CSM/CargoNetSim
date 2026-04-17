@@ -20,8 +20,14 @@
 #include "../Controllers/UtilityFunctions.h"
 #include "../Widgets/ShipManagerDialog.h"
 #include "../Widgets/TrainManagerDialog.h"
+#include "../Serializers/ProjectSerializer.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "GUI/Controllers/ViewController.h"
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/Scenario/RegionSpec.h"
+#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Scenario/ScenarioRuntime.h"
+#include "GUI/Controllers/SceneVisibilityController.h"
+#include "GUI/Controllers/TerminalController.h"
 
 namespace CargoNetSim
 {
@@ -38,6 +44,9 @@ void BasicButtonController::resetOtherButtons(
             mainWindow->linkTerminalButton_,
             mainWindow->unlinkTerminalButton_,
             mainWindow->measureButton_};
+
+        const int count = toggleButtons.size();
+        qCDebug(lcGuiButton) << "BasicButtonController::resetOtherButtons: resetting" << count << "buttons";
 
         for (QToolButton *button : toggleButtons)
         {
@@ -60,7 +69,7 @@ void BasicButtonController::resetOtherButtons(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in resetOtherButtons:"
+        qCCritical(lcGuiButton) << "Error in resetOtherButtons:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -72,6 +81,8 @@ void BasicButtonController::resetOtherButtons(
 void BasicButtonController::toggleGrid(
     MainWindow *mainWindow, bool checked)
 {
+    qCDebug(lcGuiButton) << "BasicButtonController::toggleGrid:"
+                         << "checked=" << checked;
     try
     {
         // Update grid state for both views
@@ -100,7 +111,7 @@ void BasicButtonController::toggleGrid(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleGrid:" << e.what();
+        qCCritical(lcGuiButton) << "Error in toggleGrid:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to toggle grid: %1")
@@ -111,6 +122,8 @@ void BasicButtonController::toggleGrid(
 void BasicButtonController::toggleConnectMode(
     MainWindow *mainWindow, bool checked)
 {
+    qCDebug(lcGuiButton) << "BasicButtonController::toggleConnectMode:"
+                         << "checked=" << checked;
     try
     {
         if (checked)
@@ -146,7 +159,7 @@ void BasicButtonController::toggleConnectMode(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleConnectMode:"
+        qCCritical(lcGuiButton) << "Error in toggleConnectMode:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -158,6 +171,8 @@ void BasicButtonController::toggleConnectMode(
 void BasicButtonController::toggleLinkTerminalMode(
     MainWindow *mainWindow, bool checked)
 {
+    qCDebug(lcGuiButton) << "BasicButtonController::toggleLinkTerminalMode:"
+                         << "checked=" << checked;
     try
     {
         if (checked)
@@ -190,7 +205,7 @@ void BasicButtonController::toggleLinkTerminalMode(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleLinkTerminalMode:"
+        qCCritical(lcGuiButton) << "Error in toggleLinkTerminalMode:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -203,6 +218,8 @@ void BasicButtonController::toggleLinkTerminalMode(
 void BasicButtonController::toggleUnlinkTerminalMode(
     MainWindow *mainWindow, bool checked)
 {
+    qCDebug(lcGuiButton) << "BasicButtonController::toggleUnlinkTerminalMode:"
+                         << "checked=" << checked;
     try
     {
         if (checked)
@@ -237,7 +254,7 @@ void BasicButtonController::toggleUnlinkTerminalMode(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleUnlinkTerminalMode:"
+        qCCritical(lcGuiButton) << "Error in toggleUnlinkTerminalMode:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -250,6 +267,8 @@ void BasicButtonController::toggleUnlinkTerminalMode(
 void BasicButtonController::toggleMeasureMode(
     MainWindow *mainWindow, bool checked)
 {
+    qCDebug(lcGuiButton) << "BasicButtonController::toggleMeasureMode:"
+                         << "checked=" << checked;
     try
     {
         if (checked)
@@ -269,6 +288,8 @@ void BasicButtonController::toggleMeasureMode(
 
         if (!currentScene)
         {
+            qCWarning(lcGuiButton) << "BasicButtonController::toggleMeasureMode:"
+                                   << "currentScene is null";
             return;
         }
 
@@ -292,7 +313,7 @@ void BasicButtonController::toggleMeasureMode(
                             DistanceMeasurementTool>(
                             currentView
                                 ->getMeasurementTool()
-                                ->getID());
+                                ->sceneRegistryKey());
                     }
                 }
                 currentView->setMeasurementTool(nullptr);
@@ -322,7 +343,7 @@ void BasicButtonController::toggleMeasureMode(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleMeasureMode:"
+        qCCritical(lcGuiButton) << "Error in toggleMeasureMode:"
                     << e.what();
 
         // Reset measure mode to safe state
@@ -357,7 +378,7 @@ void BasicButtonController::toggleMeasureMode(
                     scene->removeItemWithId<
                         DistanceMeasurementTool>(
                         currentView->getMeasurementTool()
-                            ->getID());
+                            ->sceneRegistryKey());
                 }
 
                 currentView->setMeasurementTool(nullptr);
@@ -405,7 +426,7 @@ void BasicButtonController::clearMeasurements(
         {
             currentScene
                 ->removeItemWithId<DistanceMeasurementTool>(
-                    item->getID());
+                    item->sceneRegistryKey());
         }
 
         mainWindow->statusBar()->showMessage(
@@ -413,7 +434,7 @@ void BasicButtonController::clearMeasurements(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in clearMeasurements:"
+        qCCritical(lcGuiButton) << "Error in clearMeasurements:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -430,12 +451,12 @@ void BasicButtonController::changeRegion(
         CargoNetSim::CargoNetSimController::getInstance()
             .getRegionDataController()
             ->setCurrentRegion(region);
-        ViewController::updateSceneVisibility(mainWindow);
+        mainWindow->sceneVisibility()->updateSceneVisibility();
         emit mainWindow->regionChanged(region);
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in changeRegion:" << e.what();
+        qCCritical(lcGuiButton) << "Error in changeRegion:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to change region: %1")
@@ -505,7 +526,7 @@ void BasicButtonController::exportLog(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in exportLog:" << e.what();
+        qCCritical(lcGuiButton) << "Error in exportLog:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to export log: %1")
@@ -516,6 +537,7 @@ void BasicButtonController::exportLog(
 void BasicButtonController::checkNetwork(
     MainWindow *mainWindow, GraphicsScene *scene)
 {
+    qCDebug(lcGuiButton) << "BasicButtonController::checkNetwork: begin";
     try
     {
         QString currentRegion =
@@ -543,7 +565,11 @@ void BasicButtonController::checkNetwork(
                                                   // type
             );
 
-        ViewController::flashTerminalItems(
+        qCDebug(lcGuiButton) << "BasicButtonController::checkNetwork:"
+                             << "total=" << allRegionTerminals.size()
+                             << "notConnected=" << notConnectedTerminals.size();
+
+        SceneVisibilityController::flashTerminalItems(
             notConnectedTerminals, true);
 
         if (!notConnectedTerminals.isEmpty())
@@ -571,7 +597,7 @@ void BasicButtonController::checkNetwork(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in checkNetwork:" << e.what();
+        qCCritical(lcGuiButton) << "Error in checkNetwork:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to check network: %1")
@@ -606,7 +632,7 @@ void BasicButtonController::disconnectAllTerminals(
         for (GraphicsObjectBase *item : itemsToRemove)
         {
             scene->removeItemWithId<ConnectionLine>(
-                item->getID());
+                item->sceneRegistryKey());
         }
 
         if (mainWindow)
@@ -617,7 +643,7 @@ void BasicButtonController::disconnectAllTerminals(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in disconnectAllTerminals:"
+        qCCritical(lcGuiButton) << "Error in disconnectAllTerminals:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -674,7 +700,7 @@ void BasicButtonController::toggleConnectionLines(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleConnectionLines:"
+        qCCritical(lcGuiButton) << "Error in toggleConnectionLines:"
                     << e.what();
         mainWindow->showStatusBarMessage(
             QString("Failed to toggle connection lines: %1")
@@ -730,7 +756,7 @@ void BasicButtonController::toggleTerminals(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleTerminals:"
+        qCCritical(lcGuiButton) << "Error in toggleTerminals:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -742,6 +768,7 @@ void BasicButtonController::toggleTerminals(
 void BasicButtonController::newProject(
     MainWindow *mainWindow)
 {
+    qCInfo(lcGuiButton) << "BasicButtonController::newProject: begin";
     try
     {
         QMessageBox::StandardButton reply =
@@ -755,67 +782,51 @@ void BasicButtonController::newProject(
 
         if (reply == QMessageBox::Yes)
         {
-            // Clear current scene
-            mainWindow->regionScene_->clear();
+            // Create an empty scenario with one default
+            // region. ScenarioRuntime::load() calls clearAll()
+            // + apply() on the backend, and setRuntime()
+            // clears scenes + wires observers + backfills —
+            // replacing all the manual cleanup that was here.
+            auto doc = std::make_unique<
+                Backend::Scenario::ScenarioDocument>();
 
-            // Reset Region Manager
-            mainWindow->regionManager_->clearRegions();
+            Backend::Scenario::RegionSpec defaultRegion;
+            defaultRegion.name =
+                QStringLiteral("Default Region");
+            defaultRegion.color =
+                QStringLiteral("#00FF00");
+            defaultRegion.localOrigin    = {0.0, 0.0};
+            defaultRegion.globalPosition = {0.0, 0.0};
+            doc->addRegion(defaultRegion);
 
-            // Reset current region
-            // CargoNetSim::CargoNetSimController::
-            //     getInstance()
-            //         .getRegionDataController()
-            //         ->setCurrentRegion("Default Region");
+            auto runtime = std::make_unique<
+                Backend::Scenario::ScenarioRuntime>(
+                std::move(doc));
 
-            // Reset network registries
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getNetworkController()
-                    ->clear();
+            if (!runtime->load())
+            {
+                qCCritical(lcGuiButton)
+                    << "newProject: failed to initialize"
+                       " empty scenario";
+                QMessageBox::critical(
+                    mainWindow, "New Project",
+                    "Failed to initialize empty"
+                    " scenario.");
+                return;
+            }
 
-            // Clear region data
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->clear();
+            mainWindow->setRuntime(std::move(runtime));
+            mainWindow->currentProjectPath_.clear();
 
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->addRegion("Default Region");
-
-            // TODO
-            // mainWindow->regionCenters_.clear();
-            // RegionDataController::getInstance().clear();
-
-            // // Create the default region
-            // Backend::RegionDataController::getInstance().addRegion(
-            //     "Default Region", QColor(Qt::green));
-
-            // mainWindow->createRegionCenter(
-            //     "Default Region",
-            //     Backend::RegionDataController::getInstance()
-            //         .getRegionData("Default
-            //         Region")->getVariable("color")
-            //     );
-
-            // // Update UI
-            // mainWindow->regionCombo_->clear();
-            // mainWindow->regionCombo_->addItems(
-            //     RegionDataController::getInstance().getAllRegionNames());
-            // mainWindow->regionCombo_->setCurrentText(mainWindow->currentRegion_);
-
-            // // Update views
-            // ViewController::updateSceneVisibility(mainWindow);
-            // ViewController::updateGlobalMapScene(mainWindow);
-
+            qCInfo(lcGuiButton)
+                << "newProject: empty scenario created";
             mainWindow->statusBar()->showMessage(
                 "New project created", 2000);
         }
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in newProject:" << e.what();
+        qCCritical(lcGuiButton) << "Error in newProject:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to create new project: %1")
@@ -823,94 +834,105 @@ void BasicButtonController::newProject(
     }
 }
 
-void BasicButtonController::openProject(
+void BasicButtonController::openScenario(
     MainWindow *mainWindow)
 {
-    try
-    {
-        QString filePath = QFileDialog::getOpenFileName(
-            mainWindow, "Open Project", "",
-            "CargoNetSim Projects (*.cns);;All Files (*.*)",
-            nullptr, QFileDialog::DontUseNativeDialog);
+    if (!mainWindow) return;
+    qCInfo(lcGuiButton) << "BasicButtonController::openScenario: begin";
 
-        if (!filePath.isEmpty())
-        {
-            // if
-            // (ProjectSerializer::loadProject(mainWindow,
-            // filePath)) {
-            //     mainWindow->currentProjectPath_ =
-            //     filePath;
-            //     mainWindow->statusBar()->showMessage(
-            //         QString("Project loaded successfully
-            //         from %1").arg(filePath), 2000);
-            // }
-            // else {
-            //     throw std::runtime_error("Failed to load
-            //     project. Check the console for
-            //     details.");
-            // }
-        }
-    }
-    catch (const std::exception &e)
+    const QString filePath = QFileDialog::getOpenFileName(
+        mainWindow, "Open Scenario", "",
+        "CargoNetSim Scenarios (*.yml *.yaml);;All Files (*.*)",
+        nullptr, QFileDialog::DontUseNativeDialog);
+    if (filePath.isEmpty()) return;
+
+    qCInfo(lcGuiButton) << "BasicButtonController::openScenario:"
+                        << "path=" << filePath;
+    // Parse YAML → ScenarioDocument via the thin Task-18 wrapper; it
+    // propagates the backend's human-readable error message so the
+    // user sees what went wrong.
+    QString err;
+    auto    doc = ProjectSerializer::loadProject(filePath, &err);
+    if (!doc)
     {
-        qCritical() << "Error in openProject:" << e.what();
+        qCWarning(lcGuiButton) << "BasicButtonController::openScenario:"
+                               << "failed to load:" << err;
         QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to open project: %1")
-                .arg(e.what()));
+            mainWindow, "Open Scenario",
+            QString("Failed to load scenario:\n%1").arg(err));
+        return;
     }
+
+    // Wrap the parsed document in a runtime and apply it to the backend
+    // FIRST (populates CargoNetSimController's RegionDataController,
+    // loads network files, etc.). setRuntime below then takes ownership
+    // and triggers the scene backfill — which needs the backend ready
+    // because SceneRepopulator's MapPoint rebuild reads RegionData.
+    auto runtime =
+        std::make_unique<Backend::Scenario::ScenarioRuntime>(
+            std::move(doc));
+    if (!runtime->load())
+    {
+        qCWarning(lcGuiButton) << "BasicButtonController::openScenario:"
+                               << "runtime->load() failed";
+        QMessageBox::critical(
+            mainWindow, "Open Scenario",
+            "Failed to apply scenario (validation error).");
+        return;  // runtime drops out of scope, backend stays untouched beyond the partial apply
+    }
+
+    // Hand the loaded runtime to MainWindow. setRuntime clears the old
+    // scenes, wires observers on the new doc, and performs a one-shot
+    // SceneRepopulator::repopulate to backfill the scene from the
+    // document state (see MainWindow.cpp comment).
+    mainWindow->setRuntime(std::move(runtime));
+
+    mainWindow->currentProjectPath_ = filePath;
+    mainWindow->statusBar()->showMessage(
+        QString("Scenario loaded: %1").arg(filePath), 3000);
 }
 
-void BasicButtonController::saveProject(
+void BasicButtonController::saveScenario(
     MainWindow *mainWindow)
 {
-    try
+    if (!mainWindow) return;
+    qCInfo(lcGuiButton) << "BasicButtonController::saveScenario: begin";
+    if (!mainWindow->runtime())
     {
-        // If project hasn't been saved before, show save
-        // dialog
-        if (!mainWindow->currentProjectPath_.length())
-        {
-            QString filePath = QFileDialog::getSaveFileName(
-                mainWindow, "Save Project", "",
-                "CargoNetSim Projects (*.cns);;All Files "
-                "(*.*)",
-                nullptr, QFileDialog::DontUseNativeDialog);
-
-            if (filePath.isEmpty())
-            {
-                return;
-            }
-
-            // Add extension if not present
-            if (!filePath.endsWith(".cns"))
-            {
-                filePath += ".cns";
-            }
-
-            mainWindow->currentProjectPath_ = filePath;
-        }
-
-        // if (ProjectSerializer::saveProject(mainWindow,
-        // mainWindow->currentProjectPath_)) {
-        //     mainWindow->statusBar()->showMessage(
-        //         QString("Project saved successfully to
-        //         %1").arg(mainWindow->currentProjectPath_),
-        //         2000
-        //         );
-        // }
-        // else {
-        //     throw std::runtime_error("Failed to save
-        //     project. Check the console for details.");
-        // }
+        qCWarning(lcGuiButton) << "BasicButtonController::saveScenario:"
+                               << "no scenario loaded";
+        QMessageBox::warning(mainWindow, "Save Scenario",
+                             "No scenario loaded.");
+        return;
     }
-    catch (const std::exception &e)
+
+    QString filePath = mainWindow->currentProjectPath_;
+    if (filePath.isEmpty())
     {
-        qCritical() << "Error in saveProject:" << e.what();
+        filePath = QFileDialog::getSaveFileName(
+            mainWindow, "Save Scenario As", "",
+            "CargoNetSim Scenarios (*.yml);;All Files (*.*)",
+            nullptr, QFileDialog::DontUseNativeDialog);
+        if (filePath.isEmpty()) return;
+        if (!filePath.endsWith(".yml", Qt::CaseInsensitive)
+            && !filePath.endsWith(".yaml", Qt::CaseInsensitive))
+            filePath += ".yml";
+        mainWindow->currentProjectPath_ = filePath;
+    }
+
+    QString err;
+    if (!ProjectSerializer::saveProject(
+            mainWindow->runtime()->document(), filePath, &err))
+    {
+        qCWarning(lcGuiButton) << "BasicButtonController::saveScenario:"
+                               << "save failed:" << err;
         QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to save project: %1")
-                .arg(e.what()));
+            mainWindow, "Save Scenario",
+            QString("Failed to save scenario:\n%1").arg(err));
+        return;
     }
+    mainWindow->statusBar()->showMessage(
+        QString("Scenario saved: %1").arg(filePath), 3000);
 }
 
 void BasicButtonController::toggleSetGlobalPositionMode(
@@ -943,7 +965,7 @@ void BasicButtonController::toggleSetGlobalPositionMode(
     }
     catch (const std::exception &e)
     {
-        qCritical()
+        qCCritical(lcGuiButton)
             << "Error in toggleSetGlobalPositionMode:"
             << e.what();
         QMessageBox::critical(
@@ -991,9 +1013,9 @@ bool BasicButtonController::setTerminalGlobalPosition(
             // Get the new coordinates
             QPointF userGeoPoint = dialog.getCoordinates();
 
-            bool result = ViewController::
-                updateTerminalPositionByGlobalPosition(
-                    mainWindow, terminal, userGeoPoint);
+            bool result = mainWindow->terminalCtrl()
+                ->updateTerminalPositionByGlobalPosition(
+                    terminal, userGeoPoint);
 
             // Set the terminal position
             if (result)
@@ -1016,7 +1038,7 @@ bool BasicButtonController::setTerminalGlobalPosition(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in setTerminalGlobalPosition:"
+        qCCritical(lcGuiButton) << "Error in setTerminalGlobalPosition:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",

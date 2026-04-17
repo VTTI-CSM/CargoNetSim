@@ -157,16 +157,22 @@ public:
     static void newProject(MainWindow *mainWindow);
 
     /**
-     * @brief Opens an existing project
+     * @brief Opens an existing scenario (YAML) and installs it on the
+     *        MainWindow's runtime. Delegates YAML → ScenarioDocument to
+     *        ProjectSerializer and hands the document off to
+     *        MainWindow::setRuntime, which wires observers (Task 21)
+     *        that auto-populate the scene.
      * @param mainWindow Pointer to the main window
      */
-    static void openProject(MainWindow *mainWindow);
+    static void openScenario(MainWindow *mainWindow);
 
     /**
-     * @brief Saves the current project
+     * @brief Saves the currently-loaded scenario back to YAML. If no
+     *        path has been chosen yet, prompts the user. Delegates
+     *        ScenarioDocument → YAML to ProjectSerializer.
      * @param mainWindow Pointer to the main window
      */
-    static void saveProject(MainWindow *mainWindow);
+    static void saveScenario(MainWindow *mainWindow);
 
     /**
      * @brief Toggles the mode for setting global positions
