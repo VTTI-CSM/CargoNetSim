@@ -135,6 +135,18 @@ set_target_properties(PathDiscoveryTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
+# Controller lifetime tests (Tier 1 refactor — Task 1)
+add_executable(ControllerLifetimeTest ControllerLifetimeTest.cpp)
+target_include_directories(ControllerLifetimeTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(ControllerLifetimeTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(ControllerLifetimeTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
 # Scenario executor tests
 add_executable(ScenarioExecutorTest ScenarioExecutorTest.cpp)
 target_include_directories(ScenarioExecutorTest PRIVATE ${TEST_INCLUDE_DIRS})
