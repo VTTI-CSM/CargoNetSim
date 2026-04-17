@@ -8,13 +8,21 @@ set(Backend_SOURCES
     Commons/TerminalInterface.cpp
     Commons/TransportationMode.h
     Commons/TransportationMode.cpp
+    Commons/NetworkKind.h
+    Commons/NetworkKind.cpp
     Commons/DirectedGraphBase.h
     Commons/DirectedGraphBase.cpp
     Commons/DirectedGraph.h
     Commons/DirectedGraph.cpp
+    Commons/GeoDistance.h
+    Commons/GeoDistance.cpp
     Commons/ShortestPathResult.h
     Commons/ThreadSafetyUtils.h
     Commons/ThreadSafetyUtils.cpp
+    Commons/LogCategories.h
+    Commons/LogCategories.cpp
+    Commons/LogMessageHandler.h
+    Commons/LogMessageHandler.cpp
 
     # Models
     Models/TrainSystem.h
@@ -121,6 +129,76 @@ set(Backend_SOURCES
     Utils/Utils.h
 
 
+    # Scenario
+    Scenario/AutoLinkRule.h
+    Scenario/Connection.h
+    Scenario/ContainerAllocator.h
+    Scenario/ContainerAllocator.cpp
+    Scenario/FleetSpec.h
+    Scenario/GlobalLink.h
+    Scenario/InterfaceConversion.h
+    Scenario/InterfaceConversion.cpp
+    Scenario/LatLon.h
+    Scenario/LinkageSource.h
+    Scenario/LinkageStrategy.h
+    Scenario/ModeDelayParams.h
+    Scenario/NetworkLookup.h
+    Scenario/NetworkLookup.cpp
+    Scenario/NetworkSpec.h
+    Scenario/NodeLinkage.h
+    Scenario/OutputSpec.h
+    Scenario/PathSimulationResult.h
+    Scenario/Point2D.h
+    Scenario/PropertyKeys.h
+    Scenario/RegionSpec.h
+    Scenario/PathAllocation.h
+    Scenario/PathDiscovery.h
+    Scenario/PathDiscovery.cpp
+    Scenario/PathDistancePopulator.h
+    Scenario/PathDistancePopulator.cpp
+    Scenario/PathKey.h
+    Scenario/PathMetrics.h
+    Scenario/PathMetricsInputs.h
+    Scenario/PathMetricsCalculator.h
+    Scenario/PathMetricsCalculator.cpp
+    Scenario/ResultsExtractor.h
+    Scenario/ResultsExtractor.cpp
+    Scenario/ScenarioApplier.h
+    Scenario/ScenarioApplier.cpp
+    Scenario/ScenarioDocument.h
+    Scenario/ScenarioDocument.cpp
+    Scenario/ScenarioExecutor.h
+    Scenario/ScenarioExecutor.cpp
+    Scenario/ScenarioLinker.h
+    Scenario/ScenarioLinker.cpp
+    Scenario/ScenarioRegistry.h
+    Scenario/ScenarioRegistry.cpp
+    Scenario/ScenarioRuntime.h
+    Scenario/ScenarioRuntime.cpp
+    Scenario/ScenarioSerializer.h
+    Scenario/ScenarioSerializer.cpp
+    Scenario/ScenarioValidator.h
+    Scenario/ScenarioValidator.cpp
+    Scenario/SegmentCostMath.h
+    Scenario/SegmentCostMath.cpp
+    Scenario/ServerStatusProbe.h
+    Scenario/ServerStatusProbe.cpp
+    Scenario/SimulationOrchestrator.h
+    Scenario/SimulationOrchestrator.cpp
+    Scenario/SimulationRequestBuilder.h
+    Scenario/SimulationRequestBuilder.cpp
+    Scenario/SimulationSettings.h
+    Scenario/SystemDynamicsSpec.h
+    Scenario/TerminalCostMath.h
+    Scenario/TerminalCostMath.cpp
+    Scenario/TerminalPlacement.h
+    Scenario/TerminalPlacement.cpp
+    Scenario/TerminalTypeDefaults.h
+    Scenario/TerminalTypeDefaults.cpp
+    Scenario/TruckFleetSpec.h
+    Scenario/ValidationIssue.h
+
+
     # Initialization
     BackendInit.h
 )
@@ -135,6 +213,7 @@ target_link_libraries(CargoNetSimBackend
     Qt6::Xml
     Container::Container
     rabbitmq::rabbitmq
+    yaml-cpp::yaml-cpp
 )
 
 # Conditionally link QtKeychain if available
