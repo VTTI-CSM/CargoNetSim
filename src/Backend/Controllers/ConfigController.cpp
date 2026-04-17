@@ -1,5 +1,7 @@
 #include "ConfigController.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Scenario/PropertyKeys.h"
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
@@ -8,6 +10,7 @@ namespace CargoNetSim
 {
 namespace Backend
 {
+namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
 ConfigController::ConfigController(
     const QString &configFile)
     : m_configFile(configFile)
@@ -33,7 +36,7 @@ bool ConfigController::loadConfig()
         if (!file.open(QIODevice::ReadOnly
                        | QIODevice::Text))
         {
-            qWarning() << "Could not open config file:"
+            qCWarning(lcConfig) << "Could not open config file:"
                        << file.errorString();
             return false;
         }
@@ -45,7 +48,7 @@ bool ConfigController::loadConfig()
         if (!result)
         {
             file.close();
-            qWarning() << "Failed to parse XML:" << result.errorMessage
+            qCWarning(lcConfig) << "Failed to parse XML:" << result.errorMessage
                        << " at line " << result.errorLine
                        << ", column " << result.errorColumn;
             return false;
@@ -58,7 +61,7 @@ bool ConfigController::loadConfig()
                             &errorColumn))
         {
             file.close();
-            qWarning() << "Failed to parse XML:" << errorMsg
+            qCWarning(lcConfig) << "Failed to parse XML:" << errorMsg
                        << " at line " << errorLine
                        << ", column " << errorColumn;
             return false;
@@ -70,7 +73,7 @@ bool ConfigController::loadConfig()
         QDomElement root = doc.documentElement();
         if (root.tagName() != "config")
         {
-            qWarning() << "Invalid root element in config "
+            qCWarning(lcConfig) << "Invalid root element in config "
                           "file, expected 'config'";
             return false;
         }
@@ -122,7 +125,7 @@ bool ConfigController::loadConfig()
     }
     catch (const std::exception &e)
     {
-        qWarning() << "An error occurred while loading the "
+        qCWarning(lcConfig) << "An error occurred while loading the "
                       "config file:"
                    << e.what();
         return false;
@@ -205,30 +208,30 @@ void ConfigController::createDefaultConfig()
     m_config["carbon_taxes"]        = carbonTaxes;
 
     QVariantMap ship;
-    ship["average_speed"]            = 20;
-    ship["average_fuel_consumption"] = 50;
-    ship["average_container_number"] = 5000;
-    ship["risk_factor"]              = 0.025;
-    ship["fuel_type"]                = "HFO";
-    ship["time_value_of_money"]      = 13.43;
+    ship[PK::Mode::AverageSpeed]           = 20;
+    ship[PK::Mode::AverageFuelConsumption] = 50;
+    ship[PK::Mode::AverageContainerNumber] = 5000;
+    ship[PK::Mode::RiskFactor]             = 0.025;
+    ship[PK::Mode::FuelType]               = "HFO";
+    ship[PK::Mode::TimeValueOfMoney]       = 13.43;
 
     QVariantMap train;
-    train["average_speed"]            = 40;
-    train["average_fuel_consumption"] = 20;
-    train["average_container_number"] = 400;
-    train["risk_factor"]              = 0.006;
-    train["use_network"]              = true;
-    train["fuel_type"]                = "diesel_1";
-    train["time_value_of_money"]      = 16.43;
+    train[PK::Mode::AverageSpeed]           = 40;
+    train[PK::Mode::AverageFuelConsumption] = 20;
+    train[PK::Mode::AverageContainerNumber] = 400;
+    train[PK::Mode::RiskFactor]             = 0.006;
+    train[PK::Mode::UseNetwork]             = true;
+    train[PK::Mode::FuelType]               = "diesel_1";
+    train[PK::Mode::TimeValueOfMoney]       = 16.43;
 
     QVariantMap truck;
-    truck["average_speed"]            = 70;
-    truck["average_fuel_consumption"] = 15;
-    truck["average_container_number"] = 1;
-    truck["risk_factor"]              = 0.012;
-    truck["use_network"]              = false;
-    truck["fuel_type"]                = "diesel_2";
-    truck["time_value_of_money"]      = 31.43;
+    truck[PK::Mode::AverageSpeed]           = 70;
+    truck[PK::Mode::AverageFuelConsumption] = 15;
+    truck[PK::Mode::AverageContainerNumber] = 1;
+    truck[PK::Mode::RiskFactor]             = 0.012;
+    truck[PK::Mode::UseNetwork]             = false;
+    truck[PK::Mode::FuelType]               = "diesel_2";
+    truck[PK::Mode::TimeValueOfMoney]       = 31.43;
 
     QVariantMap transportModes;
     transportModes["ship"]      = ship;
@@ -292,7 +295,7 @@ QVariantMap ConfigController::getTimeValueOfMoney() const
         QVariantMap shipSettings =
             transportModes["ship"].toMap();
         timeValueOfMoney["ship"] =
-            shipSettings.value("time_value_of_money", 13.43)
+            shipSettings.value(PK::Mode::TimeValueOfMoney, 13.43)
                 .toDouble();
     }
     else
@@ -305,7 +308,7 @@ QVariantMap ConfigController::getTimeValueOfMoney() const
         QVariantMap railSettings =
             transportModes["rail"].toMap();
         timeValueOfMoney["rail"] =
-            railSettings.value("time_value_of_money", 16.43)
+            railSettings.value(PK::Mode::TimeValueOfMoney, 16.43)
                 .toDouble();
     }
     else
@@ -319,7 +322,7 @@ QVariantMap ConfigController::getTimeValueOfMoney() const
             transportModes["truck"].toMap();
         timeValueOfMoney["truck"] =
             truckSettings
-                .value("time_value_of_money", 31.43)
+                .value(PK::Mode::TimeValueOfMoney, 31.43)
                 .toDouble();
     }
     else
@@ -409,7 +412,7 @@ bool ConfigController::saveConfig()
         if (!file.open(QIODevice::WriteOnly
                        | QIODevice::Text))
         {
-            qWarning() << "Could not open file for writing:"
+            qCWarning(lcConfig) << "Could not open file for writing:"
                        << file.errorString();
             return false;
         }
@@ -422,7 +425,7 @@ bool ConfigController::saveConfig()
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Error saving config:" << e.what();
+        qCWarning(lcConfig) << "Error saving config:" << e.what();
         return false;
     }
 }
@@ -493,17 +496,17 @@ QVariantMap ConfigController::getCostFunctionWeights() const
 
     // Create default weights
     QVariantMap defaultWeights;
-    defaultWeights["cost"] =
+    defaultWeights[PK::Segment::Cost] =
         1.0; // USD per USD (direct cost multiplier)
-    defaultWeights["travelTime"] =
+    defaultWeights[PK::Segment::TravelTime] =
         averageTimeValue; // USD per hour
-    defaultWeights["distance"] =
+    defaultWeights[PK::Segment::Distance] =
         0.0; // USD per km (not counting directly)
-    defaultWeights["carbonEmissions"] =
+    defaultWeights[PK::Segment::CarbonEmissions] =
         carbonTaxRate / 1000.0; // USD per kg of CO2
-    defaultWeights["risk"] =
+    defaultWeights[PK::Segment::Risk] =
         100.0; // USD per risk unit (percentage * 100)
-    defaultWeights["energyConsumption"] =
+    defaultWeights[PK::Segment::EnergyConsumption] =
         1.0; // USD per kWh (default)
     defaultWeights["terminal_delay"] =
         averageTimeValue; // USD per hour
@@ -519,21 +522,21 @@ QVariantMap ConfigController::getCostFunctionWeights() const
     // Set time values of money if mode-specific is enabled
     if (useModeSpecific)
     {
-        shipWeights["travelTime"] =
+        shipWeights[PK::Segment::TravelTime] =
             timeValueOfMoney.value("ship", 13.43)
                 .toDouble();
         shipWeights["terminal_delay"] =
             timeValueOfMoney.value("ship", 13.43)
                 .toDouble();
 
-        trainWeights["travelTime"] =
+        trainWeights[PK::Segment::TravelTime] =
             timeValueOfMoney.value("rail", 16.43)
                 .toDouble();
         trainWeights["terminal_delay"] =
             timeValueOfMoney.value("rail", 16.43)
                 .toDouble();
 
-        truckWeights["travelTime"] =
+        truckWeights[PK::Segment::TravelTime] =
             timeValueOfMoney.value("truck", 31.43)
                 .toDouble();
         truckWeights["terminal_delay"] =
@@ -542,16 +545,16 @@ QVariantMap ConfigController::getCostFunctionWeights() const
     }
 
     // Set carbon emission multipliers
-    shipWeights["carbonEmissions"] =
-        shipWeights["carbonEmissions"].toDouble()
+    shipWeights[PK::Segment::CarbonEmissions] =
+        shipWeights[PK::Segment::CarbonEmissions].toDouble()
         * carbonTaxes.value("ship_multiplier", 1.2)
               .toDouble();
-    trainWeights["carbonEmissions"] =
-        trainWeights["carbonEmissions"].toDouble()
+    trainWeights[PK::Segment::CarbonEmissions] =
+        trainWeights[PK::Segment::CarbonEmissions].toDouble()
         * carbonTaxes.value("train_multiplier", 1.1)
               .toDouble();
-    truckWeights["carbonEmissions"] =
-        truckWeights["carbonEmissions"].toDouble()
+    truckWeights[PK::Segment::CarbonEmissions] =
+        truckWeights[PK::Segment::CarbonEmissions].toDouble()
         * carbonTaxes.value("truck_multiplier", 1.1)
               .toDouble();
 
@@ -564,20 +567,20 @@ QVariantMap ConfigController::getCostFunctionWeights() const
         transportModes.value("truck").toMap();
 
     // Set risk factors
-    shipWeights["risk"] =
-        shipWeights["risk"].toDouble()
-        * shipData.value("risk_factor", 0.025).toDouble();
-    trainWeights["risk"] =
-        trainWeights["risk"].toDouble()
-        * trainData.value("risk_factor", 0.006).toDouble();
-    truckWeights["risk"] =
-        truckWeights["risk"].toDouble()
-        * truckData.value("risk_factor", 0.012).toDouble();
+    shipWeights[PK::Segment::Risk] =
+        shipWeights[PK::Segment::Risk].toDouble()
+        * shipData.value(PK::Mode::RiskFactor, 0.025).toDouble();
+    trainWeights[PK::Segment::Risk] =
+        trainWeights[PK::Segment::Risk].toDouble()
+        * trainData.value(PK::Mode::RiskFactor, 0.006).toDouble();
+    truckWeights[PK::Segment::Risk] =
+        truckWeights[PK::Segment::Risk].toDouble()
+        * truckData.value(PK::Mode::RiskFactor, 0.012).toDouble();
 
     // Calculate energy costs based on fuel types and
     // calorific values Ship energy cost
     QString shipFuelType =
-        shipData.value("fuel_type", "HFO").toString();
+        shipData.value(PK::Mode::FuelType, "HFO").toString();
     double shipFuelPrice =
         fuelPrices
             .value(shipFuelType,
@@ -597,11 +600,11 @@ QVariantMap ConfigController::getCostFunctionWeights() const
     shipEnergyCost =
         shipFuelPrice / shipCalorificValue; // USD per kWh
 
-    shipWeights["energyConsumption"] = shipEnergyCost;
+    shipWeights[PK::Segment::EnergyConsumption] = shipEnergyCost;
 
     // Train energy cost
     QString trainFuelType =
-        trainData.value("fuel_type", "diesel_1").toString();
+        trainData.value(PK::Mode::FuelType, "diesel_1").toString();
     double trainFuelPrice =
         fuelPrices
             .value(trainFuelType,
@@ -614,11 +617,11 @@ QVariantMap ConfigController::getCostFunctionWeights() const
             .toDouble();
     double trainEnergyCost =
         trainFuelPrice / trainCalorificValue; // USD per kWh
-    trainWeights["energyConsumption"] = trainEnergyCost;
+    trainWeights[PK::Segment::EnergyConsumption] = trainEnergyCost;
 
     // Truck energy cost
     QString truckFuelType =
-        truckData.value("fuel_type", "diesel_2").toString();
+        truckData.value(PK::Mode::FuelType, "diesel_2").toString();
     double truckFuelPrice =
         fuelPrices
             .value(truckFuelType,
@@ -631,7 +634,7 @@ QVariantMap ConfigController::getCostFunctionWeights() const
             .toDouble();
     double truckEnergyCost =
         truckFuelPrice / truckCalorificValue; // USD per kWh
-    truckWeights["energyConsumption"] = truckEnergyCost;
+    truckWeights[PK::Segment::EnergyConsumption] = truckEnergyCost;
 
     // Using TransportationTypes enum values for
     // transportation modes

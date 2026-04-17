@@ -1,6 +1,7 @@
 // RegionDataController.cpp
 #include "RegionDataController.h"
 
+#include "Backend/Commons/LogCategories.h"
 #include <QDebug>
 #include <QReadLocker>
 #include <QWriteLocker>
@@ -50,7 +51,7 @@ void RegionData::setRegionName(const QString &name)
     // new region name
     if (!m_networkController->renameRegion(m_region, name))
     {
-        qWarning() << "Failed to rename region from"
+        qCWarning(lcController) << "Failed to rename region from"
                    << m_region << "to" << name;
         return;
     }
@@ -63,6 +64,8 @@ void RegionData::addTrainNetwork(const QString &networkName,
                                  const QString &nodeFile,
                                  const QString &linkFile)
 {
+    qCDebug(lcController) << "RegionData::addTrainNetwork:"
+                          << networkName << "region=" << m_region;
     // Check for name conflicts using NetworkController
     if (checkNetworkNameConflict(networkName))
     {
@@ -106,6 +109,8 @@ void RegionData::addTrainNetwork(const QString &networkName,
 void RegionData::addTruckNetwork(const QString &networkName,
                                  const QString &configFile)
 {
+    qCDebug(lcController) << "RegionData::addTruckNetwork:"
+                          << networkName << "region=" << m_region;
     // Check for name conflicts using NetworkController
     if (checkNetworkNameConflict(networkName))
     {
@@ -229,6 +234,8 @@ bool RegionData::renameTruckNetwork(const QString &oldName,
 
 bool RegionData::removeTrainNetwork(const QString &name)
 {
+    qCDebug(lcController) << "RegionData::removeTrainNetwork:"
+                          << name << "region=" << m_region;
     // Check if network exists using NetworkController
     if (!trainNetworkExists(name))
     {
@@ -270,6 +277,8 @@ bool RegionData::removeTrainNetwork(const QString &name)
 
 bool RegionData::removeTruckNetwork(const QString &name)
 {
+    qCDebug(lcController) << "RegionData::removeTruckNetwork:"
+                          << name << "region=" << m_region;
     // Check if network exists using NetworkController
     if (!truckNetworkExists(name))
     {
@@ -351,6 +360,22 @@ RegionData::getTruckNetworkConfig(const QString &name) const
     // Use NetworkController to get the truck network config
     return m_networkController->truckNetworkConfig(
         name, m_region);
+}
+
+QObject *RegionData::findNetworkByName(const QString     &name,
+                                       NetworkKind *outKind) const
+{
+    if (auto *rail = getTrainNetwork(name))
+    {
+        if (outKind) *outKind = NetworkKind::Rail;
+        return rail;
+    }
+    if (auto *truck = getTruckNetwork(name))
+    {
+        if (outKind) *outKind = NetworkKind::Truck;
+        return truck;
+    }
+    return nullptr;
 }
 
 QStringList RegionData::getTrainNetworks() const
@@ -439,6 +464,11 @@ RegionDataController::~RegionDataController()
 RegionData *
 RegionDataController::getRegionData(const QString &name)
 {
+    if (!m_regions.contains(name))
+    {
+        qCWarning(lcController) << "RegionDataController::getRegionData:"
+                                << "region not found:" << name;
+    }
     return m_regions.value(name, nullptr);
 }
 
@@ -449,6 +479,7 @@ QStringList RegionDataController::getAllRegionNames() const
 
 bool RegionDataController::addRegion(const QString &name)
 {
+    qCDebug(lcController) << "RegionDataController::addRegion:" << name;
     if (m_regions.contains(name))
     {
         return false;
@@ -498,6 +529,7 @@ bool RegionDataController::renameRegion(
 
 bool RegionDataController::removeRegion(const QString &name)
 {
+    qCDebug(lcController) << "RegionDataController::removeRegion:" << name;
     if (!m_regions.contains(name))
     {
         return false;
@@ -542,6 +574,7 @@ RegionDataController::getCurrentRegionData() const
 bool RegionDataController::setCurrentRegion(
     const QString &name)
 {
+    qCDebug(lcController) << "RegionDataController::setCurrentRegion:" << name;
     // If name is empty, clear the current region
     if (name.isEmpty())
     {
@@ -571,6 +604,8 @@ bool RegionDataController::setCurrentRegion(
 
 void RegionDataController::clear()
 {
+    qCInfo(lcController) << "RegionDataController::clear:"
+                         << m_regions.size() << "regions";
     // Use NetworkController to clear all networks
     m_networkController->clear();
 
@@ -611,6 +646,7 @@ bool RegionDataController::fromMap(
     NetworkController             *networkController,
     const QMap<QString, QVariant> &data)
 {
+    qCDebug(lcController) << "RegionDataController::fromMap: deserializing";
     // Clear existing data (this will emit regionsCleared)
     clear();
 
@@ -661,7 +697,7 @@ bool RegionDataController::fromMap(
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Error deserializing regions data:"
+        qCWarning(lcController) << "Error deserializing regions data:"
                    << e.what();
         clear();
         return false;

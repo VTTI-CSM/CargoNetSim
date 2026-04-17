@@ -16,6 +16,7 @@
 #include <QVariant>
 #include <QVector>
 
+#include "Backend/Commons/NetworkKind.h"
 #include "NetworkController.h"
 
 // Forward declarations
@@ -184,6 +185,24 @@ public:
      */
     TruckClient::IntegrationSimulationConfig *
     getTruckNetworkConfig(const QString &name) const;
+
+    /**
+     * @brief Locate a network by name regardless of kind.
+     *
+     * Centralises the "try rail first, then truck" dispatch so callers
+     * never duplicate the two-lookup dance. The per-region validator
+     * rule forbids the same name appearing with both kinds, so the
+     * rail-first preference is unambiguous on well-formed scenarios.
+     *
+     * @param name     Network name to look up.
+     * @param outKind  Optional out-param — if non-null and a network is
+     *                 found, set to the matching kind.
+     * @return QObject pointer to the network (downcastable by @p outKind),
+     *         or nullptr if neither a rail nor a truck network of that
+     *         name exists in this region.
+     */
+    QObject *findNetworkByName(const QString     &name,
+                               NetworkKind *outKind = nullptr) const;
 
     /**
      * @brief Store a variable in this region's data store.

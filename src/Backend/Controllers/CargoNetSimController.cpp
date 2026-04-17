@@ -6,6 +6,7 @@
  */
 
 #include "CargoNetSimController.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Utils/Utils.h"
 #include <QCoreApplication>
 
@@ -18,6 +19,19 @@ void CargoNetSimControllerCleanup::cleanup()
         &CargoNetSimController::m_instanceLock);
     if (CargoNetSimController::m_instance)
     {
+        // Block signals on the controller tree before deletion.
+        // During child destruction, emissions such as regionsCleared
+        // would invoke slots that call getInstance() on the same
+        // thread, self-deadlocking on the write lock held here.
+        CargoNetSimController::m_instance->blockSignals(true);
+        const auto children =
+            CargoNetSimController::m_instance
+                ->findChildren<QObject *>();
+        for (QObject *child : children)
+        {
+            child->blockSignals(true);
+        }
+
         delete CargoNetSimController::m_instance;
         CargoNetSimController::m_instance = nullptr;
     }
@@ -43,6 +57,8 @@ CargoNetSimController::CargoNetSimController(
     , m_readyClientCount(0)
     , m_logger(logger)
 {
+    qCInfo(lcController) << "CargoNetSimController: initializing";
+
     // Create the NetworkController first
     m_networkController =
         new Backend::NetworkController(this);
@@ -93,6 +109,7 @@ CargoNetSimController &CargoNetSimController::getInstance(
 
 CargoNetSimController::~CargoNetSimController()
 {
+    qCInfo(lcController) << "CargoNetSimController: shutting down";
     stopAll();
 
     // Clean up threads
@@ -139,12 +156,22 @@ CargoNetSimController::~CargoNetSimController()
 bool CargoNetSimController::initialize(
     const QString &truckExePath)
 {
+    qCInfo(lcController) << "CargoNetSimController::initialize:"
+                         << "truckExePath=" << truckExePath;
     // Create and start client threads
     bool success = true;
     m_simulationTime = new Backend::SimulationTime();
+    qCDebug(lcController) << "CargoNetSimController::initialize:"
+                         << "starting terminal client thread";
     success &= initializeTerminalClient();
+    qCDebug(lcController) << "CargoNetSimController::initialize:"
+                         << "starting truck client thread";
     success &= initializeTruckClient(truckExePath);
+    qCDebug(lcController) << "CargoNetSimController::initialize:"
+                         << "starting ship client thread";
     success &= initializeShipClient();
+    qCDebug(lcController) << "CargoNetSimController::initialize:"
+                         << "starting train client thread";
     success &= initializeTrainClient();
 
     return success;
@@ -152,6 +179,7 @@ bool CargoNetSimController::initialize(
 
 bool CargoNetSimController::startAll()
 {
+    qCInfo(lcController) << "CargoNetSimController::startAll";
     // Start all threads
     if (m_truckThread && !m_truckThread->isRunning())
     {
@@ -178,6 +206,7 @@ bool CargoNetSimController::startAll()
 
 bool CargoNetSimController::stopAll()
 {
+    qCInfo(lcController) << "CargoNetSimController::stopAll";
     // Stop all simulation clients
     if (m_truckManager)
     {
@@ -524,7 +553,7 @@ bool CargoNetSimController::runSimulation()
 {
     if (m_simulationRunning)
     {
-        qWarning() << "Simulation already running";
+        qCWarning(lcController) << "Simulation already running";
         return false;
     }
 
@@ -556,7 +585,7 @@ bool CargoNetSimController::runSimulationStep()
 {
     if (!m_simulationTime)
     {
-        qCritical() << "SimulationTime not initialized";
+        qCCritical(lcController) << "SimulationTime not initialized";
         return false;
     }
 
@@ -703,7 +732,7 @@ bool CargoNetSimController::closeTerminal(const QString& terminalId,
 {
     if (terminalId.isEmpty() || alternativeTerminalId.isEmpty())
     {
-        qWarning() << "Invalid terminal IDs for closure";
+        qCWarning(lcController) << "Invalid terminal IDs for closure";
         return false;
     }
 
@@ -741,7 +770,7 @@ bool CargoNetSimController::reopenTerminal(const QString& terminalId)
 {
     if (!m_closedTerminals.contains(terminalId))
     {
-        qWarning() << "Terminal not in closed list:" << terminalId;
+        qCWarning(lcController) << "Terminal not in closed list:" << terminalId;
         return false;
     }
 
