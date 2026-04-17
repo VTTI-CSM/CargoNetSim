@@ -7,10 +7,11 @@
 #include "GUI/Utils/ErrorHandlers.h"
 #include "GUI/Widgets/SplashScreen.h"
 #include <QApplication>
-#include <QLoggingCategory>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QLoggingCategory>
 #include <QMessageBox>
 #include <QObject>
 #include <QSplashScreen>
@@ -120,10 +121,6 @@ int main(int argc, char *argv[])
     // active one
     createLocalServer(uniqueServerName);
 
-    // Track initialization time
-    QElapsedTimer initTimer;
-    initTimer.start();
-
     // Initialize the logger first
     CargoNetSim::Backend::LoggerInterface *logger =
         ApplicationLogger::getInstance();
@@ -162,55 +159,45 @@ int main(int argc, char *argv[])
     // cleans up the QLocalServer socket file via parent ownership.
     signal(SIGINT, signalHandler);
 
-    // Create splash screen
+    // Splash screen: show immediately, construct MainWindow eagerly
+    // (required for stack allocation), enforce a minimum display
+    // time via a local event loop before switching to the main window.
     SplashScreen splash;
     splash.show();
+    QApplication::processEvents();
 
-    // Minimum splash screen display time (in ms)
-    const int MINIMUM_SPLASH_TIME = 3000; // 3 seconds
+    QElapsedTimer splashTimer;
+    splashTimer.start();
+    constexpr int MINIMUM_SPLASH_TIME_MS = 3000;
 
-    // Create and initialize main window in background
-    MainWindow *mainWindow = nullptr;
-    QTimer::singleShot(500, [&]() {
-        // Create and initialize the main window
-        mainWindow = MainWindow::getInstance();
+    // Tier 1 Option E: MainWindow is a stack variable owned by main(),
+    // declared AFTER the controller (Task 3). Stack unwind destroys
+    // MainWindow first, then the controller, then QApplication -
+    // the required teardown order.
+    MainWindow mw;
 
-        // TODO: Pre-load any necessary resources or perform
-        // initialization here
-        splash.showMessage(
-            "Loading application...",
-            Qt::AlignBottom | Qt::AlignHCenter, Qt::black);
-        QApplication::processEvents();
+    splash.showMessage(
+        "Loading application...",
+        Qt::AlignBottom | Qt::AlignHCenter, Qt::black);
+    QApplication::processEvents();
 
-        // Calculate remaining time to display splash
-        int elapsedMs   = initTimer.elapsed();
-        int remainingMs = MINIMUM_SPLASH_TIME - elapsedMs;
+    splash.showMessage(
+        "Ready...", Qt::AlignBottom | Qt::AlignHCenter, Qt::black);
+    QApplication::processEvents();
 
-        // Show "Ready" message
-        splash.showMessage(
-            "Ready...", Qt::AlignBottom | Qt::AlignHCenter,
-            Qt::black);
-        QApplication::processEvents();
-
-        // Only proceed after minimum splash time has
-        // elapsed
-        if (remainingMs > 0)
-        {
-            QTimer::singleShot(remainingMs, [&]() {
-                splash.finish(mainWindow);
-                mainWindow->showMaximized();
-                // Signal initialization complete
-                ApplicationLogger::signalInitComplete();
-            });
-        }
-        else
-        {
-            splash.finish(mainWindow);
-            mainWindow->showMaximized();
-            // Signal initialization complete
-            ApplicationLogger::signalInitComplete();
-        }
-    });
+    // Enforce minimum splash time with a local event loop rather
+    // than a cascade of QTimer::singleShot lambdas.
+    const int remainingMs =
+        MINIMUM_SPLASH_TIME_MS - static_cast<int>(splashTimer.elapsed());
+    if (remainingMs > 0)
+    {
+        QEventLoop splashLoop;
+        QTimer::singleShot(remainingMs, &splashLoop, &QEventLoop::quit);
+        splashLoop.exec();
+    }
+    splash.finish(&mw);
+    mw.showMaximized();
+    ApplicationLogger::signalInitComplete();
 
     return app.exec();
 }

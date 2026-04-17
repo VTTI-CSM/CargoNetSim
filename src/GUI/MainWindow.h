@@ -81,10 +81,25 @@ class MainWindow : public CustomMainWindow, public StatusReporter
 
 public:
     /**
-     * @brief Gets the singleton instance of MainWindow
-     * @return Pointer to the MainWindow instance
+     * @brief Constructor. MainWindow is a Tier 1 lifetime
+     * singleton (one instance per process) owned by main()'s
+     * stack. Construction registers the instance in s_instance;
+     * a second construction triggers qFatal.
      */
-    static MainWindow *getInstance();
+    MainWindow();
+
+    /**
+     * @brief Reference access to the MainWindow singleton.
+     * Asserts (qFatal in release) if no MainWindow has been
+     * constructed yet.
+     */
+    static MainWindow &getInstance();
+
+    /**
+     * @brief Nullable pointer lookup. Returns nullptr before
+     * construction or after destruction.
+     */
+    static MainWindow *instance();
 
     /**
      * @brief Destructor
@@ -354,11 +369,6 @@ private:
     void processMessageQueue();
 
     /**
-     * @brief Private constructor for singleton pattern
-     */
-    MainWindow();
-
-    /**
      * @brief Initializes the UI components
      */
     void initializeUI();
@@ -565,8 +575,9 @@ protected:
     QToolButton *setGlobalPositionButton_;
     QToolButton *measureButton_;
 
-    // Singleton instance
-    static MainWindow *instance_;
+    // Singleton instance (Tier 1 lifetime: set by constructor,
+    // cleared by destructor, owned by main()'s stack).
+    static MainWindow *s_instance;
 
     // Current project file path
     QString currentProjectPath_;

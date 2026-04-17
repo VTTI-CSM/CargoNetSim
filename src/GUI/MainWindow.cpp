@@ -79,21 +79,21 @@ namespace CargoNetSim
 namespace GUI
 {
 
-MainWindow *MainWindow::instance_ = nullptr;
-
-MainWindow *MainWindow::getInstance()
-{
-    if (!instance_)
-    {
-        instance_ = new MainWindow();
-    }
-    return instance_;
-}
+MainWindow *MainWindow::s_instance = nullptr;
 
 MainWindow::MainWindow()
     : CustomMainWindow()
     , heartbeatController_(nullptr)
 {
+    // Tier 1 lifetime: release-build hard check. Double-construction
+    // indicates a bug in main() or test setup.
+    if (s_instance != nullptr)
+    {
+        qFatal("MainWindow: attempted to construct a second "
+               "instance. Only one may live at a time.");
+    }
+    s_instance = this;
+
     qCInfo(lcGui) << "MainWindow::MainWindow: begin";
 
     selectedTerminal_ = nullptr;
@@ -552,6 +552,27 @@ MainWindow::~MainWindow()
 
     // Scene items will be cleaned up by Qt's parent-child
     // mechanism
+
+    // Tier 1 lifetime: clear the singleton slot LAST so any late
+    // observer using instance() sees the window as gone.
+    s_instance = nullptr;
+}
+
+MainWindow &MainWindow::getInstance()
+{
+    if (s_instance == nullptr)
+    {
+        qFatal("MainWindow::getInstance: MainWindow has not been "
+               "constructed yet. Construct it in main() before "
+               "calling getInstance(). Use instance() for nullable "
+               "access during startup or shutdown windows.");
+    }
+    return *s_instance;
+}
+
+MainWindow *MainWindow::instance()
+{
+    return s_instance;
 }
 
 void MainWindow::initializeUI()
