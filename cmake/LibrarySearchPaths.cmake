@@ -153,6 +153,21 @@ function(_setup_windows_paths BUILD_TYPE)
         set(CONTAINER_CMAKE_DIR "C:/Program Files/ContainerLib/lib/cmake/Container" CACHE PATH "Container CMake directory")
     endif()
 
+    # yaml-cpp paths (scenario YAML serialization)
+    set(YAMLCPP_SEARCH_PATHS
+        "${WIN_BUILD_TYPE_PREFIX}/lib/cmake/yaml-cpp"
+        "${WIN_DEFAULT_PREFIX}/lib/cmake/yaml-cpp"
+        "C:/Program Files/yaml-cpp/lib/cmake/yaml-cpp"
+        "$ENV{YAMLCPP_DIR}"
+    )
+    _find_first_existing_path(YAMLCPP_CMAKE_DIR_FOUND "${YAMLCPP_SEARCH_PATHS}")
+    if(YAMLCPP_CMAKE_DIR_FOUND)
+        set(YAMLCPP_CMAKE_DIR "${YAMLCPP_CMAKE_DIR_FOUND}" CACHE PATH "yaml-cpp CMake directory" FORCE)
+        message(STATUS "  yaml-cpp: ${YAMLCPP_CMAKE_DIR_FOUND}")
+    else()
+        set(YAMLCPP_CMAKE_DIR "${WIN_DEFAULT_PREFIX}/lib/cmake/yaml-cpp" CACHE PATH "yaml-cpp CMake directory")
+    endif()
+
     # Set CMAKE_PREFIX_PATH
     if(QT6_PREFIX)
         list(PREPEND CMAKE_PREFIX_PATH "${QT6_PREFIX}")
@@ -262,6 +277,22 @@ function(_setup_macos_paths BUILD_TYPE)
         message(STATUS "  Container: ${CONTAINER_CMAKE_DIR_FOUND}")
     else()
         set(CONTAINER_CMAKE_DIR "/usr/local/lib/cmake/Container" CACHE PATH "Container CMake directory")
+    endif()
+
+    # yaml-cpp paths (scenario YAML serialization)
+    set(YAMLCPP_SEARCH_PATHS
+        "${MACOS_BUILD_TYPE_PREFIX}/lib/cmake/yaml-cpp"
+        "${HOMEBREW_PREFIX}/opt/yaml-cpp/lib/cmake/yaml-cpp"
+        "${HOMEBREW_PREFIX}/lib/cmake/yaml-cpp"
+        "${MACOS_DEFAULT_PREFIX}/lib/cmake/yaml-cpp"
+        "$ENV{YAMLCPP_DIR}"
+    )
+    _find_first_existing_path(YAMLCPP_CMAKE_DIR_FOUND "${YAMLCPP_SEARCH_PATHS}")
+    if(YAMLCPP_CMAKE_DIR_FOUND)
+        set(YAMLCPP_CMAKE_DIR "${YAMLCPP_CMAKE_DIR_FOUND}" CACHE PATH "yaml-cpp CMake directory" FORCE)
+        message(STATUS "  yaml-cpp: ${YAMLCPP_CMAKE_DIR_FOUND}")
+    else()
+        set(YAMLCPP_CMAKE_DIR "/usr/local/lib/cmake/yaml-cpp" CACHE PATH "yaml-cpp CMake directory")
     endif()
 
     # Set CMAKE_PREFIX_PATH
@@ -375,6 +406,23 @@ function(_setup_linux_paths BUILD_TYPE)
         message(STATUS "  Container: Using default path")
     endif()
 
+    # yaml-cpp paths (scenario YAML serialization)
+    set(YAMLCPP_SEARCH_PATHS
+        "${LINUX_BUILD_TYPE_PREFIX}/lib/cmake/yaml-cpp"
+        "${LINUX_DEFAULT_PREFIX}/lib/cmake/yaml-cpp"
+        "${LINUX_SYSTEM_PREFIX}/lib/cmake/yaml-cpp"
+        "${LINUX_SYSTEM_PREFIX}/lib/x86_64-linux-gnu/cmake/yaml-cpp"
+        "$ENV{YAMLCPP_DIR}"
+    )
+    _find_first_existing_path(YAMLCPP_CMAKE_DIR_FOUND "${YAMLCPP_SEARCH_PATHS}")
+    if(YAMLCPP_CMAKE_DIR_FOUND)
+        set(YAMLCPP_CMAKE_DIR "${YAMLCPP_CMAKE_DIR_FOUND}" CACHE PATH "yaml-cpp CMake directory" FORCE)
+        message(STATUS "  yaml-cpp: ${YAMLCPP_CMAKE_DIR_FOUND}")
+    else()
+        set(YAMLCPP_CMAKE_DIR "/usr/local/lib/cmake/yaml-cpp" CACHE PATH "yaml-cpp CMake directory")
+        message(STATUS "  yaml-cpp: Using default path (not found)")
+    endif()
+
     # Set CMAKE_PREFIX_PATH with Qt6 and build-type-specific paths first
     if(QT6_PREFIX)
         list(PREPEND CMAKE_PREFIX_PATH "${QT6_PREFIX}")
@@ -391,6 +439,7 @@ function(_setup_linux_paths BUILD_TYPE)
     set(RABBITMQ_CMAKE_DIR "${RABBITMQ_CMAKE_DIR}" PARENT_SCOPE)
     set(Qt6Keychain_DIR "${Qt6Keychain_DIR}" PARENT_SCOPE)
     set(CONTAINER_CMAKE_DIR "${CONTAINER_CMAKE_DIR}" PARENT_SCOPE)
+    set(YAMLCPP_CMAKE_DIR "${YAMLCPP_CMAKE_DIR}" PARENT_SCOPE)
     set(Qt6_DIR "${Qt6_DIR}" PARENT_SCOPE)
 endfunction()
 

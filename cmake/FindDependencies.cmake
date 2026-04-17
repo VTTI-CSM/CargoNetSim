@@ -5,7 +5,7 @@
 #
 # This module:
 #   1. Sets up library search paths using LibrarySearchPaths module
-#   2. Finds all required packages (Qt6, Container, RabbitMQ-C, KDReports)
+#   2. Finds all required packages (Qt6, Container, RabbitMQ-C, yaml-cpp, KDReports)
 #   3. Finds optional packages (Qt6Keychain)
 #   4. Validates all targets are available
 #   5. Sets up library path variables for runtime deployment
@@ -61,6 +61,21 @@ if(NOT RabbitMQ-C_FOUND)
         "Please specify the correct path via RABBITMQ_CMAKE_DIR or install rabbitmq-c.")
 endif()
 message(STATUS "RabbitMQ-C found")
+
+# =============================================================================
+# yaml-cpp - Required (scenario YAML serialization)
+# =============================================================================
+if(YAMLCPP_CMAKE_DIR)
+    find_package(yaml-cpp REQUIRED CONFIG PATHS ${YAMLCPP_CMAKE_DIR} NO_DEFAULT_PATH)
+else()
+    find_package(yaml-cpp REQUIRED CONFIG)
+endif()
+
+if(NOT TARGET yaml-cpp::yaml-cpp)
+    message(FATAL_ERROR "yaml-cpp::yaml-cpp target not available after find_package. "
+        "Please check your yaml-cpp installation and YAMLCPP_CMAKE_DIR setting.")
+endif()
+message(STATUS "yaml-cpp found: ${yaml-cpp_VERSION}")
 
 # =============================================================================
 # KDReports - Required

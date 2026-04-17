@@ -1,5 +1,6 @@
-add_subdirectory(GUI)
 add_subdirectory(Backend)
+add_subdirectory(GUI)
+add_subdirectory(CLI)
 
 # Conditionally add RabbitMQ config tool
 if(CARGONET_BUILD_RABBITMQ_CONFIG)
