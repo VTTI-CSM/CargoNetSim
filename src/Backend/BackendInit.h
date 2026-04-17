@@ -326,7 +326,16 @@ initializeBackend(const QString   &integrationExePath = "",
 
     qCInfo(lcInit) << "Backend metatypes registered successfully";
 
-    CargoNetSim::CargoNetSimController::getInstance(logger);
+    // Tier 1: the controller must have been constructed by main()
+    // (or by test setup) before initializeBackend is called. We do
+    // not create it here.
+    if (CargoNetSim::CargoNetSimController::instance() == nullptr)
+    {
+        qFatal("initializeBackend: CargoNetSimController must be "
+               "constructed before initializeBackend is called.");
+    }
+    (void)logger; // Logger was passed to the controller constructor.
+
     CargoNetSim::CargoNetSimController::getInstance()
         .initialize(integrationExePath);
     CargoNetSim::CargoNetSimController::getInstance()

@@ -58,15 +58,12 @@ class CargoNetSimController : public QObject
 
 public:
     /**
-     * @brief Get the singleton instance of
-     *        CargoNetSimController.
-     * @param logger Optional logger interface for logging
-     * @param parent Optional parent QObject.
-     * @return Reference to the singleton instance.
+     * @brief Reference access to the singleton. Asserts at runtime
+     * (qFatal in release) if no instance has been constructed. Use
+     * instance() for nullable access during startup or shutdown
+     * windows.
      */
-    static CargoNetSimController &
-    getInstance(Backend::LoggerInterface *logger = nullptr,
-                QObject                  *parent = nullptr);
+    static CargoNetSimController &getInstance();
 
     /**
      * @brief Non-owning lookup of the controller singleton.

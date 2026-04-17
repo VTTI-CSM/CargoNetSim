@@ -112,24 +112,20 @@ CargoNetSimController::CargoNetSimController(
         [Backend::ClientType::TerminalClient] = false;
 }
 
-CargoNetSimController &CargoNetSimController::getInstance(
-    Backend::LoggerInterface *logger, QObject *parent)
+CargoNetSimController &CargoNetSimController::getInstance()
 {
-    QReadLocker locker(&m_instanceLock);
-    if (!m_instance)
+    // Release-build hard check. Q_ASSERT_X would silently compile
+    // out in release, leaving the next deref as the crash site
+    // instead of this call site.
+    if (s_instance == nullptr)
     {
-        locker.unlock();
-        QWriteLocker writeLocker(&m_instanceLock);
-        // Double-check pattern to ensure thread safety
-        if (!m_instance)
-        {
-            m_instance =
-                new CargoNetSimController(logger, parent);
-        }
-        writeLocker.unlock();
-        locker.relock();
+        qFatal("CargoNetSimController::getInstance: controller "
+               "has not been constructed yet. Construct it in "
+               "main() before calling getInstance(). Use "
+               "instance() for nullable access during startup "
+               "or shutdown windows.");
     }
-    return *m_instance;
+    return *s_instance;
 }
 
 CargoNetSimController *CargoNetSimController::instance()
