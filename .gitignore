@@ -38,3 +38,7 @@ CMakeLists.txt.user
 # Build directories
 /build/*
 /.vscode/*
+docs/*
+.memsearch/*
+# CocoIndex Code (ccc)
+/.cocoindex_code/
