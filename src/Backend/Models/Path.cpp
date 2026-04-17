@@ -1,10 +1,24 @@
 #include "Path.h"
+#include "Backend/Commons/LogCategories.h"
 #include <stdexcept>
 
 namespace CargoNetSim
 {
 namespace Backend
 {
+
+namespace {
+// Single sum-across-segments helper — every total* delegates to it
+// so we never duplicate the segment-iteration loop.
+template <typename Getter>
+double sumSegments(const QList<PathSegment *> &segs, Getter g)
+{
+    double total = 0.0;
+    for (const auto *s : segs)
+        if (s) total += g(*s);
+    return total;
+}
+} // namespace
 
 // Path constructor
 Path::Path(int id, double totalCost, double edgeCost,
@@ -44,7 +58,7 @@ Path::Path(int id, double totalCost, double edgeCost,
     int expectedTerminals = segments.size() + 1;
     if (terminals.size() != expectedTerminals)
     {
-        qWarning() << "Terminal count" << terminals.size()
+        qCWarning(lcModel) << "Terminal count" << terminals.size()
                    << "does not match expected"
                    << expectedTerminals;
     }
@@ -210,11 +224,15 @@ Path::fromJson(const QJsonObject              &json,
                const QMap<QString, Terminal *> terminalDB,
                QObject                        *parent)
 {
+    qCDebug(lcModel) << "Path::fromJson: path_id="
+                     << json.value("path_id").toInt();
     return new Path(json, terminalDB, parent);
 }
 
 QJsonObject Path::toJson() const
 {
+    qCDebug(lcModel) << "Path::toJson: path_id=" << m_pathId
+                     << "segments=" << m_segments.size();
     QJsonObject json;
     json["path_id"]              = m_pathId;
     json["total_path_cost"]      = m_totalPathCost;
@@ -257,6 +275,27 @@ QString Path::getEndTerminal() const
     }
     return m_segments.last()->getEnd();
 }
+
+double Path::totalEstimatedLength() const
+{ return sumSegments(m_segments, [](auto &s){ return s.estimatedDistance(); }); }
+
+double Path::totalEstimatedTravelTime() const
+{ return sumSegments(m_segments, [](auto &s){ return s.estimatedTravelTime(); }); }
+
+double Path::totalActualLength() const
+{ return sumSegments(m_segments, [](auto &s){ return s.actualDistance(); }); }
+
+double Path::totalActualTravelTime() const
+{ return sumSegments(m_segments, [](auto &s){ return s.actualTravelTime(); }); }
+
+double Path::totalActualEnergyConsumption() const
+{ return sumSegments(m_segments, [](auto &s){ return s.actualEnergyConsumption(); }); }
+
+double Path::totalActualCarbonEmissions() const
+{ return sumSegments(m_segments, [](auto &s){ return s.actualCarbonEmissions(); }); }
+
+double Path::totalActualRisk() const
+{ return sumSegments(m_segments, [](auto &s){ return s.actualRisk(); }); }
 
 } // namespace Backend
 } // namespace CargoNetSim

@@ -16,6 +16,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 namespace CargoNetSim
 {
 namespace Backend
@@ -142,6 +143,51 @@ public:
      * Updates the segment's properties.
      */
     void setAttributes(const QJsonObject &attributes);
+
+    // ---- Plan 8.2: typed accessors over the estimated/actual
+    //      sub-objects inside `attributes`. Key names match what
+    //      `SegmentCostMath` already writes (verified 2026-04-15):
+    //        travelTime, distance, carbonEmissions, energyConsumption,
+    //        risk, cost.
+    //      Adopting those names avoids renaming at the write boundary
+    //      and keeps one canonical key set end-to-end. `fuel` is NOT
+    //      tracked per segment — SegmentCostMath folds fuel into
+    //      energyConsumption; callers that need a fuel display
+    //      derive it from the calculator's per-vehicle formula.
+
+    // Pre-simulation (populator writes these — only distance + time
+    // are produced by per-mode shortest-path routing).
+    double estimatedDistance()   const;  // metres
+    double estimatedTravelTime() const;  // seconds
+
+    // Post-simulation (SegmentCostMath writes these in km/hours/tons/kWh;
+    // typed accessors below convert distance→metres and time→seconds so
+    // callers see one unit convention across estimated and actual phases.
+    // Dialogs that read the raw sub-object directly still see km/hours.)
+    double actualDistance()          const;  // metres (stored km × 1000)
+    double actualTravelTime()        const;  // seconds (stored hours × 3600)
+    double actualEnergyConsumption() const;  // kWh (direct)
+    double actualCarbonEmissions()   const;  // tonnes CO2 (direct)
+    double actualRisk()              const;  // risk-factor units (direct)
+
+    /// Populator-side setter. Replaces or creates the `estimated`
+    /// sub-object; leaves `actual` and any pre-existing keys
+    /// (`weight`, etc.) untouched.
+    void   setEstimatedDistanceAndTravelTime(double distanceMeters,
+                                             double travelTimeSeconds);
+
+    /// SegmentCostMath-side setter. Merges each key into the existing
+    /// actual sub-object — keys already present are overwritten, keys
+    /// NOT in @p values are left untouched (useful for phased writes).
+    /// Call clearActual() before this if a full replace is desired.
+    /// Canonical keys: `travelTime`, `distance`, `carbonEmissions`,
+    /// `energyConsumption`, `risk`. (`cost` is aggregate-monetary and
+    /// lives on PathData's totalSimulationCost fields, not on segments.)
+    void   setActualValues(const QVariantMap &values);
+
+    /// Remove the entire actual sub-object. Useful before a simulation
+    /// re-run so stale keys from the prior run don't persist.
+    void   clearActual();
 
     /**
      * @brief Converts the segment to JSON format

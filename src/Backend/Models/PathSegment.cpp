@@ -1,10 +1,27 @@
 #include "PathSegment.h"
+#include "Backend/Commons/LogCategories.h"
 #include <stdexcept>
+
+#include "Backend/Scenario/PropertyKeys.h"
 
 namespace CargoNetSim
 {
 namespace Backend
 {
+
+namespace PK = Scenario::PropertyKeys;
+
+namespace {
+
+double subValue(const QJsonObject &attrs,
+                const QString &sub, const QString &key)
+{
+    if (!attrs.contains(sub)) return 0.0;
+    const auto obj = attrs.value(sub).toObject();
+    return obj.value(key).toDouble(0.0);
+}
+
+} // namespace
 
 // PathSegment constructor
 PathSegment::PathSegment(
@@ -96,6 +113,7 @@ PathSegment::PathSegment(const QJsonObject &json,
 // Convert PathSegment to JSON
 QJsonObject PathSegment::toJson() const
 {
+    qCDebug(lcModel) << "PathSegment::toJson:" << m_pathSegmentId;
     // Initialize JSON object for serialization
     QJsonObject json;
 
@@ -118,14 +136,76 @@ QJsonObject PathSegment::toJson() const
 PathSegment *PathSegment::fromJson(const QJsonObject &json,
                                    QObject *parent)
 {
+    qCDebug(lcModel) << "PathSegment::fromJson:"
+                     << json.value("from").toString()
+                     << "->" << json.value("to").toString();
     return new PathSegment(json, parent);
 }
 
 void PathSegment::setAttributes(
     const QJsonObject &attributes)
 {
+    qCDebug(lcModel) << "PathSegment::setAttributes:"
+                     << m_pathSegmentId
+                     << "keys=" << attributes.keys().size();
     // Set the attributes of the path segment
     m_attributes = attributes;
+}
+
+double PathSegment::estimatedDistance() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::Distance); }
+
+double PathSegment::estimatedTravelTime() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::TravelTime); }
+
+double PathSegment::actualDistance() const
+{
+    // SegmentCostMath stores distance in km (ship/train clients report
+    // m; the cost-math layer converts at aggregation). Multiply back
+    // to SI so the typed accessor matches the estimated side's metres.
+    return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::Distance) * 1000.0;
+}
+
+double PathSegment::actualTravelTime() const
+{
+    // Stored in hours (see shipSegmentCost / trainSegmentCost).
+    // Return seconds for SI consistency with estimatedTravelTime().
+    return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::TravelTime) * 3600.0;
+}
+
+double PathSegment::actualEnergyConsumption() const
+{ return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::EnergyConsumption); }
+
+double PathSegment::actualCarbonEmissions() const
+{ return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::CarbonEmissions); }
+
+double PathSegment::actualRisk() const
+{ return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::Risk); }
+
+void PathSegment::setEstimatedDistanceAndTravelTime(
+    double distanceMeters, double travelTimeSeconds)
+{
+    QJsonObject est;
+    est[PK::Segment::Distance]   = distanceMeters;
+    est[PK::Segment::TravelTime] = travelTimeSeconds;
+    m_attributes[PK::Segment::Estimated] = est;
+}
+
+void PathSegment::setActualValues(const QVariantMap &values)
+{
+    QJsonObject act = m_attributes.value(PK::Segment::ActualValues).toObject();
+    for (auto it = values.constBegin(); it != values.constEnd(); ++it)
+    {
+        const QVariant &v = it.value();
+        if (v.canConvert<double>())
+            act[it.key()] = v.toDouble();
+    }
+    m_attributes[PK::Segment::ActualValues] = act;
+}
+
+void PathSegment::clearActual()
+{
+    m_attributes.remove(PK::Segment::ActualValues);
 }
 
 } // namespace Backend

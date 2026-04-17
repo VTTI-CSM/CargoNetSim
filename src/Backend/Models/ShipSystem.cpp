@@ -1,5 +1,6 @@
 // ship_system.cpp
 #include "ShipSystem.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QtCore/qpoint.h>
 
 namespace CargoNetSim
@@ -167,6 +168,7 @@ Ship::Ship(
 Ship::Ship(const QJsonObject &json, QObject *parent)
     : QObject(parent)
 {
+    qCDebug(lcModel) << "Ship::Ship(json): deserializing from JSON";
     // Helper function for consistent NaN handling during
     // parsing
     auto parseFloat = [](const QJsonValue &value,
@@ -447,6 +449,7 @@ bool Ship::isNanValue(float value) const
 
 QJsonObject Ship::toJson() const
 {
+    qCDebug(lcModel) << "Ship::toJson:" << m_shipId;
     // Helper function to handle float values that might be
     // NaN
     auto serializeFloat =
@@ -646,7 +649,7 @@ QJsonObject Ship::toJson() const
             appendagesList.join(';');
     }
 
-    qDebug() << "ship json: " << json;
+    qCDebug(lcModel) << "ship json: " << json;
 
     return json;
 }
@@ -794,6 +797,8 @@ QJsonObject Ship::toDict() const
 Ship *Ship::fromDict(const QJsonObject &data,
                      QObject           *parent)
 {
+    qCDebug(lcModel) << "Ship::fromDict:"
+                     << data.value("ship_id").toString();
     // Parse path coordinates from JSON array
     QVector<QVector<float>> pathCoordinates;
     QJsonArray              pathArray =
@@ -1490,6 +1495,7 @@ QVector<Ship *>
 ShipsReader::readShipsFile(const QString &filePath,
                            QObject       *parent)
 {
+    qCInfo(lcModel) << "ShipsReader::readShipsFile:" << filePath;
     auto getNanOrValue =
         [](const QMap<QString, QVariant> &params,
            const QString &key, float defaultVal = -1.0f) {
@@ -1527,22 +1533,16 @@ ShipsReader::readShipsFile(const QString &filePath,
 
     if (!QFile::exists(filePath))
     {
-        // ApplicationLogger::log_error(
-        //     QString("File '%1' does not
-        //     exist.").arg(filePath),
-        //     ClientType::ShipClient
-        // );
+        qCWarning(lcModel) << "ShipsReader::readShipsFile:"
+                           << "file does not exist:" << filePath;
         return ships;
     }
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
-        // ApplicationLogger::log_error(
-        //     QString("Could not open file '%1' for
-        //     reading.").arg(filePath),
-        //     ClientType::ShipClient
-        // );
+        qCCritical(lcModel) << "ShipsReader::readShipsFile:"
+                            << "could not open file:" << filePath;
         return ships;
     }
 
@@ -1688,16 +1688,15 @@ ShipsReader::readShipsFile(const QString &filePath,
         }
         catch (const std::exception &e)
         {
-            // ApplicationLogger::log_error(
-            //     QString("Error parsing ship:
-            //     %1").arg(e.what()),
-            //     ClientType::ShipClient
-            // );
+            qCWarning(lcModel) << "ShipsReader::readShipsFile:"
+                               << "error parsing ship:" << e.what();
             continue;
         }
     }
 
     file.close();
+    qCDebug(lcModel) << "ShipsReader::readShipsFile:"
+                     << "parsed" << ships.size() << "ships";
     return ships;
 }
 

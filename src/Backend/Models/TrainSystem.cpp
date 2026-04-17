@@ -1,4 +1,5 @@
 #include "TrainSystem.h"
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -335,6 +336,7 @@ Train::Train(const QString      &userId,
 Train::Train(const QJsonObject &json, QObject *parent)
     : QObject(parent)
 {
+    qCDebug(lcModel) << "Train::Train(json): deserializing from JSON";
     m_userId       = json["UserID"].toString();
     m_loadTime     = json["LoadTime"].toDouble();
     m_frictionCoef = json["FrictionCoef"].toDouble();
@@ -380,6 +382,7 @@ Train::~Train()
 
 QJsonObject Train::toJson() const
 {
+    qCDebug(lcModel) << "Train::toJson:" << m_userId;
     QJsonObject json;
     json["UserID"]       = m_userId;
     json["LoadTime"]     = m_loadTime;
@@ -542,12 +545,13 @@ QVector<Train *>
 TrainsReader::readTrainsFile(const QString &filePath,
                              QObject       *parent)
 {
+    qCInfo(lcModel) << "TrainsReader::readTrainsFile:" << filePath;
     QVector<Train *> trains;
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
-        qCritical() << "Error: Trains file" << filePath
+        qCCritical(lcModel) << "Error: Trains file" << filePath
                     << "does not exist.";
         return trains;
     }
@@ -565,7 +569,7 @@ TrainsReader::readTrainsFile(const QString &filePath,
     // Check if file is empty
     if (lines.isEmpty())
     {
-        qCritical() << "Error: Trains file" << filePath
+        qCCritical(lcModel) << "Error: Trains file" << filePath
                     << "is empty!";
         return trains;
     }
@@ -586,7 +590,7 @@ TrainsReader::readTrainsFile(const QString &filePath,
 
         if (lv.size() != 6)
         {
-            qCritical() << "Error: Trains file has a wrong "
+            qCCritical(lcModel) << "Error: Trains file has a wrong "
                            "structure.";
             qDeleteAll(trains);
             return QVector<Train *>();
@@ -608,6 +612,8 @@ TrainsReader::readTrainsFile(const QString &filePath,
         trains.append(train);
     }
 
+    qCDebug(lcModel) << "TrainsReader::readTrainsFile:"
+                     << "parsed" << trains.size() << "trains";
     return trains;
 }
 
@@ -622,7 +628,7 @@ QVector<Locomotive *> TrainsReader::parseLocomotives(
         QStringList fields = loc.split(",");
         if (fields.size() != 9)
         {
-            qCritical() << "Wrong Locomotive structure!";
+            qCCritical(lcModel) << "Wrong Locomotive structure!";
             qDeleteAll(locomotives);
             return QVector<Locomotive *>();
         }
@@ -660,7 +666,7 @@ TrainsReader::parseCars(const QString &carsStr,
 
         if (fields.size() != 8)
         {
-            qCritical() << "Wrong Car structure!";
+            qCCritical(lcModel) << "Wrong Car structure!";
             qDeleteAll(cars);
             return QVector<Car *>();
         }

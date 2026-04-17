@@ -222,6 +222,24 @@ public:
      */
     QJsonObject toJson() const;
 
+    /// Plan 8.2: sum-across-segments accessors over the
+    /// estimated/actual sub-objects on each PathSegment.
+    ///
+    /// Unit invariant: all accessors return SI units (metres, seconds,
+    /// kWh, tonnes, risk-factor). The PathSegment typed accessors
+    /// handle any internal unit conversion (SegmentCostMath stores
+    /// distance in km and time in hours; the accessors multiply back).
+    /// Do not introduce a third writer without matching this convention.
+
+    double totalEstimatedLength()     const;   // metres
+    double totalEstimatedTravelTime() const;   // seconds
+
+    double totalActualLength()            const;   // metres (via PathSegment::actualDistance)
+    double totalActualTravelTime()        const;   // seconds (via PathSegment::actualTravelTime)
+    double totalActualEnergyConsumption() const;   // kWh
+    double totalActualCarbonEmissions()   const;   // tonnes CO2
+    double totalActualRisk()              const;
+
 private:
     /**
      * @brief Unique identifier for the path

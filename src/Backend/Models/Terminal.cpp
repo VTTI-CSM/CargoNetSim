@@ -1,4 +1,5 @@
 #include "Terminal.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QJsonArray>
 #include <stdexcept>
 
@@ -31,6 +32,7 @@ Terminal::Terminal(
 
 QJsonObject Terminal::toJson() const
 {
+    qCDebug(lcModel) << "Terminal::toJson:" << m_displayName;
     QJsonObject json;
     json["terminal_names"] =
         QJsonArray::fromStringList(m_names);
@@ -60,6 +62,7 @@ QJsonObject Terminal::toJson() const
 
 Terminal *Terminal::fromJson(const QJsonObject &json)
 {
+    qCDebug(lcModel) << "Terminal::fromJson: parsing terminal";
     // Extract terminal names
     QStringList terminalNames;
     if (json.contains("terminal_name")
@@ -84,10 +87,13 @@ Terminal *Terminal::fromJson(const QJsonObject &json)
 
     if (terminalNames.isEmpty())
     {
-        qWarning() << "Missing or invalid terminal name(s) "
-                      "in JSON";
+        qCWarning(lcModel) << "Terminal::fromJson:"
+                           << "missing or invalid terminal name(s)";
         return nullptr;
     }
+
+    qCDebug(lcModel) << "Terminal::fromJson: name ="
+                      << terminalNames.first();
 
     QString dispName;
     if (json.contains("display_name"))
@@ -97,6 +103,12 @@ Terminal *Terminal::fromJson(const QJsonObject &json)
 
             dispName = json["display_name"].toString();
         }
+    }
+    else
+    {
+        qCWarning(lcModel) << "Terminal::fromJson:"
+                           << "missing display_name for"
+                           << terminalNames.first();
     }
 
     // Extract interfaces
