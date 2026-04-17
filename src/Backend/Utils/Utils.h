@@ -1,3 +1,4 @@
+#include "Backend/Commons/LogCategories.h"
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
@@ -65,7 +66,7 @@ static QString findConfigFilePath(const QString &filename)
         configDir.mkpath(".");
     }
 
-    qWarning()
+    qCWarning(lcConfig)
         << "Config file not found, will create new one at:"
         << fallbackPath;
     return fallbackPath;

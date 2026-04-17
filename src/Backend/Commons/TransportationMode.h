@@ -113,6 +113,58 @@ public:
     fromString(const QString &str);
 };
 
+/**
+ * @brief YAML-schema canonical mode string for a `TransportationMode`.
+ *
+ * Produces the lowercase `"truck"` / `"rail"` / `"ship"` convention used
+ * by `Connection::mode`, `GlobalLink::mode`, the ScenarioValidator, and
+ * `SegmentCostMath`'s transportModes lookup. Distinct from
+ * `TransportationTypes::toString` which produces the C++ enum-key form
+ * (`"Truck"` / `"Train"` / `"Ship"`) intended for user-visible display.
+ *
+ * Matches the naming convention of `networkKindToString`,
+ * `linkageStrategyToString`, and `positionModeToString` — free function
+ * prefixed with the enum name, co-located with the enum.
+ *
+ * `Any` → empty QString (no canonical YAML form).
+ */
+QString transportationModeToString(
+    TransportationTypes::TransportationMode m);
+
+/**
+ * @brief Inverse of `transportationModeToString`. Case-insensitive;
+ *        accepts `"rail"` and `"train"` interchangeably (documented
+ *        schema form is `"rail"` but the enum value is `Train`).
+ *        Sets @p ok to false and returns `Any` on unknown input.
+ */
+TransportationTypes::TransportationMode
+transportationModeFromString(const QString &s, bool *ok = nullptr);
+
+/**
+ * @brief Interface-canonical string for a `TransportationMode`.
+ *
+ * Produces the capitalized `"Truck"` / `"Rail"` / `"Ship"` vocabulary used
+ * by the terminal interface schema (YAML `terminals[].interfaces.land_side`
+ * / `.sea_side`) and the GUI's `"Available Interfaces"` property bag. This
+ * is a DIFFERENT vocabulary from the lowercase `transportationModeToString`
+ * used by `Connection`/`GlobalLink` — both are load-bearing and must not
+ * be conflated.
+ *
+ * `Any` → empty QString (invalid for interface modes).
+ */
+QString interfaceModeCanonicalString(
+    TransportationTypes::TransportationMode m);
+
+/**
+ * @brief Inverse of `interfaceModeCanonicalString`. Case-insensitive;
+ *        accepts `"rail"` and `"train"` interchangeably. Sets @p ok to
+ *        false and returns `Any` on unknown input. Shares its parse
+ *        logic with `transportationModeFromString` (the canonical-string
+ *        vocabulary is a case/formatting difference only).
+ */
+TransportationTypes::TransportationMode
+interfaceModeFromCanonicalString(const QString &s, bool *ok = nullptr);
+
 } // namespace Backend
 } // namespace CargoNetSim
 

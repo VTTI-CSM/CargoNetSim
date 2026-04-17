@@ -2,6 +2,7 @@
 
 #include "Backend/Clients/BaseClient/RabbitMQHandler.h"
 #include "Backend/Clients/BaseClient/SimulationClientBase.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QtCore>
 
 #include "Backend/Clients/ShipClient/ShipSimulationClient.h"
@@ -323,7 +324,7 @@ initializeBackend(const QString   &integrationExePath = "",
         CargoNetSim::Backend::SimulationTime *>(
         "CargoNetSim::Backend::SimulationTime*");
 
-    qDebug() << "Backend metatypes registered successfully";
+    qCInfo(lcInit) << "Backend metatypes registered successfully";
 
     CargoNetSim::CargoNetSimController::getInstance(logger);
     CargoNetSim::CargoNetSimController::getInstance()
