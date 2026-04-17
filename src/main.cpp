@@ -1,10 +1,13 @@
 #include "Backend/BackendInit.h"
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/LogMessageHandler.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Utils/ApplicationLogger.h"
 #include "GUI/Utils/ErrorHandlers.h"
 #include "GUI/Widgets/SplashScreen.h"
 #include <QApplication>
+#include <QLoggingCategory>
 #include <QElapsedTimer>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -13,6 +16,7 @@
 #include <QSplashScreen>
 #include <QThread>
 #include <QTimer>
+#include <atomic>
 #include <signal.h>
 
 using namespace CargoNetSim::GUI;
@@ -30,7 +34,12 @@ bool isAnotherInstanceRunning(const QString &serverName)
 
 void createLocalServer(const QString &serverName)
 {
-    QLocalServer *localServer = new QLocalServer();
+    // Reclaim a socket file orphaned by a previous crash or
+    // SIGKILL. Safe here: isAnotherInstanceRunning() already
+    // confirmed no live listener exists.
+    QLocalServer::removeServer(serverName);
+
+    QLocalServer *localServer = new QLocalServer(qApp);
     localServer->setSocketOptions(
         QLocalServer::WorldAccessOption);
     if (!localServer->listen(serverName))
@@ -47,35 +56,48 @@ void createLocalServer(const QString &serverName)
     }
 }
 
-// Signal handler for SIGINT (Ctrl+C)
+// Signal handler for SIGINT (Ctrl+C). Re-entry guard ensures
+// quit() is triggered exactly once if the signal fires repeatedly.
 void signalHandler(int signal)
 {
-    qDebug() << "Received signal:" << signal;
-
-    // Perform cleanup
+    static std::atomic<bool> handled{false};
+    bool                     expected = false;
+    if (!handled.compare_exchange_strong(expected, true))
     {
-        // Clean up CargoNetSimController before quitting
-        CargoNetSim::CargoNetSimControllerCleanup::
-            cleanup();
+        return;
     }
 
-    if (MainWindow::getInstance())
-    {
-        MainWindow::getInstance()->shutdown();
-    }
-    else
-    {
-        QApplication::quit();
-    }
+    qCInfo(lcInit) << "Received signal:" << signal;
+    QApplication::quit();
 }
 
 int main(int argc, char *argv[])
 {
-    // Install error handlers
-    installExceptionHandlers();
+    // Configure logging: debug enabled in debug builds only.
+    // Override at runtime: QT_LOGGING_RULES="cargonetsim.*=true"
+#ifdef QT_DEBUG
+    QLoggingCategory::setFilterRules(QStringLiteral(
+        "cargonetsim.*.debug=true\n"
+        "cargonetsim.*.info=true\n"
+        "cargonetsim.*.warning=true\n"
+        "cargonetsim.*.critical=true\n"));
+#else
+    QLoggingCategory::setFilterRules(QStringLiteral(
+        "cargonetsim.*.debug=false\n"
+        "cargonetsim.*.info=true\n"
+        "cargonetsim.*.warning=true\n"
+        "cargonetsim.*.critical=true\n"));
+#endif
 
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
+
+    // Install after QApplication: the qtMessageHandler calls
+    // applicationDirPath(), which requires QApplication to
+    // exist. Installing earlier causes any qWarning to recurse
+    // through the handler via applicationDirPath()'s own
+    // qWarning call.
+    installExceptionHandlers();
 
     // Unique name for the local server
     const QString uniqueServerName =
@@ -107,6 +129,12 @@ int main(int argc, char *argv[])
         ApplicationLogger::getInstance();
     ApplicationLogger::getInstance()->start();
 
+    // Bridge Qt categorized logging to GUI log tabs.
+    // Info/warning/critical from cargonetsim.* categories
+    // appear in the Servers Log tab for the user.
+    CargoNetSim::Backend::installCargoNetSimLogHandler(
+        ApplicationLogger::getInstance());
+
     // Set application info
     app.setApplicationName("CargoNetSim");
     app.setApplicationVersion("1.0.0");
@@ -115,10 +143,14 @@ int main(int argc, char *argv[])
     // Initialize backend metatypes
     CargoNetSim::Backend::initializeBackend("", logger);
 
-    // Set up signal handling
+    // Set up signal handling for graceful shutdown on Ctrl+C.
+    // Intentionally NOT connected to aboutToQuit: calling
+    // CargoNetSimControllerCleanup::cleanup() during shutdown
+    // deletes the singleton while GUI widgets still hold pointers
+    // to it, causing heap corruption during later destruction.
+    // The OS reclaims memory on process exit; ~QApplication
+    // cleans up the QLocalServer socket file via parent ownership.
     signal(SIGINT, signalHandler);
-    QObject::connect(&app, &QApplication::aboutToQuit,
-                     []() { signalHandler(SIGINT); });
 
     // Create splash screen
     SplashScreen splash;
