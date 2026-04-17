@@ -15,9 +15,6 @@ namespace CargoNetSim
 {
 
 // Initialize static members
-CargoNetSimController *CargoNetSimController::m_instance =
-    nullptr;
-QReadWriteLock CargoNetSimController::m_instanceLock;
 CargoNetSimController *CargoNetSimController::s_instance = nullptr;
 
 CargoNetSimController::CargoNetSimController(
@@ -52,9 +49,6 @@ CargoNetSimController::CargoNetSimController(
                "the main (QCoreApplication) thread.");
     }
     s_instance = this;
-    // Keep m_instance synchronized with s_instance until Task 9
-    // removes m_instance and m_instanceLock entirely.
-    m_instance = this;
 
     qCInfo(lcController) << "CargoNetSimController: initializing";
 
@@ -165,9 +159,6 @@ CargoNetSimController::~CargoNetSimController()
     // deletion or cleanup classes
 
     s_instance = nullptr;
-    // Keep legacy pointer synchronized during migration. Removed
-    // together with m_instance in Task 9.
-    m_instance = nullptr;
 }
 
 bool CargoNetSimController::initialize(

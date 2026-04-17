@@ -361,15 +361,12 @@ private slots:
     void onThreadFinished();
 
 protected:
-    static CargoNetSimController *m_instance;
-
-    // Tier 1 lifetime: replaces m_instance/m_instanceLock for the new
-    // non-creating API. Set by the constructor and cleared by the
-    // destructor, both enforced on the main thread via qFatal. Reads
-    // from any thread are safe without synchronization because
-    // construction happens-before any worker thread is spawned and
-    // destruction happens-after all worker threads have joined.
-    // The legacy m_instance/m_instanceLock are removed in Task 9.
+    // Tier 1 lifetime: single source of truth for the controller's
+    // identity. Set by the constructor and cleared by the destructor,
+    // both enforced on the main thread via qFatal. Reads from any
+    // thread are safe without synchronization because construction
+    // happens-before any worker thread is spawned and destruction
+    // happens-after all worker threads have joined.
     static CargoNetSimController *s_instance;
 
 private:
@@ -442,10 +439,6 @@ private:
     void updateAllTerminalsSD(double currentTime, double deltaT);
     void processSimulatorEvents();
     bool checkSimulationComplete();
-
-    /** @brief Lock for thread safety of singleton creation
-     */
-    static QReadWriteLock m_instanceLock;
 };
 
 } // namespace CargoNetSim
