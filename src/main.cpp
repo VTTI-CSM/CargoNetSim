@@ -166,6 +166,11 @@ int main(int argc, char *argv[])
     splash.show();
     QApplication::processEvents();
 
+    // Timer scope is "splash visible" rather than "whole startup".
+    // The old timer was started before logger/controller init and
+    // often elapsed before the user ever saw the splash; this one
+    // starts after the splash is visible, so the user always sees
+    // the splash for at least MINIMUM_SPLASH_TIME_MS.
     QElapsedTimer splashTimer;
     splashTimer.start();
     constexpr int MINIMUM_SPLASH_TIME_MS = 3000;
