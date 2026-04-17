@@ -14,30 +14,6 @@
 namespace CargoNetSim
 {
 
-void CargoNetSimControllerCleanup::cleanup()
-{
-    QWriteLocker writeLocker(
-        &CargoNetSimController::m_instanceLock);
-    if (CargoNetSimController::m_instance)
-    {
-        // Block signals on the controller tree before deletion.
-        // During child destruction, emissions such as regionsCleared
-        // would invoke slots that call getInstance() on the same
-        // thread, self-deadlocking on the write lock held here.
-        CargoNetSimController::m_instance->blockSignals(true);
-        const auto children =
-            CargoNetSimController::m_instance
-                ->findChildren<QObject *>();
-        for (QObject *child : children)
-        {
-            child->blockSignals(true);
-        }
-
-        delete CargoNetSimController::m_instance;
-        CargoNetSimController::m_instance = nullptr;
-    }
-}
-
 // Initialize static members
 CargoNetSimController *CargoNetSimController::m_instance =
     nullptr;
@@ -76,10 +52,8 @@ CargoNetSimController::CargoNetSimController(
                "the main (QCoreApplication) thread.");
     }
     s_instance = this;
-    // Keep m_instance synchronized: the CargoNetSimControllerCleanup
-    // class (still present until Task 8) reads it to find the
-    // instance to delete. Removed together with m_instance and
-    // m_instanceLock in Task 9.
+    // Keep m_instance synchronized with s_instance until Task 9
+    // removes m_instance and m_instanceLock entirely.
     m_instance = this;
 
     qCInfo(lcController) << "CargoNetSimController: initializing";

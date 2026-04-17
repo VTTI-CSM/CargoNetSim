@@ -150,13 +150,11 @@ int main(int argc, char *argv[])
     // Initialize backend metatypes and bring the controller online.
     CargoNetSim::Backend::initializeBackend("", logger);
 
-    // Set up signal handling for graceful shutdown on Ctrl+C.
-    // Intentionally NOT connected to aboutToQuit: calling
-    // CargoNetSimControllerCleanup::cleanup() during shutdown
-    // deletes the singleton while GUI widgets still hold pointers
-    // to it, causing heap corruption during later destruction.
-    // The OS reclaims memory on process exit; ~QApplication
-    // cleans up the QLocalServer socket file via parent ownership.
+    // Ctrl+C graceful exit. No aboutToQuit connection: Option E
+    // stack ownership and the controller's s_instance lifetime
+    // already ensure deterministic teardown - main() unwinds
+    // ~MainWindow, ~CargoNetSimController, ~QApplication in
+    // that order on normal return.
     signal(SIGINT, signalHandler);
 
     // Splash screen: show immediately, construct MainWindow eagerly

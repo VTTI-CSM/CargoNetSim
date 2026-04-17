@@ -28,20 +28,6 @@ namespace CargoNetSim
 {
 
 /**
- * @class CargoNetSimControllerCleanup
- * @brief Utility class to handle singleton cleanup.
- */
-class CargoNetSimControllerCleanup
-{
-public:
-    /**
-     * @brief Cleanup the CargoNetSimController singleton
-     *        instance.
-     */
-    static void cleanup();
-};
-
-/**
  * @class CargoNetSimController
  * @brief Central controller for multi-modal simulation
  *
@@ -53,8 +39,6 @@ public:
 class CargoNetSimController : public QObject
 {
     Q_OBJECT
-
-    friend class CargoNetSimControllerCleanup;
 
 public:
     /**
