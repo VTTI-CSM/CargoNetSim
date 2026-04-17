@@ -1,0 +1,70 @@
+schema_version: 1
+
+# Minimal end-to-end fixture for ScenarioExecutor integration test.
+# Shape matches the real ScenarioSerializer::fromYaml schema (see
+# tests/fixtures/scenario/applier_full.yml for the full reference).
+# One region, one rail network, two Intermodal Land Terminals wired to
+# rail nodes 1 and 2 via manual linkages. Referenced Plan 2 data files
+# (rail_nodes.dat, rail_links.dat, fleet_trains.json) live in
+# ../scenario/ and are copied into build/bin/fixtures by the test's
+# POST_BUILD step.
+
+simulation:
+  time_step: 60
+  end_time: 3600
+  shortest_paths_n: 1
+  time_value_of_money: 10.0
+  use_specific_time_values: false
+  carbon_rate: 0.5
+  multipliers: { ship: 1.0, train: 1.0, truck: 1.0 }
+  ship:  { speed: 20.0, fuel_type: HFO,    fuel_rate: 0.20, containers: 2000, risk: 0.05, time_value: 5.0,  use_network: true }
+  train: { speed: 60.0, fuel_type: Diesel, fuel_rate: 0.40, containers: 500,  risk: 0.02, time_value: 10.0, use_network: true }
+  truck: { speed: 80.0, fuel_type: Diesel, fuel_rate: 0.08, containers: 2,    risk: 0.01, time_value: 15.0, use_network: true }
+  fuel_types:
+    Diesel: { energy: 35.8, carbon: 2.64, price: 1.20 }
+    HFO:    { energy: 40.5, carbon: 3.114, price: 0.80 }
+  dwell_time:
+    method: normal
+    parameters: { mean: 2880, std_dev: 720 }
+
+output:
+  directory: ./results
+  formats: [json]
+
+fleet:
+  trains: { file: "../scenario/fleet_trains.json", inline: [] }
+  ships:  { file: "",                               inline: [] }
+  trucks: { file: "",                               inline: [] }
+
+regions:
+  - name: USA
+    color: "#ff8800"
+    local_origin:    { latitude: 38.0, longitude: -97.0 }
+    global_position: { latitude: 40.7, longitude: -74.0 }
+    networks:
+      - { name: USA_rail, type: rail, reference_point: { x: 0, y: 0 },
+          files: { nodes: "../scenario/rail_nodes.dat",
+                   links: "../scenario/rail_links.dat" } }
+    linkages:    { strategy: manual, auto_rules: [], manual: [], exclude: [] }
+    connections: { strategy: manual, auto_rules: [], manual: [], exclude: [] }
+
+terminals:
+  - id: O
+    type: "Intermodal Land Terminal"
+    region: USA
+    show_on_global_map: false
+    position: { mode: scene, x: 1100978.0, y: 2831426.0 }
+    properties: { Name: "Origin" }
+  - id: D
+    type: "Intermodal Land Terminal"
+    region: USA
+    show_on_global_map: false
+    position: { mode: scene, x: 1153646.0, y: 2246022.0 }
+    properties: { Name: "Destination" }
+
+linkages:
+  - { terminal: O, network: USA_rail, node: 1, source: manual }
+  - { terminal: D, network: USA_rail, node: 2, source: manual }
+
+connections: []
+global_links: []

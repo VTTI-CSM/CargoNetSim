@@ -1,0 +1,80 @@
+# tests/fixtures/scenario/multi_origin_multi_dest.yml
+schema_version: 1
+
+simulation:
+  time_step: 60
+  end_time: 3600
+  shortest_paths_n: 1
+  time_value_of_money: 10.0
+  use_specific_time_values: false
+  carbon_rate: 0.5
+  multipliers: { ship: 1.0, train: 1.0, truck: 1.0 }
+  train: { speed: 60.0, fuel_type: diesel_1, fuel_rate: 0.40, containers: 300, risk: 0.02, time_value: 10.0, use_network: true }
+  truck: { speed: 80.0, fuel_type: diesel_2, fuel_rate: 0.08, containers: 2,   risk: 0.01, time_value: 15.0, use_network: true }
+  ship:  { speed: 20.0, fuel_type: HFO,      fuel_rate: 0.20, containers: 2000, risk: 0.05, time_value: 5.0,  use_network: true }
+  fuel_types:
+    diesel_1: { energy: 10.0, carbon: 2.68, price: 1.20 }
+    diesel_2: { energy: 10.0, carbon: 2.70, price: 1.20 }
+    HFO:      { energy: 12.0, carbon: 3.20, price: 0.80 }
+  dwell_time:
+    method: normal
+    parameters: { mean: 2880, std_dev: 720 }
+
+output:
+  directory: ./results
+  formats: [json]
+
+fleet:
+  trains: { file: "", inline: [] }
+  ships:  { file: "", inline: [] }
+  trucks: { file: "", inline: [] }
+
+regions:
+  - name: USA
+    color: "#ff8800"
+    local_origin:    { latitude: 38.0, longitude: -97.0 }
+    global_position: { latitude: 40.7, longitude: -74.0 }
+    networks: []
+    linkages:    { strategy: manual, auto_rules: [], manual: [], exclude: [] }
+    connections: { strategy: manual, auto_rules: [], manual: [], exclude: [] }
+
+terminals:
+  - id: O1
+    type: "Intermodal Land Terminal"
+    region: USA
+    show_on_global_map: false
+    position: { mode: scene, x: 100, y: 100 }
+    properties:
+      Name: "Origin 1"
+      initial_container_count: 10
+      destinations:
+        - { terminal: DA, fraction: 0.6 }
+        - { terminal: DB, fraction: 0.4 }
+
+  - id: O2
+    type: "Intermodal Land Terminal"
+    region: USA
+    show_on_global_map: false
+    position: { mode: scene, x: 200, y: 100 }
+    properties:
+      Name: "Origin 2"
+      initial_container_count: 5
+      destination_terminal: DA
+
+  - id: DA
+    type: "Intermodal Land Terminal"
+    region: USA
+    show_on_global_map: false
+    position: { mode: scene, x: 300, y: 100 }
+    properties: { Name: "Dest A" }
+
+  - id: DB
+    type: "Intermodal Land Terminal"
+    region: USA
+    show_on_global_map: false
+    position: { mode: scene, x: 300, y: 200 }
+    properties: { Name: "Dest B" }
+
+linkages: []
+connections: []
+global_links: []
