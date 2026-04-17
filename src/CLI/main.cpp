@@ -19,6 +19,7 @@
 #include <memory>
 
 #include "Backend/Commons/LogMessageHandler.h"
+#include "Backend/Controllers/CargoNetSimController.h"
 #include "SubcommandDispatcher.h"
 
 #include "Commands/ConnectionsCommand.h"
@@ -52,6 +53,16 @@ int main(int argc, char *argv[])
         nullptr);
 
     QCoreApplication app(argc, argv);
+
+    // Tier 1 (Option E): stack-allocate the controller so C++ scope
+    // rules destroy it at main() return, AFTER exec()/dispatch has
+    // returned but BEFORE QCoreApplication's destructor. The CLI has
+    // no widgets so the GUI-before-controller ordering concern does
+    // not apply - we just need deterministic cleanup. The CLI does
+    // not initialize the backend until a command that needs it
+    // (e.g., RunCommand) calls initialize()/startAll().
+    CargoNetSim::CargoNetSimController controller(/*logger=*/nullptr);
+
     using namespace CargoNetSim::Cli;
 
     SubcommandDispatcher d;
