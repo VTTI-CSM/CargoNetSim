@@ -29,12 +29,43 @@ namespace CargoNetSim
 
 /**
  * @class CargoNetSimController
- * @brief Central controller for multi-modal simulation
+ * @brief Central backend controller. Owns scenario data, network
+ *        catalogs, vehicle inventory, configuration, and the worker
+ *        thread pool used by the simulation clients.
  *
- * Manages truck, ship, train, and terminal simulation
- * clients, each running in its own thread, and provides a
- * unified interface for simulation control and
- * synchronization.
+ * @par Lifetime (Tier 1, Option E)
+ * Exactly one instance per process, stack-allocated in main()
+ * (both GUI and CLI). For GUI the declaration sits between the
+ * QApplication stack variable and the MainWindow stack variable,
+ * so C++ stack unwinding destroys MainWindow first, then the
+ * controller, then QApplication - the order required for safe
+ * GUI-before-controller teardown.
+ *
+ * For test binaries, QTEST_MAIN generates main() so the
+ * controller is instead heap-allocated in initTestCase() and
+ * parented to QCoreApplication::instance(). Qt reclaims it at
+ * process exit; test binaries are short-lived so production-
+ * style stack discipline is unnecessary.
+ *
+ * Callers look up the instance via getInstance() (reference,
+ * asserts if uninitialized) or instance() (nullable pointer,
+ * safe to call during startup and shutdown windows).
+ *
+ * @par Thread affinity
+ * Construction and destruction occur on the main thread; both
+ * are enforced at runtime by qFatal in release builds. Worker
+ * threads are created and joined inside the controller's
+ * lifetime, so cross-thread reads of instance() are safe without
+ * synchronization (construction happens-before worker spawn,
+ * destruction happens-after worker join).
+ *
+ * @par Invariants
+ * - Exactly one instance exists at any time; double construction
+ *   fires qFatal (release-safe).
+ * - Construction and destruction are main-thread only; off-thread
+ *   fires qFatal.
+ * - instance() returns nullptr before construction and after
+ *   destruction; getInstance() asserts.
  */
 class CargoNetSimController : public QObject
 {

@@ -61,11 +61,20 @@ class ConnectionController;
 class RegionController;
 
 /**
- * @brief Main application window for CargoNetSim
+ * @class MainWindow
+ * @brief Application main window.
  *
- * The MainWindow class is implemented as a singleton
- * and manages the entire application UI, including
- * views, scenes, docks, and toolbars.
+ * @par Lifetime (Tier 1, Option E)
+ * Stack-allocated in main() after the CargoNetSimController.
+ * Stack unwinding destroys MainWindow before the controller,
+ * giving GUI code access to a fully-alive controller during
+ * widget destructors. Access the singleton via getInstance()
+ * (reference, asserts if uninitialized) or instance() (nullable
+ * pointer).
+ *
+ * @par Invariants
+ * Only one instance may exist at a time (enforced by qFatal in
+ * the constructor).
  */
 class MainWindow : public CustomMainWindow, public StatusReporter
 {
