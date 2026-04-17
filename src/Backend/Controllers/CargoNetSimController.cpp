@@ -41,6 +41,7 @@ void CargoNetSimControllerCleanup::cleanup()
 CargoNetSimController *CargoNetSimController::m_instance =
     nullptr;
 QReadWriteLock CargoNetSimController::m_instanceLock;
+CargoNetSimController *CargoNetSimController::s_instance = nullptr;
 
 CargoNetSimController::CargoNetSimController(
     Backend::LoggerInterface *logger, QObject *parent)
@@ -57,6 +58,17 @@ CargoNetSimController::CargoNetSimController(
     , m_readyClientCount(0)
     , m_logger(logger)
 {
+    Q_ASSERT_X(s_instance == nullptr,
+               "CargoNetSimController",
+               "A CargoNetSimController instance already exists. "
+               "Only one may live at a time.");
+    s_instance = this;
+    // Keep legacy singleton pointer synchronized during migration so
+    // the old getInstance(logger) auto-create path (still present
+    // until Task 4) sees us as the existing instance and does NOT
+    // try to create a second one. Removed in Task 9.
+    m_instance = this;
+
     qCInfo(lcController) << "CargoNetSimController: initializing";
 
     // Create the NetworkController first
@@ -107,6 +119,11 @@ CargoNetSimController &CargoNetSimController::getInstance(
     return *m_instance;
 }
 
+CargoNetSimController *CargoNetSimController::instance()
+{
+    return s_instance;
+}
+
 CargoNetSimController::~CargoNetSimController()
 {
     qCInfo(lcController) << "CargoNetSimController: shutting down";
@@ -151,6 +168,11 @@ CargoNetSimController::~CargoNetSimController()
     // The Controllers will be deleted automatically
     // as a child of this object No need for explicit
     // deletion or cleanup classes
+
+    s_instance = nullptr;
+    // Keep legacy pointer synchronized during migration. Removed
+    // together with m_instance in Task 9.
+    m_instance = nullptr;
 }
 
 bool CargoNetSimController::initialize(

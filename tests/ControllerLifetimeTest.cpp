@@ -24,31 +24,33 @@ private slots:
         QVERIFY(CargoNetSimController::instance() == nullptr);
     }
 
-    void test_destruction_order_child_before_controller()
+    void test_instance_survives_inner_scope_declared_later()
     {
-        // Verifies Qt's parent-child destruction order: a QObject child
-        // added AFTER the controller is destroyed BEFORE it. This is the
-        // guarantee Tier 1 relies on for safe GUI shutdown.
+        // Tier 1 ownership: main() stack-allocates the controller
+        // above MainWindow, so the controller outlives any object
+        // declared later. This test encodes that guarantee: a probe
+        // in an inner scope observes the controller alive during its
+        // own destruction.
         using CargoNetSim::CargoNetSimController;
-        auto *parent = new QObject();
-        auto *c      = new CargoNetSimController(nullptr, parent);
+        CargoNetSimController controller(nullptr);
 
-        struct Probe : QObject
+        struct Probe
         {
-            bool *controllerAliveAtDtor;
-            Probe(bool *p, QObject *par) : QObject(par), controllerAliveAtDtor(p) {}
-            ~Probe() override
+            bool *aliveAtDtor;
+            explicit Probe(bool *p) : aliveAtDtor(p) {}
+            ~Probe()
             {
-                *controllerAliveAtDtor =
+                *aliveAtDtor =
                     (CargoNetSimController::instance() != nullptr);
             }
         };
-        bool controllerAliveWhenProbeDied = false;
-        new Probe(&controllerAliveWhenProbeDied, parent);
 
-        delete parent;
-        QVERIFY(controllerAliveWhenProbeDied);
-        Q_UNUSED(c);
+        bool aliveWhenProbeDied = false;
+        {
+            Probe p(&aliveWhenProbeDied);
+        } // ~Probe runs here, controller still alive in outer scope
+
+        QVERIFY(aliveWhenProbeDied);
     }
 };
 

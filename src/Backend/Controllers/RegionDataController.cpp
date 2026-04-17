@@ -457,7 +457,19 @@ RegionDataController::RegionDataController(
 
 RegionDataController::~RegionDataController()
 {
-    clear();
+    // Do not call clear() during destruction. Three reasons:
+    //   1. m_networkController is a sibling under the same QObject
+    //      parent and may already have been destroyed (Qt destroys
+    //      children FIFO, so the controller created before us is
+    //      destroyed before us). Calling m_networkController->clear()
+    //      here is use-after-free.
+    //   2. Regions are QObject children of this controller; Qt's
+    //      ~QObject deletes them automatically after this body
+    //      finishes. Calling qDeleteAll ourselves would be fine but
+    //      redundant.
+    //   3. Emitting regionsCleared during destruction invokes slots
+    //      in GUI widgets that may call back into the singleton,
+    //      violating lifetime invariants during teardown.
     m_networkController = nullptr;
 }
 

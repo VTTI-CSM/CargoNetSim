@@ -69,6 +69,25 @@ public:
                 QObject                  *parent = nullptr);
 
     /**
+     * @brief Non-owning lookup of the controller singleton.
+     *
+     * Returns nullptr if no instance has been constructed yet or if the
+     * instance has already been destroyed. Prefer this over getInstance()
+     * in code that may run during startup or shutdown windows.
+     *
+     * @return Pointer to the singleton, or nullptr.
+     */
+    static CargoNetSimController *instance();
+
+    // Tier 1 ownership model: main() and test setup construct the
+    // controller explicitly as a QObject parent-child of
+    // QCoreApplication::instance(). Only one instance may exist at a
+    // time - enforced by Q_ASSERT_X in the constructor body.
+    explicit CargoNetSimController(
+        Backend::LoggerInterface *logger = nullptr,
+        QObject                  *parent = nullptr);
+
+    /**
      * @brief Destructor
      */
     ~CargoNetSimController();
@@ -361,15 +380,14 @@ private slots:
     void onThreadFinished();
 
 protected:
-    /**
-     * @brief Constructor
-     * @param parent The parent QObject
-     */
-    explicit CargoNetSimController(
-        Backend::LoggerInterface *logger = nullptr,
-        QObject                  *parent = nullptr);
-
     static CargoNetSimController *m_instance;
+
+    // Tier 1 lifetime: replaces m_instance/m_instanceLock for the new
+    // non-creating API. Set by constructor, cleared by destructor.
+    // Accessed only from the main thread (construction and destruction
+    // are serialized by design). The legacy m_instance/m_instanceLock
+    // are removed in Task 9 once all callers have migrated.
+    static CargoNetSimController *s_instance;
 
 private:
     /**
