@@ -6,6 +6,7 @@
  */
 
 #include "TruckSimulationManager.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QThread>
 #include <stdexcept>
 
@@ -64,14 +65,27 @@ void TruckSimulationManager::initializeManager(
     TerminalSimulationClient *terminalClient,
     LoggerInterface          *logger)
 {
+    qCInfo(lcClientTruck)
+        << "TruckSimulationManager::initializeManager:"
+        << "setting up manager dependencies";
     Commons::ScopedWriteLock locker(m_mutex);
     m_defaultSimulationTime = simulationTime;
     m_defaultTerminalClient = terminalClient;
     m_defaultLogger         = logger;
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::initializeManager:"
+        << "completed, simulationTime="
+        << (simulationTime != nullptr)
+        << "terminalClient="
+        << (terminalClient != nullptr)
+        << "logger=" << (logger != nullptr);
 }
 
 bool TruckSimulationManager::resetServer()
 {
+    qCInfo(lcClientTruck)
+        << "TruckSimulationManager::resetServer:"
+        << "initiating force reset of all clients";
 
     // First, get copies of client pointers to avoid locks
     // during force kill
@@ -86,6 +100,11 @@ bool TruckSimulationManager::resetServer()
         threadsToKill = m_clientThreads.values();
         networkNames  = m_clients.keys();
     }
+
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::resetServer:"
+        << "clients to kill:" << clientsToKill.size()
+        << "networks:" << networkNames;
 
     // Force kill all clients' processes first (without
     // holding a lock)
@@ -105,8 +124,11 @@ bool TruckSimulationManager::resetServer()
                 }
                 catch (...)
                 {
-                    // Ignore any exceptions - we're force
-                    // killing
+                    qCWarning(lcClientTruck)
+                        << "TruckSimulationManager::"
+                           "resetServer:"
+                        << "exception during endSimulator"
+                        << "for network:" << name;
                 }
             }
         }
@@ -121,6 +143,11 @@ bool TruckSimulationManager::resetServer()
             // Only wait briefly for clean exit
             if (!thread->wait(500))
             {
+                qCWarning(lcClientTruck)
+                    << "TruckSimulationManager::"
+                       "resetServer:"
+                    << "thread did not exit cleanly,"
+                    << "forcing terminate";
                 // Force kill the thread if it doesn't exit
                 // cleanly
                 thread->terminate();
@@ -159,6 +186,10 @@ bool TruckSimulationManager::resetServer()
         }
     }
 
+    qCInfo(lcClientTruck)
+        << "TruckSimulationManager::resetServer:"
+        << "force reset completed";
+
     // Notify about the reset
     emit clientsReset();
 
@@ -169,6 +200,12 @@ bool TruckSimulationManager::createClient(
     const QString             &networkName,
     const ClientConfiguration &config)
 {
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::createClient:"
+        << "networkName=" << networkName
+        << "host=" << config.host
+        << "port=" << config.port;
+
     if (networkName.isEmpty())
     {
         throw std::invalid_argument(
@@ -224,10 +261,18 @@ bool TruckSimulationManager::createClient(
 
     if (success)
     {
+        qCInfo(lcClientTruck)
+            << "TruckSimulationManager::createClient:"
+            << "client created successfully"
+            << "networkName=" << networkName;
         emit clientAdded(networkName);
     }
     else
     {
+        qCWarning(lcClientTruck)
+            << "TruckSimulationManager::createClient:"
+            << "defineSimulator failed, removing client"
+            << "networkName=" << networkName;
         // Clean up on failure
         removeClient(networkName);
     }
@@ -238,6 +283,10 @@ bool TruckSimulationManager::createClient(
 bool TruckSimulationManager::removeClient(
     const QString &networkName)
 {
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::removeClient:"
+        << "networkName=" << networkName;
+
     QThread               *thread = nullptr;
     TruckSimulationClient *client = nullptr;
 
@@ -246,6 +295,10 @@ bool TruckSimulationManager::removeClient(
         Commons::ScopedReadLock locker(m_mutex);
         if (!m_clients.contains(networkName))
         {
+            qCWarning(lcClientTruck)
+                << "TruckSimulationManager::removeClient:"
+                << "client not found"
+                << "networkName=" << networkName;
             return false;
         }
 
@@ -279,6 +332,10 @@ bool TruckSimulationManager::removeClient(
     // Delete the client
     delete client;
 
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::removeClient:"
+        << "client removed successfully"
+        << "networkName=" << networkName;
     emit clientRemoved(networkName);
     return true;
 }
@@ -287,6 +344,11 @@ bool TruckSimulationManager::renameClient(
     const QString &oldNetworkName,
     const QString &newNetworkName)
 {
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::renameClient:"
+        << "oldName=" << oldNetworkName
+        << "newName=" << newNetworkName;
+
     if (newNetworkName.isEmpty())
     {
         throw std::invalid_argument(
@@ -303,6 +365,10 @@ bool TruckSimulationManager::renameClient(
 
         if (!m_clients.contains(oldNetworkName))
         {
+            qCWarning(lcClientTruck)
+                << "TruckSimulationManager::renameClient:"
+                << "old client not found"
+                << "oldName=" << oldNetworkName;
             return false;
         }
 
@@ -343,7 +409,19 @@ bool TruckSimulationManager::renameClient(
 
     if (success)
     {
+        qCDebug(lcClientTruck)
+            << "TruckSimulationManager::renameClient:"
+            << "rename successful"
+            << "oldName=" << oldNetworkName
+            << "newName=" << newNetworkName;
         emit clientRenamed(oldNetworkName, newNetworkName);
+    }
+    else
+    {
+        qCWarning(lcClientTruck)
+            << "TruckSimulationManager::renameClient:"
+            << "defineSimulator failed for new name"
+            << "newName=" << newNetworkName;
     }
 
     return success;
@@ -353,6 +431,10 @@ bool TruckSimulationManager::updateClientConfig(
     const QString             &networkName,
     const ClientConfiguration &config)
 {
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::updateClientConfig:"
+        << "networkName=" << networkName;
+
     if (!config.isValid())
     {
         throw std::invalid_argument(
@@ -366,6 +448,11 @@ bool TruckSimulationManager::updateClientConfig(
         Commons::ScopedReadLock locker(m_mutex);
         if (!m_clients.contains(networkName))
         {
+            qCWarning(lcClientTruck)
+                << "TruckSimulationManager::"
+                   "updateClientConfig:"
+                << "client not found"
+                << "networkName=" << networkName;
             return false;
         }
 
@@ -388,7 +475,20 @@ bool TruckSimulationManager::updateClientConfig(
 
     if (success)
     {
+        qCDebug(lcClientTruck)
+            << "TruckSimulationManager::"
+               "updateClientConfig:"
+            << "config updated successfully"
+            << "networkName=" << networkName;
         emit clientUpdated(networkName);
+    }
+    else
+    {
+        qCWarning(lcClientTruck)
+            << "TruckSimulationManager::"
+               "updateClientConfig:"
+            << "defineSimulator failed after config update"
+            << "networkName=" << networkName;
     }
 
     return success;
@@ -418,18 +518,33 @@ ClientConfiguration TruckSimulationManager::getClientConfig(
 bool TruckSimulationManager::runSimulationSync(
     const QStringList &networkNames)
 {
+    qCInfo(lcClientTruck)
+        << "TruckSimulationManager::runSimulationSync:"
+        << "starting sync simulation"
+        << "networks=" << networkNames;
+
     while (keepGoing(networkNames))
     {
         syncGoOnce(networkNames);
         QThread::msleep(
             static_cast<long>(WAIT_INTERVAL * 1000));
     }
+
+    qCInfo(lcClientTruck)
+        << "TruckSimulationManager::runSimulationSync:"
+        << "sync simulation completed"
+        << "networks=" << networkNames;
     return true;
 }
 
 bool TruckSimulationManager::runSimulationAsync(
     const QStringList &networkNames)
 {
+    qCInfo(lcClientTruck)
+        << "TruckSimulationManager::runSimulationAsync:"
+        << "starting async simulation"
+        << "networks=" << networkNames;
+
     QStringList effectiveNames = networkNames;
 
     // If wildcard, get all client names
@@ -463,16 +578,29 @@ bool TruckSimulationManager::runSimulationAsync(
         }
         else
         {
+            qCWarning(lcClientTruck)
+                << "TruckSimulationManager::"
+                   "runSimulationAsync:"
+                << "client not found for network"
+                << "name=" << name;
             allSucceeded = false;
         }
     }
 
+    qCInfo(lcClientTruck)
+        << "TruckSimulationManager::runSimulationAsync:"
+        << "async simulation dispatched"
+        << "allSucceeded=" << allSucceeded;
     return allSucceeded;
 }
 
 void TruckSimulationManager::syncGoOnce(
     const QStringList &networkNames)
 {
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::syncGoOnce:"
+        << "networks=" << networkNames;
+
     double                                 maxTime = 0.0;
     QStringList                            effectiveNames;
     QMap<QString, double>                  currentTimes;
@@ -521,6 +649,10 @@ void TruckSimulationManager::syncGoOnce(
 bool TruckSimulationManager::keepGoing(
     const QStringList &networkNames) const
 {
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::keepGoing:"
+        << "checking if simulations should continue";
+
     QStringList                            effectiveNames;
     QMap<QString, TruckSimulationClient *> relevantClients;
     bool shouldContinue = false;
@@ -569,6 +701,10 @@ bool TruckSimulationManager::keepGoing(
 double TruckSimulationManager::getOverallProgress() const
 {
     Commons::ScopedReadLock locker(m_mutex);
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::getOverallProgress:"
+        << "clientCount=" << m_clients.size();
+
     double                  totalProgress = 0.0;
     int                     count         = 0;
 
@@ -643,6 +779,10 @@ TruckSimulationClient *TruckSimulationManager::getClient(
 QThread *TruckSimulationManager::createClientThread(
     const QString &networkName)
 {
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::createClientThread:"
+        << "networkName=" << networkName;
+
     QThread *thread = new QThread();
     thread->setObjectName(
         QString("TruckClient_%1").arg(networkName));
@@ -658,8 +798,18 @@ void TruckSimulationManager::initializeClientInThread(
     TruckSimulationClient *client,
     const QString         &networkName)
 {
+    qCDebug(lcClientTruck)
+        << "TruckSimulationManager::"
+           "initializeClientInThread:"
+        << "networkName=" << networkName;
+
     if (!client)
     {
+        qCWarning(lcClientTruck)
+            << "TruckSimulationManager::"
+               "initializeClientInThread:"
+            << "null client pointer"
+            << "networkName=" << networkName;
         return;
     }
 

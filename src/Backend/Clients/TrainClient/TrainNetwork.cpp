@@ -1,12 +1,6 @@
 #include "TrainNetwork.h"
-#include <QDebug>
+#include "Backend/Commons/LogCategories.h"
 #include <QFile>
-#include <QLoggingCategory>
-
-namespace
-{
-Q_LOGGING_CATEGORY(lcRail, "cargonetsim.rail")
-}
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -1056,7 +1050,7 @@ NeTrainSimNetwork::getPathLinks(
 
         if (!found)
         {
-            qWarning()
+            qCWarning(lcRail)
                 << "Could not find link between nodes"
                 << fromNodeId << "and" << toNodeId;
         }
@@ -1270,7 +1264,7 @@ void NeTrainSimNetwork::setNodesAndLinksFromJson(
         }
         else
         {
-            qWarning() << "Could not find nodes for link"
+            qCWarning(lcRail) << "Could not find nodes for link"
                        << linkJson["user_id"].toInt();
         }
     }

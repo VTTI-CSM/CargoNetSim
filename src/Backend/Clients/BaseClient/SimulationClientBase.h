@@ -2,6 +2,7 @@
 
 #include "Backend/Clients/BaseClient/RabbitMQHandler.h"
 #include "Backend/Commons/ClientType.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/LoggerInterface.h"
 #include "Backend/Commons/ThreadSafetyUtils.h"
 #include <QEventLoop>
@@ -350,7 +351,7 @@ protected:
         // connected
         if (m_rabbitMQHandler == nullptr || !isConnected())
         {
-            qWarning()
+            qCWarning(lcClient)
                 << "Cannot execute command: RabbitMQ "
                    "handler"
                    " not initialized or not connected";

@@ -9,6 +9,8 @@
 #include <QFileInfo>
 #include <QJsonArray>
 
+#include "Backend/Commons/LogCategories.h"
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -23,6 +25,7 @@ SimulationResults::SimulationResults(QObject *parent)
     , m_trajectoryFileName()
     , m_summaryFileName()
 {
+    qCDebug(lcClientTruck) << "SimulationResults::SimulationResults: default constructed";
 }
 
 SimulationResults::SimulationResults(
@@ -36,15 +39,25 @@ SimulationResults::SimulationResults(
     , m_trajectoryFileName(trajectoryFileName)
     , m_summaryFileName(summaryFileName)
 {
+    qCDebug(lcClientTruck) << "SimulationResults::SimulationResults:"
+                           << "summaryPairs=" << summaryData.size()
+                           << "trajectoryDataSize=" << trajectoryData.size()
+                           << "trajectoryFile=" << trajectoryFileName
+                           << "summaryFile=" << summaryFileName;
 }
 
 SimulationResults *
 SimulationResults::fromJson(const QJsonObject &jsonObj,
                             QObject           *parent)
 {
+    qCDebug(lcClientTruck) << "SimulationResults::fromJson: parsing JSON object"
+                           << "keys=" << jsonObj.keys();
+
     QList<QPair<QString, QString>> summaryData;
     QJsonArray                     summaryArray =
         jsonObj["summaryData"].toArray();
+    qCDebug(lcClientTruck) << "SimulationResults::fromJson: summaryArray size=" << summaryArray.size();
+
     for (const QJsonValue &pairValue : summaryArray)
     {
         QJsonObject pairObj = pairValue.toObject();
@@ -67,7 +80,16 @@ SimulationResults::fromJson(const QJsonObject &jsonObj,
             jsonObj["trajectoryFileData"].toString();
         trajectoryData =
             QByteArray::fromBase64(base64Data.toLatin1());
+        qCDebug(lcClientTruck) << "SimulationResults::fromJson: decoded trajectory data"
+                               << "size=" << trajectoryData.size();
     }
+    else
+    {
+        qCDebug(lcClientTruck) << "SimulationResults::fromJson: no trajectory data included";
+    }
+
+    qCInfo(lcClientTruck) << "SimulationResults::fromJson: parsed"
+                          << summaryData.size() << "summary pairs";
 
     return new SimulationResults(
         summaryData, trajectoryData,
@@ -77,32 +99,40 @@ SimulationResults::fromJson(const QJsonObject &jsonObj,
 
 QString SimulationResults::getTrajectoryFileName() const
 {
-    return QFileInfo(m_trajectoryFileName).fileName();
+    QString result = QFileInfo(m_trajectoryFileName).fileName();
+    qCDebug(lcClientTruck) << "SimulationResults::getTrajectoryFileName:" << result;
+    return result;
 }
 
 QString SimulationResults::getSummaryFileName() const
 {
-    return QFileInfo(m_summaryFileName).fileName();
+    QString result = QFileInfo(m_summaryFileName).fileName();
+    qCDebug(lcClientTruck) << "SimulationResults::getSummaryFileName:" << result;
+    return result;
 }
 
 const SimulationSummaryData &
 SimulationResults::summaryData() const
 {
-    return m_summaryData; // Return const reference
+    qCDebug(lcClientTruck) << "SimulationResults::summaryData: returning summary data";
+    return m_summaryData;
 }
 
 QByteArray SimulationResults::trajectoryFileData() const
 {
+    qCDebug(lcClientTruck) << "SimulationResults::trajectoryFileData: size=" << m_trajectoryFileData.size();
     return m_trajectoryFileData;
 }
 
 QString SimulationResults::trajectoryFileName() const
 {
+    qCDebug(lcClientTruck) << "SimulationResults::trajectoryFileName:" << m_trajectoryFileName;
     return m_trajectoryFileName;
 }
 
 QString SimulationResults::summaryFileName() const
 {
+    qCDebug(lcClientTruck) << "SimulationResults::summaryFileName:" << m_summaryFileName;
     return m_summaryFileName;
 }
 

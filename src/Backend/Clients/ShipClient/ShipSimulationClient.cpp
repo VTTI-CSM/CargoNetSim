@@ -42,6 +42,7 @@
 #include <QThread>
 
 #include "Backend/Clients/TerminalClient/TerminalSimulationClient.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/LoggerInterface.h"
 #include "Backend/Commons/ThreadSafetyUtils.h"
 #include "Backend/Models/ShipSystem.h"
@@ -78,7 +79,7 @@ ShipSimulationClient::ShipSimulationClient(
           QStringList{"CargoNetSim.Response.ShipNetSim"},
           ClientType::ShipClient)
 {
-    qDebug() << "ShipSimulatorClient initialized";
+    qCInfo(lcClientShip) << "ShipSimulatorClient initialized";
 }
 
 /**
@@ -110,7 +111,7 @@ ShipSimulationClient::~ShipSimulationClient()
     }
     else
     {
-        qDebug() << "ShipSimulatorClient destroyed";
+        qCInfo(lcClientShip) << "ShipSimulatorClient destroyed";
     }
 }
 
@@ -185,7 +186,7 @@ void ShipSimulationClient::initializeClient(
     }
     else
     {
-        qDebug()
+        qCInfo(lcClientShip)
             << "ShipSimulationClient initialized in thread:"
             << QThread::currentThreadId();
     }
@@ -265,7 +266,7 @@ bool ShipSimulationClient::defineSimulator(
             }
             else
             {
-                qCritical()
+                qCCritical(lcClientShip)
                     << "Exception in defineSimulator:"
                     << e.what();
             }
@@ -942,7 +943,7 @@ void ShipSimulationClient::processMessage(
         }
         else
         {
-            qWarning()
+            qCWarning(lcClientShip)
                 << "Unrecognized event:" << eventType;
         }
     }
@@ -965,7 +966,7 @@ void ShipSimulationClient::onSimulationNetworkLoaded(
     }
     else
     {
-        qDebug() << "Simulation network loaded.";
+        qCInfo(lcClientShip) << "Simulation network loaded.";
     }
     // No shared state modification, no mutex needed
 }
@@ -995,7 +996,7 @@ void ShipSimulationClient::onSimulationCreated(
     }
     else
     {
-        qDebug() << "Simulation created.";
+        qCInfo(lcClientShip) << "Simulation created.";
     }
 }
 
@@ -1016,7 +1017,7 @@ void ShipSimulationClient::onSimulationPaused(
     }
     else
     {
-        qDebug() << "Simulation paused.";
+        qCInfo(lcClientShip) << "Simulation paused.";
     }
 }
 
@@ -1037,7 +1038,7 @@ void ShipSimulationClient::onSimulationResumed(
     }
     else
     {
-        qDebug() << "Simulation resumed.";
+        qCInfo(lcClientShip) << "Simulation resumed.";
     }
 }
 
@@ -1058,7 +1059,7 @@ void ShipSimulationClient::onSimulationRestarted(
     }
     else
     {
-        qDebug() << "Simulation restarted.";
+        qCInfo(lcClientShip) << "Simulation restarted.";
     }
 }
 
@@ -1079,7 +1080,7 @@ void ShipSimulationClient::onSimulationEnded(
     }
     else
     {
-        qDebug() << "Simulation ended.";
+        qCInfo(lcClientShip) << "Simulation ended.";
     }
 }
 
@@ -1123,9 +1124,9 @@ void ShipSimulationClient::onSimulationAdvanced(
         }
         else
         {
-            qDebug() << "Simulation advanced to time:"
+            qCDebug(lcClientShip) << "Simulation advanced to time:"
                      << newTime;
-            qDebug() << "Simulations advanced for"
+            qCDebug(lcClientShip) << "Simulations advanced for"
                      << networks.join(", ");
         }
     }
@@ -1139,7 +1140,7 @@ void ShipSimulationClient::onSimulationAdvanced(
         }
         else
         {
-            qWarning() << "Invalid or missing "
+            qCWarning(lcClientShip) << "Invalid or missing "
                           "'networkNamesProgress'";
         }
     }
@@ -1186,7 +1187,7 @@ void ShipSimulationClient::onShipAddedToSimulator(
     }
     else
     {
-        qDebug() << "Ship" << shipId
+        qCInfo(lcClientShip) << "Ship" << shipId
                  << "added to simulator.";
     }
 }
@@ -1212,7 +1213,7 @@ void ShipSimulationClient::onAllShipsReachedDestination(
     }
     else
     {
-        qDebug()
+        qCInfo(lcClientShip)
             << "All ships reached destination of network:"
             << networkName;
     }
@@ -1313,7 +1314,7 @@ void ShipSimulationClient::onShipReachedDestination(
     }
     else
     {
-        qDebug() << "Ships [" << shipIds.join(", ")
+        qCInfo(lcClientShip) << "Ships [" << shipIds.join(", ")
                  << "] reached destinations";
     }
 }
@@ -1390,7 +1391,7 @@ void ShipSimulationClient::onContainersUnloaded(
     }
     else
     {
-        qDebug() << "Containers unloaded at port:"
+        qCInfo(lcClientShip) << "Containers unloaded at port:"
                  << portName;
     }
 }
@@ -1415,7 +1416,7 @@ void ShipSimulationClient::onSimulationResultsAvailable(
     }
     else
     {
-        qDebug() << "Simulation results available";
+        qCInfo(lcClientShip) << "Simulation results available";
     }
 }
 
@@ -1487,7 +1488,7 @@ void ShipSimulationClient::onShipStateAvailable(
     }
     else
     {
-        qDebug() << "Ship state available";
+        qCInfo(lcClientShip) << "Ship state available";
     }
 }
 
@@ -1511,7 +1512,7 @@ void ShipSimulationClient::onSimulatorStateAvailable(
     }
     else
     {
-        qDebug() << "Simulator state available";
+        qCInfo(lcClientShip) << "Simulator state available";
     }
 }
 
@@ -1536,7 +1537,7 @@ void ShipSimulationClient::onErrorOccurred(
     }
     else
     {
-        qCritical() << "Error occurred:" << errorMessage;
+        qCCritical(lcClientShip) << "Error occurred:" << errorMessage;
     }
 }
 
@@ -1555,7 +1556,7 @@ void ShipSimulationClient::onServerReset()
     }
     else
     {
-        qDebug() << "Server Reset Successfully";
+        qCInfo(lcClientShip) << "Server Reset Successfully";
     }
 }
 
@@ -1581,7 +1582,7 @@ void ShipSimulationClient::onContainersAdded(
     }
     else
     {
-        qDebug() << "Containers added to ship" << shipId
+        qCInfo(lcClientShip) << "Containers added to ship" << shipId
                  << "on network" << network;
     }
 }

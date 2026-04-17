@@ -1,6 +1,7 @@
 #include "TrainSimulationClient.h"
 #include "Backend/Clients/TerminalClient/TerminalSimulationClient.h"
 #include "Backend/Clients/TrainClient/TrainNetwork.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Models/SimulationTime.h"
 #include "Backend/Models/TrainSystem.h"
 #include <QDebug>
@@ -77,7 +78,7 @@ TrainSimulationClient::~TrainSimulationClient()
     }
     else
     {
-        qDebug() << "TrainSimulatorClient destroyed";
+        qCInfo(lcClientTrain) << "TrainSimulatorClient destroyed";
     }
 }
 
@@ -154,7 +155,7 @@ void TrainSimulationClient::initializeClient(
     }
     else
     {
-        qDebug() << "TrainSimulationClient initialized in "
+        qCInfo(lcClientTrain) << "TrainSimulationClient initialized in "
                     "thread:"
                  << QThread::currentThreadId();
     }
@@ -731,7 +732,7 @@ void TrainSimulationClient::processMessage(
     }
     else
     {
-        qWarning() << "Unrecognized event:" << event;
+        qCWarning(lcClientTrain) << "Unrecognized event:" << event;
     }
 }
 
@@ -756,7 +757,7 @@ void TrainSimulationClient::onSimulationCreated(
     }
     else
     {
-        qDebug() << "Simulation created for network:"
+        qCInfo(lcClientTrain) << "Simulation created for network:"
                  << network;
     }
 }
@@ -772,7 +773,7 @@ void TrainSimulationClient::onSimulationEnded(
     }
     else
     {
-        qDebug() << "Simulation ended";
+        qCInfo(lcClientTrain) << "Simulation ended";
     }
 }
 
@@ -862,7 +863,7 @@ void TrainSimulationClient::onAllTrainsReachedDestination(
     }
     else
     {
-        qDebug() << "All trains reached destination in:"
+        qCInfo(lcClientTrain) << "All trains reached destination in:"
                  << network;
     }
 }
@@ -895,7 +896,7 @@ void TrainSimulationClient::onSimulationResultsAvailable(
     }
     else
     {
-        qDebug()
+        qCInfo(lcClientTrain)
             << "Simulation results available for networks:"
             << results.keys().join(", ");
     }
@@ -915,7 +916,7 @@ void TrainSimulationClient::onTrainsAddedToSimulator(
     }
     else
     {
-        qDebug() << "Trains added to network:" << network;
+        qCInfo(lcClientTrain) << "Trains added to network:" << network;
     }
 }
 
@@ -933,7 +934,7 @@ void TrainSimulationClient::onErrorOccurred(
     }
     else
     {
-        qCritical() << "Error occurred:" << error;
+        qCCritical(lcClientTrain) << "Error occurred:" << error;
     }
 }
 
@@ -968,7 +969,7 @@ void TrainSimulationClient::onServerReset()
     }
     else
     {
-        qDebug() << "Server reset successfully";
+        qCInfo(lcClientTrain) << "Server reset successfully";
     }
 }
 
@@ -1012,7 +1013,7 @@ void TrainSimulationClient::onSimulationAdvanced(
         }
         else
         {
-            qDebug() << "Simulation advanced for:"
+            qCDebug(lcClientTrain) << "Simulation advanced for:"
                      << networks.join(", ");
         }
     }
@@ -1034,7 +1035,7 @@ void TrainSimulationClient::onContainersAdded(
     }
     else
     {
-        qDebug() << "Containers added to train" << trainId
+        qCInfo(lcClientTrain) << "Containers added to train" << trainId
                  << "in" << network;
     }
 }
@@ -1071,7 +1072,7 @@ void TrainSimulationClient::onSimulationPaused(
     }
     else
     {
-        qDebug() << "Simulation paused for:" << networks;
+        qCInfo(lcClientTrain) << "Simulation paused for:" << networks;
     }
 }
 
@@ -1089,7 +1090,7 @@ void TrainSimulationClient::onSimulationResumed(
     }
     else
     {
-        qDebug() << "Simulation resumed for:" << networks;
+        qCInfo(lcClientTrain) << "Simulation resumed for:" << networks;
     }
 }
 
@@ -1158,7 +1159,7 @@ void TrainSimulationClient::onContainersUnloaded(
     }
     else
     {
-        qDebug() << "Containers unloaded at terminal:"
+        qCInfo(lcClientTrain) << "Containers unloaded at terminal:"
                  << terminalId;
     }
 }

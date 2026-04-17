@@ -1,5 +1,7 @@
 #include "SimulationSummaryData.h"
 
+#include "Backend/Commons/LogCategories.h"
+
 /**
  * @file SimulationSummaryData.cpp
  * @brief Implementation file for the SimulationSummaryData
@@ -24,15 +26,22 @@ namespace TrainClient
 SimulationSummaryData::SimulationSummaryData(
     const QVector<QPair<QString, QString>> &summaryData)
 {
+    qCDebug(lcClientTrain) << "SimulationSummaryData::SimulationSummaryData:"
+                           << "rawPairs=" << summaryData.size();
     // Upon construction, immediately parse the provided
     // summary data to initialize the internal data
     // structure (m_parsedData).
     parseSummaryData(summaryData);
+    qCInfo(lcClientTrain) << "SimulationSummaryData::SimulationSummaryData:"
+                          << "parsed categories=" << m_parsedData.keys().size();
 }
 
 void SimulationSummaryData::parseSummaryData(
     const QVector<QPair<QString, QString>> &summaryData)
 {
+    qCDebug(lcClientTrain) << "SimulationSummaryData::parseSummaryData:"
+                           << "parsing" << summaryData.size() << "raw pairs";
+
     // Temporary map to build the parsed structure before
     // assigning to m_parsedData
     QMap<QString, QVariant> parsed;
@@ -82,6 +91,8 @@ void SimulationSummaryData::parseSummaryData(
             // Reset subcategory pointer since we're at a
             // new category
             currentSubcategoryMap = nullptr;
+            qCDebug(lcClientTrain) << "SimulationSummaryData::parseSummaryData:"
+                                   << "new category=" << category;
             continue;
         }
 
@@ -107,6 +118,8 @@ void SimulationSummaryData::parseSummaryData(
                 // Point currentSubcategoryMap to this new
                 // subcategory's map
                 currentSubcategoryMap = &result;
+                qCDebug(lcClientTrain) << "SimulationSummaryData::parseSummaryData:"
+                                       << "new subcategory=" << subcategory;
             }
             continue;
         }
@@ -139,15 +152,21 @@ void SimulationSummaryData::parseSummaryData(
     // Assign the fully constructed structure to the member
     // variable
     m_parsedData = parsed;
+    qCDebug(lcClientTrain) << "SimulationSummaryData::parseSummaryData:"
+                           << "result categories=" << parsed.keys();
 }
 
 QMap<QString, QVariant> SimulationSummaryData::getCategory(
     const QString &category) const
 {
-    // Retrieve the map associated with the specified
-    // category If the category doesn't exist, returns an
-    // empty QMap
-    return m_parsedData.value(category).toMap();
+    qCDebug(lcClientTrain) << "SimulationSummaryData::getCategory:" << category;
+    auto result = m_parsedData.value(category).toMap();
+    if (result.isEmpty())
+    {
+        qCWarning(lcClientTrain) << "SimulationSummaryData::getCategory:"
+                                 << "category not found:" << category;
+    }
+    return result;
 }
 
 QMap<QString, QVariant>
@@ -155,12 +174,19 @@ SimulationSummaryData::getSubcategory(
     const QString &category,
     const QString &subcategory) const
 {
+    qCDebug(lcClientTrain) << "SimulationSummaryData::getSubcategory:"
+                           << "category=" << category
+                           << "subcategory=" << subcategory;
     // First, get the category map
     QMap<QString, QVariant> catData = getCategory(category);
-    // Then, retrieve the subcategory map from within the
-    // category Returns an empty QMap if the subcategory
-    // doesn't exist
-    return catData.value(subcategory).toMap();
+    auto result = catData.value(subcategory).toMap();
+    if (result.isEmpty())
+    {
+        qCWarning(lcClientTrain) << "SimulationSummaryData::getSubcategory:"
+                                 << "subcategory not found:" << subcategory
+                                 << "in category:" << category;
+    }
+    return result;
 }
 
 QVariant
@@ -168,25 +194,36 @@ SimulationSummaryData::getValue(const QString &category,
                                 const QString &subcategory,
                                 const QString &key) const
 {
+    qCDebug(lcClientTrain) << "SimulationSummaryData::getValue:"
+                           << "category=" << category
+                           << "subcategory=" << subcategory
+                           << "key=" << key;
     // Get the subcategory map
     QMap<QString, QVariant> subcatData =
         getSubcategory(category, subcategory);
-    // Return the value associated with the key
-    // Returns an invalid QVariant if the key doesn't exist
-    return subcatData.value(key);
+    QVariant result = subcatData.value(key);
+    if (!result.isValid())
+    {
+        qCWarning(lcClientTrain) << "SimulationSummaryData::getValue:"
+                                 << "key not found:" << key;
+    }
+    return result;
 }
 
 QStringList SimulationSummaryData::getAllCategories() const
 {
-    // Simply return a list of all top-level keys (category
-    // names) in m_parsedData
-    return m_parsedData.keys();
+    QStringList cats = m_parsedData.keys();
+    qCDebug(lcClientTrain) << "SimulationSummaryData::getAllCategories:"
+                           << "count=" << cats.size() << cats;
+    return cats;
 }
 
 QMap<QString, QStringList>
 SimulationSummaryData::getAllSubcategories(
     const QString &category) const
 {
+    qCDebug(lcClientTrain) << "SimulationSummaryData::getAllSubcategories:"
+                           << "category=" << category;
     // Map to store the result: category names mapped to
     // their subcategory lists
     QMap<QString, QStringList> result;
@@ -228,13 +265,17 @@ SimulationSummaryData::getAllSubcategories(
         }
         result[category] = subcats;
     }
+
+    qCDebug(lcClientTrain) << "SimulationSummaryData::getAllSubcategories:"
+                           << "result keys=" << result.keys();
     return result;
 }
 
 QMap<QString, QVariant> SimulationSummaryData::info() const
 {
+    qCDebug(lcClientTrain) << "SimulationSummaryData::info:"
+                           << "categories=" << m_parsedData.keys().size();
     // Return a copy of the entire parsed data structure
-    // Useful for debugging or full data inspection
     return m_parsedData;
 }
 

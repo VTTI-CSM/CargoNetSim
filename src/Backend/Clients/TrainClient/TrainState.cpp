@@ -1,6 +1,8 @@
 #include "TrainState.h"
 #include <QDebug>
 
+#include "Backend/Commons/LogCategories.h"
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -62,6 +64,12 @@ TrainState::TrainState(const QJsonObject &trainData)
     , m_containersCount(
           trainData.value("containersCount").toInt(0))
 {
+    qCDebug(lcClientTrain)
+        << "TrainState::TrainState:"
+        << "trainId=" << m_trainUserId
+        << "speed=" << m_currentSpeed
+        << "loaded=" << m_isLoaded;
+
     // Extract fuel consumption data from JSON
     QJsonObject fuelObj =
         trainData.value("totalFuelConsumed").toObject();
@@ -115,10 +123,15 @@ TrainState::TrainState(const QJsonObject &trainData)
 QVariant
 TrainState::getMetric(const QString &metricName) const
 {
+    qCDebug(lcClientTrain)
+        << "TrainState::getMetric:"
+        << "trainId=" << m_trainUserId
+        << "metric=" << metricName;
+
     // Return the value of the requested metric
     if (!m_metrics.contains(metricName))
     {
-        qWarning() << "Unknown metric requested:"
+        qCWarning(lcClientTrain) << "Unknown metric requested:"
                    << metricName;
         return QVariant();
     }
@@ -127,6 +140,13 @@ TrainState::getMetric(const QString &metricName) const
 
 QJsonObject TrainState::toJson() const
 {
+    qCDebug(lcClientTrain)
+        << "TrainState::toJson:"
+        << "trainId=" << m_trainUserId
+        << "speed=" << m_currentSpeed
+        << "distance=" << m_travelledDistance
+        << "reachedDest=" << m_reachedDestination;
+
     // Create a JSON object to hold the train state
     QJsonObject obj;
 

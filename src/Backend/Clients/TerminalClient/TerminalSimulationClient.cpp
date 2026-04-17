@@ -4,6 +4,8 @@
 #include <QThread>
 #include <stdexcept>
 
+#include "Backend/Commons/LogCategories.h"
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -21,7 +23,7 @@ TerminalSimulationClient::TerminalSimulationClient(
           ClientType::TerminalClient)
 {
     // Log initialization for debugging and auditing
-    qDebug() << "TerminalSimulationClient initialized";
+    qCInfo(lcClientTerminal) << "TerminalSimulationClient initialized";
 }
 
 // Destructor implementation
@@ -81,7 +83,7 @@ TerminalSimulationClient::~TerminalSimulationClient()
     m_terminalCount   = 0;
 
     // Log destruction for tracking
-    qDebug() << "TerminalSimulationClient destroyed";
+    qCInfo(lcClientTerminal) << "TerminalSimulationClient destroyed";
 }
 
 // Reset server state
@@ -116,7 +118,7 @@ void TerminalSimulationClient::initializeClient(
     m_rabbitMQHandler->setupHeartbeat(5);
 
     // Log initialization details for audit
-    qDebug() << "Client initialized in thread:"
+    qCInfo(lcClientTerminal) << "Client initialized in thread:"
              << QThread::currentThreadId();
 }
 
@@ -163,7 +165,7 @@ bool TerminalSimulationClient::setCostFunctionParameters(
                     defaultModeParams[attr] = 1.0;
                 }
                 completeParams[mode] = defaultModeParams;
-                qDebug() << "Created default parameters "
+                qCDebug(lcClientTerminal) << "Created default parameters "
                             "for mode:"
                          << mode;
             }
@@ -182,7 +184,7 @@ bool TerminalSimulationClient::setCostFunctionParameters(
                     {
                         modeParams[attr] = 1.0;
                         modeUpdated      = true;
-                        qDebug()
+                        qCDebug(lcClientTerminal)
                             << "Added default value for"
                             << attr << "in mode" << mode;
                     }
@@ -217,7 +219,7 @@ bool TerminalSimulationClient::addTerminal(
         // Validate terminal pointer
         if (!terminal)
         {
-            qCritical() << "Null terminal pointer";
+            qCCritical(lcClientTerminal) << "Null terminal pointer";
             return false;
         }
         // Send terminal addition command
@@ -235,7 +237,7 @@ bool TerminalSimulationClient::addTerminals(
         // Validate input
         if (terminals.isEmpty())
         {
-            qCritical() << "Empty terminals list";
+            qCCritical(lcClientTerminal) << "Empty terminals list";
             return false;
         }
 
@@ -248,7 +250,7 @@ bool TerminalSimulationClient::addTerminals(
         {
             if (!terminal)
             {
-                qWarning()
+                qCWarning(lcClientTerminal)
                     << "Skipping null terminal pointer";
                 continue;
             }
@@ -258,7 +260,7 @@ bool TerminalSimulationClient::addTerminals(
         // Skip if no valid terminals
         if (terminalsArray.isEmpty())
         {
-            qCritical() << "No valid terminals to add";
+            qCCritical(lcClientTerminal) << "No valid terminals to add";
             return false;
         }
 
@@ -291,6 +293,8 @@ bool TerminalSimulationClient::addTerminalAlias(
 QStringList TerminalSimulationClient::getTerminalAliases(
     const QString &terminalId)
 {
+    qCDebug(lcClientTerminal) << "getTerminalAliases: terminalId=" << terminalId;
+
     // Execute alias fetch command serially
     executeSerializedCommand([&]() {
         // Prepare parameters for alias retrieval
@@ -306,8 +310,11 @@ QStringList TerminalSimulationClient::getTerminalAliases(
     Commons::ScopedReadLock locker(m_dataMutex);
 
     // Retrieve aliases from dedicated map
-    return m_terminalAliases.value(terminalId,
-                                   QStringList());
+    QStringList aliases = m_terminalAliases.value(terminalId,
+                                                  QStringList());
+    qCDebug(lcClientTerminal) << "getTerminalAliases: terminalId=" << terminalId
+                              << "count=" << aliases.size();
+    return aliases;
 }
 
 // Remove terminal
@@ -344,12 +351,14 @@ int TerminalSimulationClient::getTerminalCount()
 Terminal *TerminalSimulationClient::getTerminalStatus(
     const QString &terminalId)
 {
+    qCDebug(lcClientTerminal) << "getTerminalStatus: terminalId=" << terminalId;
+
     // Execute status fetch serially
     executeSerializedCommand([&]() {
         // Validate input parameter
         if (terminalId.isEmpty())
         {
-            qWarning() << "Empty terminalId not supported";
+            qCWarning(lcClientTerminal) << "Empty terminalId not supported";
             return false;
         }
         // Prepare parameters for status query
@@ -373,7 +382,7 @@ bool TerminalSimulationClient::addRoute(
         // Validate route pointer
         if (!route)
         {
-            qCritical() << "Null PathSegment pointer";
+            qCCritical(lcClientTerminal) << "Null PathSegment pointer";
             return false;
         }
         // Send route addition command
@@ -390,7 +399,7 @@ bool TerminalSimulationClient::addRoutes(
         // Validate input
         if (routes.isEmpty())
         {
-            qCritical() << "Empty routes list";
+            qCCritical(lcClientTerminal) << "Empty routes list";
             return false;
         }
 
@@ -403,7 +412,7 @@ bool TerminalSimulationClient::addRoutes(
         {
             if (!route)
             {
-                qWarning() << "Skipping null route pointer";
+                qCWarning(lcClientTerminal) << "Skipping null route pointer";
                 continue;
             }
             routesArray.append(route->toJson());
@@ -412,7 +421,7 @@ bool TerminalSimulationClient::addRoutes(
         // Skip if no valid routes
         if (routesArray.isEmpty())
         {
-            qCritical() << "No valid routes to add";
+            qCCritical(lcClientTerminal) << "No valid routes to add";
             return false;
         }
 
@@ -852,6 +861,8 @@ bool TerminalSimulationClient::updateTerminalSystemDynamics(
 QJsonObject TerminalSimulationClient::getTerminalSystemDynamicsState(
     const QString& terminalId)
 {
+    qCDebug(lcClientTerminal) << "getTerminalSystemDynamicsState: terminalId=" << terminalId;
+
     QJsonObject result;
 
     executeSerializedCommand([&]() {
@@ -865,6 +876,13 @@ QJsonObject TerminalSimulationClient::getTerminalSystemDynamicsState(
 
         return success;
     });
+
+    if (result.isEmpty())
+    {
+        qCWarning(lcClientTerminal) << "getTerminalSystemDynamicsState:"
+                                    << "returning empty result for terminalId="
+                                    << terminalId;
+    }
 
     return result;
 }
@@ -1001,12 +1019,12 @@ void TerminalSimulationClient::processMessage(
     else if (normEvent == "systemdynamicsupdated")
     {
         // SD update acknowledged - no special handling needed
-        qDebug() << "System Dynamics updated";
+        qCInfo(lcClientTerminal) << "System Dynamics updated";
     }
     else if (normEvent == "systemdynamicsstate")
     {
         // SD state returned - no special handling needed
-        qDebug() << "System Dynamics state received";
+        qCInfo(lcClientTerminal) << "System Dynamics state received";
     }
     else
     {
@@ -1020,7 +1038,7 @@ void TerminalSimulationClient::processMessage(
         else
         {
             // Log unknown events for debugging
-            qWarning()
+            qCWarning(lcClientTerminal)
                 << "Unknown event received:" << event;
         }
     }
@@ -1040,6 +1058,12 @@ void TerminalSimulationClient::onTerminalAdded(
         delete existing;
     }
     Terminal *terminal = Terminal::fromJson(result);
+    if (!terminal)
+    {
+        qCWarning(lcClientTerminal) << "Failed to deserialize terminal from JSON:"
+                   << name;
+        return;
+    }
     terminal->setParent(this);
 
     m_terminalStatus[name] = terminal;
@@ -1055,7 +1079,7 @@ void TerminalSimulationClient::onTerminalAdded(
         }
         m_terminalAliases[name] = aliasList;
     }
-    qDebug() << "Terminal added:" << name;
+    qCInfo(lcClientTerminal) << "Terminal added:" << name;
 }
 
 void TerminalSimulationClient::onTerminalsAdded(
@@ -1085,6 +1109,12 @@ void TerminalSimulationClient::onTerminalsAdded(
         // Create new terminal from JSON
         Terminal *terminal =
             Terminal::fromJson(terminalJson);
+        if (!terminal)
+        {
+            qCWarning(lcClientTerminal) << "Failed to deserialize terminal"
+                       << "from JSON:" << name;
+            continue;
+        }
         terminal->setParent(this);
 
         // Store in map
@@ -1119,7 +1149,7 @@ void TerminalSimulationClient::onRouteAdded(
     Commons::ScopedWriteLock locker(m_dataMutex);
 
     // Log event for auditing
-    qDebug() << "Route added from" << startTerminal << "to"
+    qCInfo(lcClientTerminal) << "Route added from" << startTerminal << "to"
              << endTerminal;
 }
 
@@ -1128,6 +1158,7 @@ void TerminalSimulationClient::onRoutesAdded(
 {
     // Extract array of route results
     QJsonArray routesArray = message["result"].toArray();
+    qCDebug(lcClientTerminal) << "onRoutesAdded: routeCount=" << routesArray.size();
 
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
@@ -1179,7 +1210,7 @@ void TerminalSimulationClient::onPathsFound(
     }
 
     // Log event for auditing
-    qDebug() << "Path found from" << start << "to" << end;
+    qCInfo(lcClientTerminal) << "Path found from" << start << "to" << end;
 }
 
 // Handle containers added event
@@ -1194,7 +1225,7 @@ void TerminalSimulationClient::onContainersAdded(
     Commons::ScopedWriteLock locker(m_dataMutex);
 
     // Log event for auditing
-    qDebug() << "Containers added to terminal:"
+    qCInfo(lcClientTerminal) << "Containers added to terminal:"
              << terminalId;
 }
 
@@ -1253,7 +1284,7 @@ void TerminalSimulationClient::onServerReset(
     m_terminalCount   = 0;
 
     // Log event for auditing
-    qDebug() << "Server reset successfully";
+    qCInfo(lcClientTerminal) << "Server reset successfully";
 }
 
 // Handle error event
@@ -1264,7 +1295,7 @@ void TerminalSimulationClient::onErrorOccurred(
     QString error = message["error"].toString();
 
     // Log error for debugging and review
-    qCritical() << "Error occurred:" << error;
+    qCCritical(lcClientTerminal) << "Error occurred:" << error;
 }
 
 // Handle terminal removed event
@@ -1288,7 +1319,7 @@ void TerminalSimulationClient::onTerminalRemoved(
     m_terminalAliases.remove(terminalId);
 
     // Log event for auditing
-    qDebug() << "Terminal removed:" << terminalId;
+    qCInfo(lcClientTerminal) << "Terminal removed:" << terminalId;
 }
 
 // Handle terminal count event
@@ -1303,7 +1334,7 @@ void TerminalSimulationClient::onTerminalCount(
     m_terminalCount = count;
 
     // Log event for tracking
-    qDebug() << "Terminal count updated:" << count;
+    qCInfo(lcClientTerminal) << "Terminal count updated:" << count;
 }
 
 // Handle containers fetched event
@@ -1347,7 +1378,7 @@ void TerminalSimulationClient::onContainersFetched(
     m_containers[terminalId] = newContainers;
 
     // Log event for auditing
-    qDebug() << "Containers fetched for:" << terminalId;
+    qCInfo(lcClientTerminal) << "Containers fetched for:" << terminalId;
 }
 
 // Handle capacity fetched event
@@ -1366,7 +1397,7 @@ void TerminalSimulationClient::onCapacityFetched(
     m_capacities[terminalId] = capacity;
 
     // Log event for tracking
-    qDebug() << "Capacity fetched for:" << terminalId;
+    qCInfo(lcClientTerminal) << "Capacity fetched for:" << terminalId;
 }
 
 } // namespace Backend
