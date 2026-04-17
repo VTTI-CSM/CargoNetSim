@@ -46,10 +46,26 @@ QList<ServerStatusProbe::ServerStatus> ServerStatusProbe::pollAll()
     ServerStatus ship     = makeStatus("ShipNetSim");
     ServerStatus truck    = makeStatus("INTEGRATION");
 
+    // Use nullable instance() rather than getInstance(): pollAll may
+    // be called during startup (before main() constructs the
+    // controller) or shutdown (after its destructor has cleared
+    // s_instance). Returning four "disconnected" entries is the
+    // correct semantics in that window, matching the test contract
+    // in test_poll_without_controller_returns_disconnected_entries.
+    auto *controllerPtr =
+        CargoNetSim::CargoNetSimController::instance();
+    if (controllerPtr == nullptr)
+    {
+        qCDebug(lcScenario) << "ServerStatusProbe::pollAll: no controller"
+                            << "(startup/shutdown window) - returning"
+                            << "disconnected entries";
+        results << terminal << train << ship << truck;
+        return results;
+    }
+
     try
     {
-        auto &controller =
-            CargoNetSim::CargoNetSimController::getInstance();
+        auto &controller = *controllerPtr;
 
         if (auto *c = controller.getTerminalClient())
         {

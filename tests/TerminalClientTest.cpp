@@ -1,5 +1,6 @@
 #include <QTest>
 #include "Backend/Clients/TerminalClient/TerminalSimulationClient.h"
+#include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Models/Terminal.h"
 #include "Backend/Models/PathSegment.h"
 #include "Backend/Models/Path.h"
@@ -590,16 +591,25 @@ Q_SIGNALS:
  * It runs all test methods in the TerminalSimulationClientTest class.
  */
 int main(int argc, char *argv[])
-{   
-    // Initialize backend metatypes for proper signal/slot connections across threads
-    CargoNetSim::Backend::initializeBackend();
-    
-    // Create application instance required for the test
+{
+    // QCoreApplication must be constructed first: the controller's
+    // constructor asserts thread-affinity against
+    // QCoreApplication::instance() and the Tier 1 initializeBackend
+    // asserts the controller already exists.
     QCoreApplication app(argc, argv);
-    
+
+    // Tier 1 (Option E): stack-allocate the controller so it is
+    // destroyed at main() return, after QTest::qExec completes.
+    // initializeBackend() below relies on this having already run.
+    CargoNetSim::CargoNetSimController controller(/*logger=*/nullptr);
+
+    // Initialize backend metatypes for proper signal/slot
+    // connections across threads.
+    CargoNetSim::Backend::initializeBackend();
+
     // Create instance of the test class
     TerminalSimulationClientTest testObject;
-    
+
     // Run the tests and return the result
     return QTest::qExec(&testObject, argc, argv);
 }
