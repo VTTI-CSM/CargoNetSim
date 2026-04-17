@@ -1,0 +1,40 @@
+cargonetsim-cli — headless runner for CargoNetSim scenarios
+
+USAGE
+    cargonetsim-cli <subcommand> [options]
+
+SUBCOMMANDS
+    run         <scenario.yml>   Execute the scenario end-to-end.
+                                 The scenario YAML is the ONLY argument;
+                                 every parameter (output directory,
+                                 simulation end time, origins and
+                                 destinations, etc.) is read from the
+                                 YAML itself. No flags accepted.
+
+    validate    <scenario.yml>   Parse + validate; exit non-zero on error.
+
+    preview     <scenario.yml>   Load, validate, run linker, emit JSON to stdout.
+
+    status      [--json]         Query running simulations.
+
+    connections [--watch]        Show per-server RabbitMQ connection status.
+
+    stop        [--pid N]        Halt a running simulation gracefully.
+
+    --help, -h                   This help.
+    --version, -v                Print version and exit.
+
+EXIT CODES
+    0   success
+    1   simulation run failed at runtime
+    2   scenario validation failed
+    3   connection to simulators could not be established within timeout
+    4   no running simulation found (for status/stop)
+    5   at least one simulator disconnected (for connections)
+   64   misuse / bad command-line arguments
+
+ENVIRONMENT
+    CARGONETSIM_CLI_RUNTIME_DIR  Override the runtime state directory.
+    QT_LOGGING_RULES             Qt logging filter (respected).
+
+See docs/superpowers/specs/2026-04-12-cargonetsim-cli-and-scenario-model-design.md

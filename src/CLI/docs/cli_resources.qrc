@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/cli">
+    <file alias="help.txt">help.txt</file>
+  </qresource>
+</RCC>
