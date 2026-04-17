@@ -76,10 +76,10 @@ CargoNetSimController::CargoNetSimController(
                "the main (QCoreApplication) thread.");
     }
     s_instance = this;
-    // Keep legacy singleton pointer synchronized during migration so
-    // the old getInstance(logger) auto-create path (still present
-    // until Task 4) sees us as the existing instance and does NOT
-    // try to create a second one. Removed in Task 9.
+    // Keep m_instance synchronized: the CargoNetSimControllerCleanup
+    // class (still present until Task 8) reads it to find the
+    // instance to delete. Removed together with m_instance and
+    // m_instanceLock in Task 9.
     m_instance = this;
 
     qCInfo(lcController) << "CargoNetSimController: initializing";
