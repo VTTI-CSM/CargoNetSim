@@ -139,7 +139,7 @@ bool customs(const QJsonObject &config,
         // delay)
         if (probability > 0.0 && delayMean > 0.0)
         {
-            customsDelay   = probability * delayMean;
+            customsDelay   = probability * delayMean / 3600.0; // delay_mean in seconds → hours
             customsApplied = true;
         }
     }
