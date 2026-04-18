@@ -224,11 +224,12 @@ int RunCommand::execute(const QStringList &args)
     qCDebug(lcCli) << "RunCommand::execute: scenario applied successfully";
 
     // ---- 5. Path discovery ---------------------------------------------
+    const int n = ctl.getConfigController()->getSimulationParams()
+                      .value("shortest_paths", 5).toInt();
     qCDebug(lcCli) << "RunCommand::execute: [stage 5] running path discovery (shortestPathsN ="
-                   << rt.document().simulation.shortestPathsN << ")...";
+                   << n << ")...";
     PathDiscovery pd;
     QString       pdErr;
-    const int     n     = rt.document().simulation.shortestPathsN;
     auto          paths =
         pd.findTopPaths(rt.document(), rt.registry(), n, &pdErr);
     if (paths.isEmpty())
@@ -280,7 +281,7 @@ int RunCommand::execute(const QStringList &args)
                                 : QStringLiteral("idle")},
                 {QStringLiteral("current_time"), rt.currentTime()},
                 {QStringLiteral("end_time"),
-                 rt.document().simulation.endTime},
+                 rt.document().simulation.endTime.value_or(86400.0)},
                 {QStringLiteral("progress"), rt.progress()}};
         }
         if (op == QLatin1String("stop"))
