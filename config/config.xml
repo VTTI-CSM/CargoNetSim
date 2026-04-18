@@ -24,7 +24,7 @@
     <carbon_taxes>
         <rate>65.000000</rate>
         <ship_multiplier>1.000000</ship_multiplier>
-        <train_multiplier>1.000000</train_multiplier>
+        <rail_multiplier>1.000000</rail_multiplier>
         <truck_multiplier>1.000000</truck_multiplier>
     </carbon_taxes>
     <transport_modes>

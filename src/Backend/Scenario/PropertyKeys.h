@@ -10,10 +10,11 @@ namespace Scenario {
 /// across the codebase. A misspelled constant name fails at compile
 /// time; a misspelled string literal fails silently at runtime.
 ///
-/// Three groups match the three QVariantMap schemas:
-///   Mode     — keys inside per-mode maps from ConfigController
-///   Terminal — keys inside TerminalPlacement::properties
-///   Segment  — keys inside PathSegment::attributes sub-objects
+/// Four groups match the four QVariantMap schemas:
+///   Mode       — keys inside per-mode maps from ConfigController
+///   Terminal   — keys inside TerminalPlacement::properties
+///   Segment    — keys inside PathSegment::attributes sub-objects
+///   Simulation — keys inside the simulation-section scalar map
 namespace PropertyKeys {
 
 namespace Mode {
@@ -49,7 +50,25 @@ namespace Segment {
     inline const QString EnergyConsumption       = QStringLiteral("energyConsumption");
     inline const QString Risk                    = QStringLiteral("risk");
     inline const QString Cost                    = QStringLiteral("cost");
+
+    // Cost-function weight keys (keys in the per-mode weight maps from
+    // getCostFunctionWeights(), used by TerminalCostMath::singleTerminalCost())
+    inline const QString TerminalDelay           = QStringLiteral("terminal_delay");
+    inline const QString TerminalCost            = QStringLiteral("terminal_cost");
 } // namespace Segment
+
+/// Keys for the simulation-section scalar map (the flat QVariantMap stored
+/// under m_config["simulation"]). These keys are written by SettingsWidget
+/// and read by ConfigController::getTimeValueOfMoney() / getCostFunctionWeights().
+///
+/// Note: Simulation::TimeValueOfMoney shares the string "time_value_of_money"
+/// with Mode::TimeValueOfMoney. They are semantically distinct: Mode refers to
+/// the per-mode entry inside transport_modes[mode], Simulation refers to the
+/// global average scalar inside the simulation section.
+namespace Simulation {
+    inline const QString TimeValueOfMoney  = QStringLiteral("time_value_of_money");
+    inline const QString UseModeSpecific   = QStringLiteral("use_mode_specific");
+} // namespace Simulation
 
 } // namespace PropertyKeys
 } // namespace Scenario

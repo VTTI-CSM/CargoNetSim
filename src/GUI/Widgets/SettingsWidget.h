@@ -139,7 +139,6 @@ private:
     // UI Components
     QTableWidget   *fuelTable;
     QSpinBox       *timeStepSpin;
-    QDoubleSpinBox *timeValueOfMoneySpin;
     QSpinBox       *shortestPathsSpin;
     QDoubleSpinBox *carbonRateSpin;
     QDoubleSpinBox *shipMultiplierSpin;

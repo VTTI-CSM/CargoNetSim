@@ -689,15 +689,15 @@ bool SettingsWidget::loadSettings()
                     simSettings["time_step"].toInt());
 
             // Load the average time value of money
-            if (simSettings.contains(PK::Mode::TimeValueOfMoney))
+            if (simSettings.contains(PK::Simulation::TimeValueOfMoney))
                 averageTimeValueSpin->setValue(
-                    simSettings[PK::Mode::TimeValueOfMoney]
+                    simSettings[PK::Simulation::TimeValueOfMoney]
                         .toDouble());
 
             // Load the use_mode_specific flag
-            if (simSettings.contains("use_mode_specific"))
+            if (simSettings.contains(PK::Simulation::UseModeSpecific))
                 useSpecificTimeValues->setChecked(
-                    simSettings["use_mode_specific"]
+                    simSettings[PK::Simulation::UseModeSpecific]
                         .toBool());
 
             if (simSettings.contains("shortest_paths"))
@@ -725,9 +725,9 @@ bool SettingsWidget::loadSettings()
                     carbonSettings["truck_multiplier"]
                         .toDouble());
 
-            if (carbonSettings.contains("train_multiplier"))
+            if (carbonSettings.contains("rail_multiplier"))
                 trainMultiplierSpin->setValue(
-                    carbonSettings["train_multiplier"]
+                    carbonSettings["rail_multiplier"]
                         .toDouble());
         }
 
@@ -1009,9 +1009,9 @@ void SettingsWidget::applySettings()
     // Simulation settings
     QMap<QString, QVariant> simulation;
     simulation["time_step"] = timeStepSpin->value();
-    simulation[PK::Mode::TimeValueOfMoney] =
+    simulation[PK::Simulation::TimeValueOfMoney] =
         averageTimeValueSpin->value();
-    simulation["use_mode_specific"] =
+    simulation[PK::Simulation::UseModeSpecific] =
         useSpecificTimeValues->isChecked();
     simulation["shortest_paths"] =
         shortestPathsSpin->value();
@@ -1029,7 +1029,7 @@ void SettingsWidget::applySettings()
         shipMultiplierSpin->value();
     carbonTaxes["truck_multiplier"] =
         truckMultiplierSpin->value();
-    carbonTaxes["train_multiplier"] =
+    carbonTaxes["rail_multiplier"] =
         trainMultiplierSpin->value();
     newSettings["carbon_taxes"] = carbonTaxes;
 
