@@ -21,7 +21,7 @@ struct SimulationSettings
     double carbonRate            = 0.0;
 
     double shipMultiplier  = 1.0;
-    double railMultiplier = 1.0;
+    double railMultiplier  = 1.0;
     double truckMultiplier = 1.0;
 
     /// Per-mode parameters.
