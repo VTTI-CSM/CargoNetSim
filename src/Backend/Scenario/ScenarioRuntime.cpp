@@ -84,7 +84,7 @@ bool ScenarioRuntime::load()
         return false;
     }
 
-    m_endTime = m_document->simulation.endTime;
+    m_endTime = m_document->simulation.endTime.value_or(86400.0);
     controller.setSimulationEndTime(m_endTime);
     m_loaded = true;
     qCInfo(lcScenario) << "ScenarioRuntime::load: succeeded, endTime:" << m_endTime;

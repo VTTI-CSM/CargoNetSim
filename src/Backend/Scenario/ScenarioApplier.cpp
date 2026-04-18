@@ -347,8 +347,10 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
                                     QString *error)
 {
     qCDebug(lcScenario) << "ScenarioApplier::applySettings:"
-                        << "endTime=" << doc.simulation.endTime
-                        << "timeStep=" << doc.simulation.timeStep
+                        << "endTime=" << (doc.simulation.endTime.has_value()
+                                          ? doc.simulation.endTime.value() : -1.0)
+                        << "timeStep=" << (doc.simulation.timeStep.has_value()
+                                           ? doc.simulation.timeStep.value() : -1)
                         << "fuelTypes=" << doc.simulation.fuelTypes.size();
     auto *cfg = controller.getConfigController();
     if (!cfg)
@@ -360,57 +362,66 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
 
     const SimulationSettings &s = doc.simulation;
 
-    // Scenario short-form (Plan 1) → ConfigController canonical. See the
-    // mapping table in the task header above; every rename below is
-    // load-bearing because updateConfig replaces m_config wholesale.
-    QVariantMap simulation;
-    simulation["time_step"]           = s.timeStep;
-    simulation["end_time"]            = s.endTime;
-    simulation["shortest_paths"]      = s.shortestPathsN;
-    simulation["time_value_of_money"] = s.timeValueOfMoney;
-    simulation["use_mode_specific"]   = s.useSpecificTimeValues;
+    // Start from config.xml as the base — absent scenario fields inherit these values.
+    QVariantMap root           = cfg->getAllParams();
+    QVariantMap simulation     = root.value("simulation").toMap();
+    QVariantMap carbonTaxes    = root.value("carbon_taxes").toMap();
+    QVariantMap transportModes = root.value("transport_modes").toMap();
+    QVariantMap fuelEnergy     = root.value("fuel_energy").toMap();
+    QVariantMap fuelCarbon     = root.value("fuel_carbon_content").toMap();
+    QVariantMap fuelPrices     = root.value("fuel_prices").toMap();
 
-    QVariantMap fuelEnergy, fuelCarbon, fuelPrices;
-    for (auto it = s.fuelTypes.constBegin(); it != s.fuelTypes.constEnd(); ++it)
+    // Overlay simulation section — only fields present in the YAML.
+    if (s.timeStep.has_value())              simulation["time_step"]            = s.timeStep.value();
+    if (s.endTime.has_value())               simulation["end_time"]             = s.endTime.value();
+    if (s.shortestPathsN.has_value())        simulation["shortest_paths"]       = s.shortestPathsN.value();
+    if (s.timeValueOfMoney.has_value())      simulation["time_value_of_money"]  = s.timeValueOfMoney.value();
+    if (s.useSpecificTimeValues.has_value()) simulation["use_mode_specific"]    = s.useSpecificTimeValues.value();
+
+    // Overlay carbon taxes.
+    if (s.carbonRate.has_value())      carbonTaxes["rate"]             = s.carbonRate.value();
+    if (s.shipMultiplier.has_value())  carbonTaxes["ship_multiplier"]  = s.shipMultiplier.value();
+    if (s.railMultiplier.has_value())  carbonTaxes["rail_multiplier"]  = s.railMultiplier.value();
+    if (s.truckMultiplier.has_value()) carbonTaxes["truck_multiplier"] = s.truckMultiplier.value();
+
+    // Overlay per-mode settings (field-level within each mode).
+    auto applyMode = [](QVariantMap &modeMap, const SimulationSettings::Mode &m)
     {
-        fuelEnergy [it.key()] = it.value().energy;
-        fuelCarbon [it.key()] = it.value().carbon;
-        fuelPrices [it.key()] = it.value().price;
-    }
-
-    // Mode multipliers belong under carbon_taxes (ConfigController.cpp:200-205),
-    // not transport_modes.
-    QVariantMap carbonTaxes;
-    carbonTaxes["rate"]             = s.carbonRate;
-    carbonTaxes["ship_multiplier"]  = s.shipMultiplier;
-    carbonTaxes["train_multiplier"] = s.railMultiplier;
-    carbonTaxes["truck_multiplier"] = s.truckMultiplier;
-
-    auto modeToMap = [](const SimulationSettings::Mode &m)
-    {
-        QVariantMap mm;
-        mm[PK::Mode::AverageSpeed]           = m.speed;
-        mm[PK::Mode::FuelType]               = m.fuelType;
-        mm[PK::Mode::AverageFuelConsumption] = m.fuelRate;
-        mm[PK::Mode::AverageContainerNumber] = m.containers;
-        mm[PK::Mode::RiskFactor]             = m.risk;
-        mm[PK::Mode::TimeValueOfMoney]       = m.timeValue;
-        mm[PK::Mode::UseNetwork]             = m.useNetwork;
-        return mm;
+        if (m.speed.has_value())      modeMap[PK::Mode::AverageSpeed]           = m.speed.value();
+        if (m.fuelType.has_value())   modeMap[PK::Mode::FuelType]               = m.fuelType.value();
+        if (m.fuelRate.has_value())   modeMap[PK::Mode::AverageFuelConsumption] = m.fuelRate.value();
+        if (m.containers.has_value()) modeMap[PK::Mode::AverageContainerNumber] = m.containers.value();
+        if (m.risk.has_value())       modeMap[PK::Mode::RiskFactor]             = m.risk.value();
+        if (m.timeValue.has_value())  modeMap[PK::Mode::TimeValueOfMoney]       = m.timeValue.value();
+        if (m.useNetwork.has_value()) modeMap[PK::Mode::UseNetwork]             = m.useNetwork.value();
     };
 
-    QVariantMap transport;
-    transport["ship"]  = modeToMap(s.ship);
-    transport["rail"]  = modeToMap(s.rail);
-    transport["truck"] = modeToMap(s.truck);
+    QVariantMap shipMap  = transportModes.value("ship").toMap();
+    QVariantMap railMap  = transportModes.value("rail").toMap();
+    QVariantMap truckMap = transportModes.value("truck").toMap();
+    applyMode(shipMap,  s.ship);
+    applyMode(railMap,  s.rail);
+    applyMode(truckMap, s.truck);
+    transportModes["ship"]  = shipMap;
+    transportModes["rail"]  = railMap;
+    transportModes["truck"] = truckMap;
 
-    QVariantMap root;
+    // Overlay fuel types (field-level; new fuels added, existing fuels merged).
+    for (auto it = s.fuelTypes.constBegin(); it != s.fuelTypes.constEnd(); ++it) {
+        const QString &name = it.key();
+        const auto    &f    = it.value();
+        if (f.energy.has_value()) fuelEnergy[name] = f.energy.value();
+        if (f.carbon.has_value()) fuelCarbon[name] = f.carbon.value();
+        if (f.price.has_value())  fuelPrices[name] = f.price.value();
+    }
+
+    // Commit merged config.
     root["simulation"]          = simulation;
+    root["carbon_taxes"]        = carbonTaxes;
+    root["transport_modes"]     = transportModes;
     root["fuel_energy"]         = fuelEnergy;
     root["fuel_carbon_content"] = fuelCarbon;
     root["fuel_prices"]         = fuelPrices;
-    root["carbon_taxes"]        = carbonTaxes;
-    root["transport_modes"]     = transport;
 
     cfg->updateConfig(root);
     qCDebug(lcScenario) << "ScenarioApplier::applySettings: success";

@@ -294,21 +294,24 @@ void ScenarioValidator::checkSimulation(const ScenarioDocument &doc,
                                         QList<ValidationIssue> &out)
 {
     qCDebug(lcScenario) << "ScenarioValidator::checkSimulation:"
-                        << "endTime=" << doc.simulation.endTime
-                        << "timeStep=" << doc.simulation.timeStep;
-    if (doc.simulation.endTime <= 0.0)
+                        << "endTime=" << doc.simulation.endTime.value_or(-1.0)
+                        << "timeStep=" << doc.simulation.timeStep.value_or(-1);
+
+    if (doc.simulation.endTime.has_value() && doc.simulation.endTime.value() <= 0.0)
         err(out, QStringLiteral("simulation.end_time"),
             QStringLiteral("end_time must be > 0"));
-    if (doc.simulation.timeStep <= 0)
+    if (doc.simulation.timeStep.has_value() && doc.simulation.timeStep.value() <= 0)
         err(out, QStringLiteral("simulation.time_step"),
             QStringLiteral("time_step must be > 0"));
 
-    auto checkFuelRef = [&](const QString &modeName, const QString &fuel)
+    auto checkFuelRef = [&](const QString &modeName,
+                            const std::optional<QString> &fuel)
     {
-        if (fuel.isEmpty()) return;  // empty allowed for test fixtures
-        if (!doc.simulation.fuelTypes.contains(fuel))
+        if (!fuel.has_value() || fuel.value().isEmpty()) return;
+        if (!doc.simulation.fuelTypes.contains(fuel.value()))
             err(out, QStringLiteral("simulation.%1.fuel_type").arg(modeName),
-                QStringLiteral("fuel_type '%1' is not declared in simulation.fuel_types").arg(fuel));
+                QStringLiteral("fuel_type '%1' is not declared in simulation.fuel_types")
+                    .arg(fuel.value()));
     };
     checkFuelRef("ship",  doc.simulation.ship.fuelType);
     checkFuelRef("rail",  doc.simulation.rail.fuelType);
@@ -318,10 +321,21 @@ void ScenarioValidator::checkSimulation(const ScenarioDocument &doc,
 void ScenarioValidator::checkDwellTime(const ScenarioDocument &doc,
                                        QList<ValidationIssue> &out)
 {
+    // Nothing to validate when neither method nor params are set in the YAML.
+    if (!doc.simulation.dwellMethod.has_value() && !doc.simulation.dwellParams.has_value())
+        return;
+
     qCDebug(lcScenario) << "ScenarioValidator::checkDwellTime:"
-                        << "method=" << doc.simulation.dwellMethod;
+                        << "method=" << doc.simulation.dwellMethod.value_or("(unset)");
+
+    if (!doc.simulation.dwellMethod.has_value()) {
+        err(out, QStringLiteral("simulation.dwell_time.method"),
+            QStringLiteral("dwell_time.parameters is set but dwell_time.method is absent"));
+        return;
+    }
+
     static const QStringList kValid = { "gamma", "exponential", "normal", "lognormal" };
-    const QString method = doc.simulation.dwellMethod;
+    const QString method = doc.simulation.dwellMethod.value_or(QString());
 
     if (!kValid.contains(method))
     {
@@ -337,7 +351,8 @@ void ScenarioValidator::checkDwellTime(const ScenarioDocument &doc,
     else if (method == "normal")      required = { "mean", "std_dev" };
     else if (method == "lognormal")   required = { "mean", "sigma" };
 
-    const QMap<QString, QVariant> &p = doc.simulation.dwellParams;
+    const QMap<QString, QVariant> p =
+        doc.simulation.dwellParams.value_or(QMap<QString, QVariant>{});
 
     for (const QString &key : required)
     {

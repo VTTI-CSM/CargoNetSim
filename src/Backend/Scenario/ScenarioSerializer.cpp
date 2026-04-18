@@ -498,47 +498,58 @@ QJsonObject simulationSettingsToJson(const SimulationSettings &s)
     auto modeToJson = [](const SimulationSettings::Mode &m)
     {
         QJsonObject o;
-        o["speed"]       = m.speed;
-        o["fuel_type"]   = m.fuelType;
-        o["fuel_rate"]   = m.fuelRate;
-        o["containers"]  = m.containers;
-        o["risk"]        = m.risk;
-        o["time_value"]  = m.timeValue;
-        o["use_network"] = m.useNetwork;
+        if (m.speed.has_value())      o["speed"]       = m.speed.value();
+        if (m.fuelType.has_value())   o["fuel_type"]   = m.fuelType.value();
+        if (m.fuelRate.has_value())   o["fuel_rate"]   = m.fuelRate.value();
+        if (m.containers.has_value()) o["containers"]  = m.containers.value();
+        if (m.risk.has_value())       o["risk"]        = m.risk.value();
+        if (m.timeValue.has_value())  o["time_value"]  = m.timeValue.value();
+        if (m.useNetwork.has_value()) o["use_network"] = m.useNetwork.value();
         return o;
     };
 
     QJsonObject o;
-    o["time_step"]              = s.timeStep;
-    o["end_time"]               = s.endTime;
-    o["shortest_paths_n"]       = s.shortestPathsN;
-    o["time_value_of_money"]    = s.timeValueOfMoney;
-    o["use_specific_time_values"] = s.useSpecificTimeValues;
-    o["carbon_rate"]            = s.carbonRate;
-    QJsonObject mult;
-    mult["ship"]  = s.shipMultiplier;
-    mult["rail"]  = s.railMultiplier;
-    mult["truck"] = s.truckMultiplier;
-    o["multipliers"] = mult;
-    o["ship"]  = modeToJson(s.ship);
-    o["rail"]  = modeToJson(s.rail);
-    o["truck"] = modeToJson(s.truck);
+    if (s.timeStep.has_value())              o["time_step"]                = s.timeStep.value();
+    if (s.endTime.has_value())               o["end_time"]                 = s.endTime.value();
+    if (s.shortestPathsN.has_value())        o["shortest_paths_n"]         = s.shortestPathsN.value();
+    if (s.timeValueOfMoney.has_value())      o["time_value_of_money"]      = s.timeValueOfMoney.value();
+    if (s.useSpecificTimeValues.has_value()) o["use_specific_time_values"] = s.useSpecificTimeValues.value();
+    if (s.carbonRate.has_value())            o["carbon_rate"]              = s.carbonRate.value();
 
-    QJsonObject fuels;
-    for (auto it = s.fuelTypes.constBegin(); it != s.fuelTypes.constEnd(); ++it)
-    {
-        QJsonObject f;
-        f["energy"] = it.value().energy;
-        f["carbon"] = it.value().carbon;
-        f["price"]  = it.value().price;
-        fuels[it.key()] = f;
+    if (s.shipMultiplier.has_value() || s.railMultiplier.has_value() || s.truckMultiplier.has_value()) {
+        QJsonObject mult;
+        if (s.shipMultiplier.has_value())  mult["ship"]  = s.shipMultiplier.value();
+        if (s.railMultiplier.has_value())  mult["rail"]  = s.railMultiplier.value();
+        if (s.truckMultiplier.has_value()) mult["truck"] = s.truckMultiplier.value();
+        o["multipliers"] = mult;
     }
-    o["fuel_types"] = fuels;
 
-    QJsonObject dwell;
-    dwell["method"] = s.dwellMethod;
-    dwell["parameters"] = variantMapToJson(s.dwellParams);
-    o["dwell_time"] = dwell;
+    QJsonObject shipObj  = modeToJson(s.ship);
+    QJsonObject railObj  = modeToJson(s.rail);
+    QJsonObject truckObj = modeToJson(s.truck);
+    if (!shipObj.isEmpty())  o["ship"]  = shipObj;
+    if (!railObj.isEmpty())  o["rail"]  = railObj;
+    if (!truckObj.isEmpty()) o["truck"] = truckObj;
+
+    if (!s.fuelTypes.isEmpty()) {
+        QJsonObject fuels;
+        for (auto it = s.fuelTypes.constBegin(); it != s.fuelTypes.constEnd(); ++it)
+        {
+            QJsonObject f;
+            if (it.value().energy.has_value()) f["energy"] = it.value().energy.value();
+            if (it.value().carbon.has_value()) f["carbon"] = it.value().carbon.value();
+            if (it.value().price.has_value())  f["price"]  = it.value().price.value();
+            fuels[it.key()] = f;
+        }
+        o["fuel_types"] = fuels;
+    }
+
+    if (s.dwellMethod.has_value() || s.dwellParams.has_value()) {
+        QJsonObject dwell;
+        if (s.dwellMethod.has_value()) dwell["method"] = s.dwellMethod.value();
+        if (s.dwellParams.has_value()) dwell["parameters"] = variantMapToJson(s.dwellParams.value());
+        o["dwell_time"] = dwell;
+    }
 
     return o;
 }
@@ -548,50 +559,69 @@ SimulationSettings simulationSettingsFromJson(const QJsonObject &o)
     auto modeFromJson = [](const QJsonObject &o)
     {
         SimulationSettings::Mode m;
-        m.speed       = o.value("speed").toDouble();
-        m.fuelType    = o.value("fuel_type").toString();
-        m.fuelRate    = o.value("fuel_rate").toDouble();
-        m.containers  = o.value("containers").toInt();
-        m.risk        = o.value("risk").toDouble();
-        m.timeValue   = o.value("time_value").toDouble();
-        m.useNetwork  = o.value("use_network").toBool(true);
+        if (o.contains("speed"))       m.speed      = o.value("speed").toDouble();
+        if (o.contains("fuel_type"))   m.fuelType   = o.value("fuel_type").toString();
+        if (o.contains("fuel_rate"))   m.fuelRate   = o.value("fuel_rate").toDouble();
+        if (o.contains("containers"))  m.containers = o.value("containers").toInt();
+        if (o.contains("risk"))        m.risk       = o.value("risk").toDouble();
+        if (o.contains("time_value"))  m.timeValue  = o.value("time_value").toDouble();
+        if (o.contains("use_network")) m.useNetwork = o.value("use_network").toBool();
         return m;
     };
 
     SimulationSettings s;
-    s.timeStep              = o.value("time_step").toInt(60);
-    s.endTime               = o.value("end_time").toDouble(86400.0);
-    s.shortestPathsN        = o.value("shortest_paths_n").toInt(5);
-    s.timeValueOfMoney      = o.value("time_value_of_money").toDouble();
-    s.useSpecificTimeValues = o.value("use_specific_time_values").toBool(false);
-    s.carbonRate            = o.value("carbon_rate").toDouble();
+    if (o.contains("time_step"))
+        s.timeStep = o.value("time_step").toInt();
+    if (o.contains("end_time"))
+        s.endTime = o.value("end_time").toDouble();
+    if (o.contains("shortest_paths_n"))
+        s.shortestPathsN = o.value("shortest_paths_n").toInt();
+    if (o.contains("time_value_of_money"))
+        s.timeValueOfMoney = o.value("time_value_of_money").toDouble();
+    if (o.contains("use_specific_time_values"))
+        s.useSpecificTimeValues = o.value("use_specific_time_values").toBool();
+    if (o.contains("carbon_rate"))
+        s.carbonRate = o.value("carbon_rate").toDouble();
 
-    QJsonObject mult = o.value("multipliers").toObject();
-    s.shipMultiplier  = mult.value("ship").toDouble(1.0);
-    s.railMultiplier  = mult.value("rail").toDouble(
-        mult.value("train").toDouble(1.0));
-    s.truckMultiplier = mult.value("truck").toDouble(1.0);
-
-    s.ship  = modeFromJson(o.value("ship").toObject());
-    s.rail  = modeFromJson(
-        o.contains("rail") ? o.value("rail").toObject()
-                           : o.value("train").toObject());
-    s.truck = modeFromJson(o.value("truck").toObject());
-
-    QJsonObject fuels = o.value("fuel_types").toObject();
-    for (auto it = fuels.constBegin(); it != fuels.constEnd(); ++it)
-    {
-        QJsonObject f = it.value().toObject();
-        SimulationSettings::Fuel fuel;
-        fuel.energy = f.value("energy").toDouble();
-        fuel.carbon = f.value("carbon").toDouble();
-        fuel.price  = f.value("price").toDouble();
-        s.fuelTypes.insert(it.key(), fuel);
+    if (o.contains("multipliers")) {
+        QJsonObject mult = o.value("multipliers").toObject();
+        if (mult.contains("ship"))
+            s.shipMultiplier = mult.value("ship").toDouble();
+        if (mult.contains("rail") || mult.contains("train")) {
+            const QString railKey = mult.contains("rail") ? QStringLiteral("rail") : QStringLiteral("train");
+            s.railMultiplier = mult.value(railKey).toDouble();
+        }
+        if (mult.contains("truck"))
+            s.truckMultiplier = mult.value("truck").toDouble();
     }
 
-    QJsonObject dwell = o.value("dwell_time").toObject();
-    s.dwellMethod = dwell.value("method").toString("normal");
-    s.dwellParams = jsonToVariantMap(dwell.value("parameters").toObject());
+    if (o.contains("ship"))  s.ship  = modeFromJson(o.value("ship").toObject());
+    if (o.contains("rail") || o.contains("train"))
+        s.rail = modeFromJson(
+            o.contains("rail") ? o.value("rail").toObject()
+                               : o.value("train").toObject());
+    if (o.contains("truck")) s.truck = modeFromJson(o.value("truck").toObject());
+
+    if (o.contains("fuel_types")) {
+        QJsonObject fuels = o.value("fuel_types").toObject();
+        for (auto it = fuels.constBegin(); it != fuels.constEnd(); ++it)
+        {
+            QJsonObject f = it.value().toObject();
+            SimulationSettings::Fuel fuel;
+            if (f.contains("energy")) fuel.energy = f.value("energy").toDouble();
+            if (f.contains("carbon")) fuel.carbon = f.value("carbon").toDouble();
+            if (f.contains("price"))  fuel.price  = f.value("price").toDouble();
+            s.fuelTypes.insert(it.key(), fuel);
+        }
+    }
+
+    if (o.contains("dwell_time")) {
+        QJsonObject dwell = o.value("dwell_time").toObject();
+        if (dwell.contains("method"))
+            s.dwellMethod = dwell.value("method").toString();
+        if (dwell.contains("parameters"))
+            s.dwellParams = jsonToVariantMap(dwell.value("parameters").toObject());
+    }
 
     return s;
 }
