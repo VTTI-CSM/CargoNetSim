@@ -202,8 +202,8 @@ private slots:
         const auto dwell  = props.value("dwell_time").toMap();
         QCOMPARE(dwell.value("method").toString(), QStringLiteral("normal"));
         const auto params = dwell.value("parameters").toMap();
-        QCOMPARE(params.value("mean").toString(),    QStringLiteral("2880"));
-        QCOMPARE(params.value("std_dev").toString(), QStringLiteral("720"));
+        QCOMPARE(params.value("mean").toString(),    QStringLiteral("172800"));
+        QCOMPARE(params.value("std_dev").toString(), QStringLiteral("43200"));
     }
 
     void test_terminal_type_defaults_default_properties_truck_parking_minimal()
