@@ -275,10 +275,6 @@ QJsonObject terminalPlacementToJson(const TerminalPlacement &t)
     // missing key as "disabled + all defaults").
     if (t.systemDynamics.enabled)
     {
-        auto modeDelayToJson = [](const ModeDelayParams &p)
-        {
-            QJsonObject o; o["alpha"] = p.alpha; o["beta"] = p.beta; return o;
-        };
         QJsonObject sd;
         sd["enabled"]               = t.systemDynamics.enabled;
         sd["critical_utilization"]  = t.systemDynamics.criticalUtilization;
@@ -286,9 +282,9 @@ QJsonObject terminalPlacementToJson(const TerminalPlacement &t)
         sd["congestion_sensitivity"]= t.systemDynamics.congestionSensitivity;
         sd["delay_sensitivity"]     = t.systemDynamics.delaySensitivity;
         sd["max_service_rate"]      = t.systemDynamics.maxServiceRate;
-        sd["ship_delay"]            = modeDelayToJson(t.systemDynamics.shipDelay);
-        sd["truck_delay"]           = modeDelayToJson(t.systemDynamics.truckDelay);
-        sd["train_delay"]           = modeDelayToJson(t.systemDynamics.trainDelay);
+        sd["ship_delay"]            = t.systemDynamics.shipDelay.toJson();
+        sd["truck_delay"]           = t.systemDynamics.truckDelay.toJson();
+        sd["train_delay"]           = t.systemDynamics.trainDelay.toJson();
         sd["ship_arrival_penalty"]  = t.systemDynamics.shipArrivalPenalty;
         sd["truck_arrival_penalty"] = t.systemDynamics.truckArrivalPenalty;
         sd["train_arrival_penalty"] = t.systemDynamics.trainArrivalPenalty;

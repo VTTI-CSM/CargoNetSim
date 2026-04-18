@@ -257,19 +257,16 @@ bool ScenarioApplier::applyTerminals(const ScenarioDocument &doc,
 
         if (t.systemDynamics.enabled)
         {
-            auto modeToJson = [](const ModeDelayParams &p) {
-                QJsonObject o; o["alpha"] = p.alpha; o["beta"] = p.beta; return o;
-            };
             QJsonObject modeDelayParams;
-            modeDelayParams["ship"]  = modeToJson(t.systemDynamics.shipDelay);
-            modeDelayParams["truck"] = modeToJson(t.systemDynamics.truckDelay);
-            modeDelayParams["train"] = modeToJson(t.systemDynamics.trainDelay);
+            modeDelayParams["ship"]  = t.systemDynamics.shipDelay.toJson();
+            modeDelayParams["truck"] = t.systemDynamics.truckDelay.toJson();
+            modeDelayParams["train"] = t.systemDynamics.trainDelay.toJson();
             QJsonObject arrivalPenalties;
             arrivalPenalties["ship"]  = t.systemDynamics.shipArrivalPenalty;
             arrivalPenalties["truck"] = t.systemDynamics.truckArrivalPenalty;
             arrivalPenalties["train"] = t.systemDynamics.trainArrivalPenalty;
             QJsonObject sd;
-            sd["enabled"]                = t.systemDynamics.enabled;
+            sd["enabled"]                = true; // always true — block only runs when enabled
             sd["critical_utilization"]   = t.systemDynamics.criticalUtilization;
             sd["congestion_exponent"]    = t.systemDynamics.congestionExponent;
             sd["congestion_sensitivity"] = t.systemDynamics.congestionSensitivity;
