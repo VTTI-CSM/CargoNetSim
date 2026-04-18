@@ -708,10 +708,7 @@ void CargoNetSimController::updateAllTerminalsSD(double currentTime, double delt
     if (!m_terminalClient || !m_terminalClient->isConnected())
         return;
 
-    // Convert deltaT from seconds to hours for SD (SD uses hours)
-    double deltaTHours = deltaT / 3600.0;
-
-    m_terminalClient->updateAllTerminalsSystemDynamics(currentTime, deltaTHours);
+    m_terminalClient->updateAllTerminalsSystemDynamics(currentTime, deltaT);
 }
 
 void CargoNetSimController::processSimulatorEvents()
