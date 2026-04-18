@@ -255,6 +255,31 @@ bool ScenarioApplier::applyTerminals(const ScenarioDocument &doc,
 
         QJsonObject config = buildTerminalConfigJson(t.properties);
 
+        if (t.systemDynamics.enabled)
+        {
+            auto modeToJson = [](const ModeDelayParams &p) {
+                QJsonObject o; o["alpha"] = p.alpha; o["beta"] = p.beta; return o;
+            };
+            QJsonObject modeDelayParams;
+            modeDelayParams["ship"]  = modeToJson(t.systemDynamics.shipDelay);
+            modeDelayParams["truck"] = modeToJson(t.systemDynamics.truckDelay);
+            modeDelayParams["train"] = modeToJson(t.systemDynamics.trainDelay);
+            QJsonObject arrivalPenalties;
+            arrivalPenalties["ship"]  = t.systemDynamics.shipArrivalPenalty;
+            arrivalPenalties["truck"] = t.systemDynamics.truckArrivalPenalty;
+            arrivalPenalties["train"] = t.systemDynamics.trainArrivalPenalty;
+            QJsonObject sd;
+            sd["enabled"]                = t.systemDynamics.enabled;
+            sd["critical_utilization"]   = t.systemDynamics.criticalUtilization;
+            sd["congestion_exponent"]    = t.systemDynamics.congestionExponent;
+            sd["congestion_sensitivity"] = t.systemDynamics.congestionSensitivity;
+            sd["delay_sensitivity"]      = t.systemDynamics.delaySensitivity;
+            sd["max_service_rate"]       = t.systemDynamics.maxServiceRate;
+            sd["mode_delay_params"]      = modeDelayParams;
+            sd["arrival_penalties"]      = arrivalPenalties;
+            config["system_dynamics"]    = sd;
+        }
+
         auto *term = new Terminal(names, display, config, ifaceMap, t.region);
         if (!registry.addTerminal(t.id, term))
         {

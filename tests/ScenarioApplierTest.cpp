@@ -659,6 +659,52 @@ private slots:
         // (ScenarioExecutor / SimulationRequestBuilder).
         QCOMPARE(doc->originContainers().size(), 100);
     }
+
+    void test_applier_injects_system_dynamics_with_terminalsim_keys()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        using namespace CargoNetSim::Backend;
+
+        ScenarioDocument doc;
+        RegionSpec r; r.name = "EU"; doc.addRegion(r);
+
+        TerminalPlacement t;
+        t.id     = "SD1";
+        t.type   = "Sea Port Terminal";
+        t.region = "EU";
+        t.mode   = TerminalPlacement::PositionMode::LatLon;
+        t.latLon = { 51.5, 0.1 };
+        t.systemDynamics.enabled            = true;
+        t.systemDynamics.maxServiceRate     = 250.0;
+        t.systemDynamics.shipDelay.alpha    = 0.7;
+        t.systemDynamics.shipDelay.beta     = 3.1;
+        t.systemDynamics.shipArrivalPenalty = 3600.0;
+        doc.addTerminal(t);
+
+        auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
+        ScenarioRegistry registry;
+        QString err;
+        QVERIFY2(ScenarioApplier::apply(doc, ctl, registry, &err),
+                 qPrintable(err));
+
+        QJsonObject config = registry.terminal("SD1")->getConfig();
+        QVERIFY2(config.contains("system_dynamics"),
+                 "system_dynamics block must be present in terminal config");
+
+        QJsonObject sd = config["system_dynamics"].toObject();
+        QCOMPARE(sd["enabled"].toBool(),            true);
+        QCOMPARE(sd["max_service_rate"].toDouble(), 250.0);
+
+        QVERIFY2(sd.contains("mode_delay_params"),
+                 "mode_delay_params nested key required by TerminalSim");
+        QJsonObject ship = sd["mode_delay_params"].toObject()["ship"].toObject();
+        QCOMPARE(ship["alpha"].toDouble(), 0.7);
+        QCOMPARE(ship["beta"].toDouble(),  3.1);
+
+        QVERIFY2(sd.contains("arrival_penalties"),
+                 "arrival_penalties nested key required by TerminalSim");
+        QCOMPARE(sd["arrival_penalties"].toObject()["ship"].toDouble(), 3600.0);
+    }
 };
 
 QTEST_MAIN(ScenarioApplierTest)
