@@ -7,9 +7,9 @@ simulation:
   time_value_of_money: 10.0
   use_specific_time_values: false
   carbon_rate: 0.5
-  multipliers: { ship: 1.0, train: 1.0, truck: 1.0 }
+  multipliers: { ship: 1.0, rail: 1.0, truck: 1.0 }
   ship:  { speed: 20.0, fuel_type: HFO,    fuel_rate: 0.20, containers: 2000, risk: 0.05, time_value: 5.0,  use_network: true }
-  train: { speed: 60.0, fuel_type: Diesel, fuel_rate: 0.40, containers: 500,  risk: 0.02, time_value: 10.0, use_network: true }
+  rail: { speed: 60.0, fuel_type: Diesel, fuel_rate: 0.40, containers: 500,  risk: 0.02, time_value: 10.0, use_network: true }
   truck: { speed: 80.0, fuel_type: Diesel, fuel_rate: 0.08, containers: 2,    risk: 0.01, time_value: 15.0, use_network: true }
   fuel_types:
     Diesel:   { energy: 35.8, carbon: 2.64, price: 1.20 }
