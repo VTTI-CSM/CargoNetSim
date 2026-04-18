@@ -517,11 +517,11 @@ QJsonObject simulationSettingsToJson(const SimulationSettings &s)
     o["carbon_rate"]            = s.carbonRate;
     QJsonObject mult;
     mult["ship"]  = s.shipMultiplier;
-    mult["train"] = s.trainMultiplier;
+    mult["rail"]  = s.railMultiplier;
     mult["truck"] = s.truckMultiplier;
     o["multipliers"] = mult;
     o["ship"]  = modeToJson(s.ship);
-    o["train"] = modeToJson(s.train);
+    o["rail"]  = modeToJson(s.rail);
     o["truck"] = modeToJson(s.truck);
 
     QJsonObject fuels;
@@ -568,11 +568,14 @@ SimulationSettings simulationSettingsFromJson(const QJsonObject &o)
 
     QJsonObject mult = o.value("multipliers").toObject();
     s.shipMultiplier  = mult.value("ship").toDouble(1.0);
-    s.trainMultiplier = mult.value("train").toDouble(1.0);
+    s.railMultiplier  = mult.value("rail").toDouble(
+        mult.value("train").toDouble(1.0));
     s.truckMultiplier = mult.value("truck").toDouble(1.0);
 
     s.ship  = modeFromJson(o.value("ship").toObject());
-    s.train = modeFromJson(o.value("train").toObject());
+    s.rail  = modeFromJson(
+        o.contains("rail") ? o.value("rail").toObject()
+                           : o.value("train").toObject());
     s.truck = modeFromJson(o.value("truck").toObject());
 
     QJsonObject fuels = o.value("fuel_types").toObject();

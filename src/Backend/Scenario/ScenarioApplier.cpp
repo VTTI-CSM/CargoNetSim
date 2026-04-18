@@ -383,7 +383,7 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
     QVariantMap carbonTaxes;
     carbonTaxes["rate"]             = s.carbonRate;
     carbonTaxes["ship_multiplier"]  = s.shipMultiplier;
-    carbonTaxes["train_multiplier"] = s.trainMultiplier;
+    carbonTaxes["train_multiplier"] = s.railMultiplier;
     carbonTaxes["truck_multiplier"] = s.truckMultiplier;
 
     auto modeToMap = [](const SimulationSettings::Mode &m)
@@ -401,7 +401,7 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
 
     QVariantMap transport;
     transport["ship"]  = modeToMap(s.ship);
-    transport["rail"]  = modeToMap(s.train);
+    transport["rail"]  = modeToMap(s.rail);
     transport["truck"] = modeToMap(s.truck);
 
     QVariantMap root;

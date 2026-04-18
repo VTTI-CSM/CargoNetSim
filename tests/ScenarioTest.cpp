@@ -277,7 +277,7 @@ private slots:
         QCOMPARE(s.endTime,       86400.0);
         QCOMPARE(s.useSpecificTimeValues, false);
         QCOMPARE(s.shipMultiplier,  1.0);
-        QCOMPARE(s.trainMultiplier, 1.0);
+        QCOMPARE(s.railMultiplier, 1.0);
         QCOMPARE(s.truckMultiplier, 1.0);
         QCOMPARE(s.dwellMethod,  QStringLiteral("normal"));
         // dwellParams now has defaults matching the "normal" method

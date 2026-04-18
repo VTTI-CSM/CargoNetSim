@@ -311,7 +311,7 @@ void ScenarioValidator::checkSimulation(const ScenarioDocument &doc,
                 QStringLiteral("fuel_type '%1' is not declared in simulation.fuel_types").arg(fuel));
     };
     checkFuelRef("ship",  doc.simulation.ship.fuelType);
-    checkFuelRef("train", doc.simulation.train.fuelType);
+    checkFuelRef("rail",  doc.simulation.rail.fuelType);
     checkFuelRef("truck", doc.simulation.truck.fuelType);
 }
 
