@@ -14,11 +14,16 @@
 #include <QLoggingCategory>
 #include <QMessageBox>
 #include <QObject>
+#include <QSocketNotifier>
 #include <QSplashScreen>
 #include <QThread>
 #include <QTimer>
 #include <atomic>
+#include <cerrno>
+#include <cstdlib>
 #include <signal.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 using namespace CargoNetSim::GUI;
 
@@ -57,19 +62,58 @@ void createLocalServer(const QString &serverName)
     }
 }
 
-// Signal handler for SIGINT (Ctrl+C). Re-entry guard ensures
-// quit() is triggered exactly once if the signal fires repeatedly.
-void signalHandler(int signal)
+// Self-pipe for SIGINT handling.
+//
+// POSIX signal handlers may only call async-signal-safe functions
+// (not qCInfo, not QApplication::quit). Standard Qt workaround:
+// the handler writes one byte to a socketpair; a QSocketNotifier
+// on the main thread picks it up and performs the real shutdown
+// work in normal Qt event-loop context.
+//
+// s_sigIntFd[0] = write end (used by the signal handler)
+// s_sigIntFd[1] = read  end (used by the QSocketNotifier)
+static int s_sigIntFd[2] = {-1, -1};
+
+extern "C" void sigIntHandler(int sig)
 {
-    static std::atomic<bool> handled{false};
-    bool                     expected = false;
-    if (!handled.compare_exchange_strong(expected, true))
+    const char byte = static_cast<char>(sig);
+    (void)::write(s_sigIntFd[0], &byte, sizeof(byte));
+}
+
+// Main-thread slot invoked by QSocketNotifier when a signal byte
+// is available. Attempts a graceful quit; if the event loop
+// doesn't exit within a short grace period (because worker
+// threads block in librabbitmq and keep the loop busy draining
+// their queued messages), force-exits the process.
+//
+// Force-exit is acceptable for Ctrl+C semantics: the user asked
+// for immediate termination, memory is reclaimed by the OS, and
+// the QLocalServer socket file is cleaned on next launch by
+// QLocalServer::removeServer().
+static void onSigIntReceived(QSocketNotifier *notifier)
+{
+    notifier->setEnabled(false);
+    char byte = 0;
+    if (::read(s_sigIntFd[1], &byte, sizeof(byte)) == sizeof(byte))
     {
-        return;
+        qCInfo(lcInit)
+            << "Received signal:" << static_cast<int>(byte);
     }
 
-    qCInfo(lcInit) << "Received signal:" << signal;
     QApplication::quit();
+
+    // Safety net: if graceful quit doesn't return from app.exec()
+    // within the grace period, force-exit. In practice this always
+    // fires under the current backend design because the RabbitMQ
+    // worker threads block in amqp_consume_message and their
+    // messageReceived signal emissions keep the main loop busy
+    // enough to defer the exit-flag check indefinitely.
+    constexpr int kGracePeriodMs = 1500;
+    QTimer::singleShot(kGracePeriodMs, [] {
+        qCInfo(lcInit)
+            << "Graceful shutdown timed out; forcing process exit.";
+        std::_Exit(0);
+    });
 }
 
 int main(int argc, char *argv[])
@@ -153,12 +197,22 @@ int main(int argc, char *argv[])
     // Initialize backend metatypes and bring the controller online.
     CargoNetSim::Backend::initializeBackend("", logger);
 
-    // Ctrl+C graceful exit. No aboutToQuit connection: Option E
-    // stack ownership and the controller's s_instance lifetime
-    // already ensure deterministic teardown - main() unwinds
-    // ~MainWindow, ~CargoNetSimController, ~QApplication in
-    // that order on normal return.
-    signal(SIGINT, signalHandler);
+    // Ctrl+C graceful exit via the self-pipe pattern. The POSIX
+    // handler writes one byte; a QSocketNotifier on the main
+    // thread picks it up in Qt event-loop context and issues
+    // QApplication::quit() with a force-exit safety net.
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, s_sigIntFd) != 0)
+    {
+        qFatal("main: failed to create SIGINT self-pipe (errno=%d)",
+               errno);
+    }
+    auto *sigIntNotifier = new QSocketNotifier(
+        s_sigIntFd[1], QSocketNotifier::Read, &app);
+    QObject::connect(sigIntNotifier, &QSocketNotifier::activated,
+                     &app, [sigIntNotifier]() {
+                         onSigIntReceived(sigIntNotifier);
+                     });
+    ::signal(SIGINT, sigIntHandler);
 
     // Splash screen: show immediately, construct MainWindow eagerly
     // (required for stack allocation), enforce a minimum display
