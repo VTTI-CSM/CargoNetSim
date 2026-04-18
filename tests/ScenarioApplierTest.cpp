@@ -12,6 +12,7 @@
 #include "Backend/Models/Terminal.h"
 #include "Backend/Scenario/InterfaceConversion.h"
 #include "Backend/Scenario/ScenarioApplier.h"
+#include "Backend/Scenario/TerminalTypeDefaults.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioLinker.h"
 #include "Backend/Scenario/ScenarioRegistry.h"
@@ -658,6 +659,33 @@ private slots:
         // Flat view is still the single source for Plan 3 consumers
         // (ScenarioExecutor / SimulationRequestBuilder).
         QCOMPARE(doc->originContainers().size(), 100);
+    }
+
+    // ---- TerminalTypeDefaults — time units ----
+
+    void test_default_dwell_time_values_are_in_seconds()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+
+        auto props  = TerminalTypeDefaults::defaultProperties("Sea Port Terminal");
+        auto dwell  = props.value("dwell_time").toMap();
+        auto params = dwell.value("parameters").toMap();
+
+        QCOMPARE(params.value("mean").toString(),    QStringLiteral("172800")); // 2 days
+        QCOMPARE(params.value("std_dev").toString(), QStringLiteral("43200"));  // 12 hours
+    }
+
+    void test_default_customs_values_are_in_seconds()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+
+        auto props   = TerminalTypeDefaults::defaultProperties("Sea Port Terminal");
+        auto customs = props.value("customs").toMap();
+
+        QCOMPARE(customs.value("delay_mean").toString(),
+                 QStringLiteral("172800"));       // 48 h × 3600 s
+        QCOMPARE(customs.value("delay_variance").toString(),
+                 QStringLiteral("7464960000"));   // (24 h × 3600)² s²
     }
 
     void test_applier_injects_system_dynamics_with_terminalsim_keys()

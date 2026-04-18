@@ -147,8 +147,8 @@ QMap<QString, QVariant> defaultProperties(const QString &type)
     }
 
     QMap<QString, QVariant> dwellParams;
-    dwellParams[QStringLiteral("mean")]    = QStringLiteral("2880");
-    dwellParams[QStringLiteral("std_dev")] = QStringLiteral("720");
+    dwellParams[QStringLiteral("mean")]    = QStringLiteral("172800");
+    dwellParams[QStringLiteral("std_dev")] = QStringLiteral("43200");
     QMap<QString, QVariant> dwell;
     dwell[QStringLiteral("method")]     = QStringLiteral("normal");
     dwell[QStringLiteral("parameters")] = dwellParams;
@@ -160,8 +160,8 @@ QMap<QString, QVariant> defaultProperties(const QString &type)
     {
         QMap<QString, QVariant> customs;
         customs[QStringLiteral("probability")]    = QStringLiteral("0.08");
-        customs[QStringLiteral("delay_mean")]     = QStringLiteral("48");
-        customs[QStringLiteral("delay_variance")] = QStringLiteral("24");
+        customs[QStringLiteral("delay_mean")]     = QStringLiteral("172800");
+        customs[QStringLiteral("delay_variance")] = QStringLiteral("7464960000");
         props[QStringLiteral("customs")] = customs;
 
         QMap<QString, QVariant> capacity;

@@ -446,7 +446,7 @@ public:
     /**
      * @brief Update System Dynamics for all terminals
      * @param currentTime Current simulation time in seconds
-     * @param deltaT Time step in hours (SD uses hours)
+     * @param deltaT Time step in seconds
      * @return True if update succeeded
      */
     Q_INVOKABLE bool updateAllTerminalsSystemDynamics(
@@ -457,7 +457,7 @@ public:
      * @brief Update System Dynamics for a specific terminal
      * @param terminalId Terminal to update
      * @param currentTime Current simulation time in seconds
-     * @param deltaT Time step in hours
+     * @param deltaT Time step in seconds
      * @return True if update succeeded
      */
     Q_INVOKABLE bool updateTerminalSystemDynamics(
