@@ -7,6 +7,7 @@
 #include <QString>
 #include <QVariantMap>
 
+#include "Backend/Commons/TransportationMode.h"
 #include "PathSimulationResult.h"
 
 // Forward-declared in global namespace so ResultsExtractor's friend decl
@@ -125,7 +126,9 @@ private:
     double calculateSingleTerminalCost(
         CargoNetSim::Backend::Terminal *terminal,
         const QVariantMap              &costFunctionWeights,
-        int                             containerCount);
+        int                             containerCount,
+        TransportationTypes::TransportationMode
+            mode = TransportationTypes::TransportationMode::Any);
 
     double calculateTerminalDwellTime(const QJsonObject &config);
 

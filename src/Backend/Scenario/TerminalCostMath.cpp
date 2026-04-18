@@ -199,13 +199,13 @@ double directCosts(const QJsonObject &config, bool customsApplied)
     return terminalCost;
 }
 
-// VERBATIM from the original SimulationValidationWorker body. Do not
-// edit without updating both SVW and ResultsExtractor. Composes the
-// three pure terminal helpers (dwellTime/customs/directCosts) with
-// "default" weight multipliers.
-double singleTerminalCost(CargoNetSim::Backend::Terminal *terminal,
-                          const QVariantMap              &costFunctionWeights,
-                          int                             containerCount)
+// Composes the three pure terminal helpers (dwellTime/customs/directCosts)
+// with weight multipliers selected by transport mode.
+double singleTerminalCost(
+    CargoNetSim::Backend::Terminal *terminal,
+    const QVariantMap              &costFunctionWeights,
+    int                             containerCount,
+    TransportationTypes::TransportationMode mode)
 {
     if (!terminal)
     {
@@ -219,9 +219,11 @@ double singleTerminalCost(CargoNetSim::Backend::Terminal *terminal,
     // Get terminal properties from the terminal object
     QJsonObject config = terminal->getConfig();
 
-    // Get default weights
-    QVariantMap defaultWeights =
-        costFunctionWeights["default"].toMap();
+    const QString     modeKey = QString::number(static_cast<int>(mode));
+    const QVariantMap weights =
+        costFunctionWeights.contains(modeKey)
+            ? costFunctionWeights[modeKey].toMap()
+            : costFunctionWeights["default"].toMap();
 
     // Process terminal costs - per container
     double terminalDelayPerContainer = 0.0; // Hours
@@ -251,9 +253,9 @@ double singleTerminalCost(CargoNetSim::Backend::Terminal *terminal,
     // Apply weights to get the final terminal cost
     double terminalTotalCost =
         (totalTerminalDelay
-         * defaultWeights["terminal_delay"].toDouble())
+         * weights[PK::Segment::TerminalDelay].toDouble())
         + (totalTerminalDirectCost
-           * defaultWeights["terminal_cost"].toDouble());
+           * weights[PK::Segment::TerminalCost].toDouble());
 
     qCDebug(lcScenario) << "TerminalCostMath::singleTerminalCost:"
                         << "terminal" << terminal->getNames().value(0)

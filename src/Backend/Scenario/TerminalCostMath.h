@@ -4,6 +4,8 @@
 #include <QList>
 #include <QVariantMap>
 
+#include "Backend/Commons/TransportationMode.h"
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -87,13 +89,17 @@ double directCosts(const QJsonObject &config, bool customsApplied);
  * @brief Total terminal cost for a single terminal, combining dwell-time,
  *        customs, and direct-cost math with weight multipliers.
  *
- * Reads `weights["default"]["terminal_delay"]` and
- * `weights["default"]["terminal_cost"]` to scale the per-container delay
- * and direct-cost totals. Null terminal → 0.0.
+ * Selects per-mode weights from @p costFunctionWeights using the integer
+ * string key of @p mode (e.g. "0" for Ship). Falls back to the "default"
+ * entry when @p mode is Any (-1) or the mode key is absent.
+ * Null terminal → 0.0.
  */
-double singleTerminalCost(CargoNetSim::Backend::Terminal *terminal,
-                          const QVariantMap              &weights,
-                          int                             containerCount);
+double singleTerminalCost(
+    CargoNetSim::Backend::Terminal *terminal,
+    const QVariantMap              &costFunctionWeights,
+    int                             containerCount,
+    TransportationTypes::TransportationMode
+        mode = TransportationTypes::TransportationMode::Any);
 
 /**
  * @brief Sum of per-segment terminal costs across a full path.

@@ -120,12 +120,13 @@ double ResultsExtractor::calculateTerminalDirectCosts(
 double ResultsExtractor::calculateSingleTerminalCost(
     CargoNetSim::Backend::Terminal *terminal,
     const QVariantMap              &costFunctionWeights,
-    int                             containerCount)
+    int                             containerCount,
+    TransportationTypes::TransportationMode mode)
 {
     qCDebug(lcScenario) << "ResultsExtractor::calculateSingleTerminalCost: containers:"
                         << containerCount;
     return TerminalCostMath::singleTerminalCost(
-        terminal, costFunctionWeights, containerCount);
+        terminal, costFunctionWeights, containerCount, mode);
 }
 
 double ResultsExtractor::calculateTerminalCosts(
