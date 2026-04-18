@@ -138,13 +138,16 @@ int main(int argc, char *argv[])
     app.setOrganizationName("CargoNetSim Org");
 
     // Tier 1 lifetime (Option E): the controller is a stack variable
-    // owned by main(). It is declared before MainWindow (Task 7) so
+    // owned by main(). It is declared BEFORE MainWindow (below) so
     // stack unwinding destroys MainWindow first, then the controller,
     // then QApplication - the required teardown order.
     //
-    // Must be constructed BEFORE initializeBackend so the backend's
-    // metatype registration precedes any worker client that the
-    // initialize() / startAll() calls below will create.
+    // It is also declared BEFORE initializeBackend because
+    // initializeBackend registers metatypes AND calls initialize() /
+    // startAll(), which spawn worker threads that will immediately
+    // begin reading those metatypes. The controller must exist before
+    // those reads happen - and its constructor must have finished
+    // setting s_instance so workers can find it via instance().
     CargoNetSim::CargoNetSimController controller(logger);
 
     // Initialize backend metatypes and bring the controller online.

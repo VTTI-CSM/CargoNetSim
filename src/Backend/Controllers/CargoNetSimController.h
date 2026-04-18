@@ -11,6 +11,7 @@
 #include <QObject>
 #include <QString>
 #include <QThread>
+#include <atomic>
 #include <memory>
 
 #include "Backend/Clients/ShipClient/ShipSimulationClient.h"
@@ -391,14 +392,16 @@ private slots:
      */
     void onThreadFinished();
 
-protected:
+private:
     // Tier 1 lifetime: single source of truth for the controller's
-    // identity. Set by the constructor and cleared by the destructor,
-    // both enforced on the main thread via qFatal. Reads from any
-    // thread are safe without synchronization because construction
-    // happens-before any worker thread is spawned and destruction
-    // happens-after all worker threads have joined.
-    static CargoNetSimController *s_instance;
+    // identity. Set by the constructor (via compare_exchange, which
+    // also enforces the single-instance invariant atomically) and
+    // cleared by the destructor with a release store. Atomic so that
+    // cross-thread reads via instance() obey memory ordering even in
+    // the edge case where ~CargoNetSimController's 3s thread-join
+    // timeout is insufficient to stop a stuck worker: the release
+    // store synchronizes with acquire loads in worker threads.
+    static std::atomic<CargoNetSimController *> s_instance;
 
 private:
     /**

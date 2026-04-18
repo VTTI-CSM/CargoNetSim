@@ -17,6 +17,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QtCore/qdatetime.h>
+#include <atomic>
 
 #include "Controllers/HeartbeatController.h"
 #include "Controllers/StatusReporter.h"
@@ -584,9 +585,12 @@ protected:
     QToolButton *setGlobalPositionButton_;
     QToolButton *measureButton_;
 
-    // Singleton instance (Tier 1 lifetime: set by constructor,
-    // cleared by destructor, owned by main()'s stack).
-    static MainWindow *s_instance;
+    // Singleton instance (Tier 1 lifetime: set by constructor via
+    // compare_exchange, cleared by destructor with a release store,
+    // owned by main()'s stack). Atomic for the same reason as
+    // CargoNetSimController::s_instance - cross-thread reads obey
+    // memory ordering.
+    static std::atomic<MainWindow *> s_instance;
 
     // Current project file path
     QString currentProjectPath_;

@@ -15,7 +15,8 @@ namespace CargoNetSim
 {
 
 // Initialize static members
-CargoNetSimController *CargoNetSimController::s_instance = nullptr;
+std::atomic<CargoNetSimController *>
+    CargoNetSimController::s_instance{nullptr};
 
 CargoNetSimController::CargoNetSimController(
     Backend::LoggerInterface *logger, QObject *parent)
@@ -36,11 +37,6 @@ CargoNetSimController::CargoNetSimController(
     // lifetime model together. Q_ASSERT_X would silently compile
     // out in release, masking double-construction or off-thread
     // construction until much later, far from the call site.
-    if (s_instance != nullptr)
-    {
-        qFatal("CargoNetSimController: attempted to construct a "
-               "second instance. Only one may live at a time.");
-    }
     if (QCoreApplication::instance()
         && QThread::currentThread()
                != QCoreApplication::instance()->thread())
@@ -48,7 +44,18 @@ CargoNetSimController::CargoNetSimController(
         qFatal("CargoNetSimController: must be constructed on "
                "the main (QCoreApplication) thread.");
     }
-    s_instance = this;
+    // Atomically claim the single-instance slot. compare_exchange
+    // both asserts s_instance was nullptr AND publishes 'this' in
+    // one operation. Release ordering so downstream reads see a
+    // fully-constructed object.
+    CargoNetSimController *expected = nullptr;
+    if (!s_instance.compare_exchange_strong(
+            expected, this, std::memory_order_release,
+            std::memory_order_relaxed))
+    {
+        qFatal("CargoNetSimController: attempted to construct a "
+               "second instance. Only one may live at a time.");
+    }
 
     qCInfo(lcController) << "CargoNetSimController: initializing";
 
@@ -82,10 +89,11 @@ CargoNetSimController::CargoNetSimController(
 
 CargoNetSimController &CargoNetSimController::getInstance()
 {
-    // Release-build hard check. Q_ASSERT_X would silently compile
-    // out in release, leaving the next deref as the crash site
-    // instead of this call site.
-    if (s_instance == nullptr)
+    // Acquire load: pairs with the release store in the
+    // constructor, so downstream accesses see a fully-constructed
+    // object.
+    CargoNetSimController *p = s_instance.load(std::memory_order_acquire);
+    if (p == nullptr)
     {
         qFatal("CargoNetSimController::getInstance: controller "
                "has not been constructed yet. Construct it in "
@@ -93,12 +101,12 @@ CargoNetSimController &CargoNetSimController::getInstance()
                "instance() for nullable access during startup "
                "or shutdown windows.");
     }
-    return *s_instance;
+    return *p;
 }
 
 CargoNetSimController *CargoNetSimController::instance()
 {
-    return s_instance;
+    return s_instance.load(std::memory_order_acquire);
 }
 
 CargoNetSimController::~CargoNetSimController()
@@ -152,7 +160,10 @@ CargoNetSimController::~CargoNetSimController()
     // as a child of this object No need for explicit
     // deletion or cleanup classes
 
-    s_instance = nullptr;
+    // Release store: pairs with acquire loads in instance() /
+    // getInstance(). Any worker thread still running after the
+    // 3s wait timeout will see the nullptr with proper ordering.
+    s_instance.store(nullptr, std::memory_order_release);
 }
 
 bool CargoNetSimController::initialize(

@@ -79,20 +79,30 @@ namespace CargoNetSim
 namespace GUI
 {
 
-MainWindow *MainWindow::s_instance = nullptr;
+std::atomic<MainWindow *> MainWindow::s_instance{nullptr};
 
 MainWindow::MainWindow()
     : CustomMainWindow()
     , heartbeatController_(nullptr)
 {
-    // Tier 1 lifetime: release-build hard check. Double-construction
-    // indicates a bug in main() or test setup.
-    if (s_instance != nullptr)
+    // Tier 1 lifetime: release-build hard checks. Mirror the
+    // CargoNetSimController guards for API symmetry.
+    if (QCoreApplication::instance()
+        && QThread::currentThread()
+               != QCoreApplication::instance()->thread())
+    {
+        qFatal("MainWindow: must be constructed on the main "
+               "(QCoreApplication) thread.");
+    }
+    // Atomically claim the single-instance slot.
+    MainWindow *expected = nullptr;
+    if (!s_instance.compare_exchange_strong(
+            expected, this, std::memory_order_release,
+            std::memory_order_relaxed))
     {
         qFatal("MainWindow: attempted to construct a second "
                "instance. Only one may live at a time.");
     }
-    s_instance = this;
 
     qCInfo(lcGui) << "MainWindow::MainWindow: begin";
 
@@ -534,6 +544,15 @@ void MainWindow::subscribeDocumentObservers()
 
 MainWindow::~MainWindow()
 {
+    // Symmetric thread-affinity check with the constructor.
+    if (QCoreApplication::instance()
+        && QThread::currentThread()
+               != QCoreApplication::instance()->thread())
+    {
+        qFatal("MainWindow: must be destroyed on the main "
+               "(QCoreApplication) thread.");
+    }
+
     // Cleanup resources
     delete heartbeatController_;
 
@@ -554,25 +573,27 @@ MainWindow::~MainWindow()
     // mechanism
 
     // Tier 1 lifetime: clear the singleton slot LAST so any late
-    // observer using instance() sees the window as gone.
-    s_instance = nullptr;
+    // observer using instance() sees the window as gone. Release
+    // store pairs with acquire loads in instance() / getInstance().
+    s_instance.store(nullptr, std::memory_order_release);
 }
 
 MainWindow &MainWindow::getInstance()
 {
-    if (s_instance == nullptr)
+    MainWindow *p = s_instance.load(std::memory_order_acquire);
+    if (p == nullptr)
     {
         qFatal("MainWindow::getInstance: MainWindow has not been "
                "constructed yet. Construct it in main() before "
                "calling getInstance(). Use instance() for nullable "
                "access during startup or shutdown windows.");
     }
-    return *s_instance;
+    return *p;
 }
 
 MainWindow *MainWindow::instance()
 {
-    return s_instance;
+    return s_instance.load(std::memory_order_acquire);
 }
 
 void MainWindow::initializeUI()
