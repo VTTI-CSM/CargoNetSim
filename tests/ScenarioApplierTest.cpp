@@ -548,8 +548,9 @@ private slots:
             QVERIFY(registry.terminal(terminalId) != nullptr);
 
         // Simulation settings reached ConfigController.
+        QVERIFY(doc->simulation.endTime.has_value());
         QCOMPARE(ctl.getConfigController()->getSimulationParams().value("end_time").toDouble(),
-                 doc->simulation.endTime);
+                 doc->simulation.endTime.value());
 
         // Auto-rules produced at least one linkage (the full fixture uses Hybrid
         // strategy with land_terminal_to_rail_node on at least one region).
@@ -566,7 +567,7 @@ private slots:
         doc.simulation.useSpecificTimeValues = true;
         doc.simulation.carbonRate            = 12.5;
         doc.simulation.shipMultiplier        = 1.25;
-        doc.simulation.trainMultiplier       = 1.15;
+        doc.simulation.railMultiplier        = 1.15;
         doc.simulation.truckMultiplier       = 1.05;
 
         doc.simulation.ship.speed      = 22.0;
@@ -593,7 +594,7 @@ private slots:
         auto taxes = ctl.getConfigController()->getCarbonTaxes();
         QCOMPARE(taxes.value("rate").toDouble(),             12.5);
         QCOMPARE(taxes.value("ship_multiplier").toDouble(),  1.25);
-        QCOMPARE(taxes.value("train_multiplier").toDouble(), 1.15);
+        QCOMPARE(taxes.value("rail_multiplier").toDouble(),  1.15);
         QCOMPARE(taxes.value("truck_multiplier").toDouble(), 1.05);
 
         // Per-mode settings: canonical field names.
@@ -617,6 +618,42 @@ private slots:
         auto tvm = ctl.getConfigController()->getTimeValueOfMoney();
         QCOMPARE(tvm.value("use_mode_specific").toBool(), true);
         QCOMPARE(tvm.value("ship").toDouble(),            14.0);
+    }
+
+    void test_applier_partial_scenario_inherits_config_defaults()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+
+        auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
+        // Reset to config.xml baseline so absent-field assertions are stable
+        // regardless of which prior test last wrote to the config.
+        ctl.getConfigController()->loadConfig();
+
+        // Only time_value_of_money is set in the scenario — all other fields nullopt
+        ScenarioDocument doc;
+        doc.simulation.timeValueOfMoney = 30.0;
+        ScenarioRegistry registry;
+        QString err;
+        QVERIFY2(ScenarioApplier::apply(doc, ctl, registry, &err), qPrintable(err));
+
+        // The overridden field uses the scenario value
+        auto params = ctl.getConfigController()->getSimulationParams();
+        QCOMPARE(params.value("time_value_of_money").toDouble(), 30.0);
+
+        // Absent fields inherit config.xml values, not zeros
+        // config.xml has: time_step=15, shortest_paths=10
+        QCOMPARE(params.value("time_step").toInt(),       15);
+        QCOMPARE(params.value("shortest_paths").toInt(),  10);
+
+        // Absent transport mode fields inherit config.xml values
+        auto modes = ctl.getConfigController()->getTransportModes();
+        auto ship  = modes.value("ship").toMap();
+        QCOMPARE(ship.value("risk_factor").toDouble(),    0.025);    // config.xml value
+        QCOMPARE(ship.value("average_speed").toDouble(), 42.6);      // config.xml value
+
+        // Absent fuel prices inherit config.xml values
+        auto fuelPrices = ctl.getConfigController()->getFuelPrices();
+        QCOMPARE(fuelPrices.value("HFO").toDouble(), 0.56);          // config.xml value
     }
 
     // ---- Task 0: origin-containers retrofit (Plan 5 prerequisite) ----

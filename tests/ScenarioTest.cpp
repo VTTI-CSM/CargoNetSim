@@ -272,33 +272,58 @@ private slots:
     void test_simulation_settings_defaults()
     {
         CargoNetSim::Backend::Scenario::SimulationSettings s;
-        QCOMPARE(s.timeStep,          60);
-        QCOMPARE(s.shortestPathsN,     5);
-        QCOMPARE(s.endTime,       86400.0);
-        QCOMPARE(s.useSpecificTimeValues, false);
-        QCOMPARE(s.shipMultiplier,  1.0);
-        QCOMPARE(s.railMultiplier, 1.0);
-        QCOMPARE(s.truckMultiplier, 1.0);
-        QCOMPARE(s.dwellMethod,  QStringLiteral("normal"));
-        // dwellParams now has defaults matching the "normal" method
-        QCOMPARE(s.dwellParams.size(), 2);
-        QCOMPARE(s.dwellParams.value("mean").toDouble(), 2880.0);
-        QCOMPARE(s.dwellParams.value("std_dev").toDouble(), 720.0);
+        // All fields are nullopt — there are no C++ defaults anymore.
+        // Absent YAML fields inherit config.xml values at apply time (see ScenarioApplier).
+        QVERIFY(!s.timeStep.has_value());
+        QVERIFY(!s.endTime.has_value());
+        QVERIFY(!s.shortestPathsN.has_value());
+        QVERIFY(!s.timeValueOfMoney.has_value());
+        QVERIFY(!s.useSpecificTimeValues.has_value());
+        QVERIFY(!s.carbonRate.has_value());
+        QVERIFY(!s.shipMultiplier.has_value());
+        QVERIFY(!s.railMultiplier.has_value());
+        QVERIFY(!s.truckMultiplier.has_value());
+        QVERIFY(!s.dwellMethod.has_value());
+        QVERIFY(!s.dwellParams.has_value());
         QVERIFY(s.fuelTypes.isEmpty());
     }
 
-    void test_simulation_settings_mode_struct_useNetwork_defaults_true()
+    void test_simulation_settings_mode_struct_useNetwork_defaults_nullopt()
     {
         CargoNetSim::Backend::Scenario::SimulationSettings::Mode m;
-        QCOMPARE(m.useNetwork, true);
+        // useNetwork is nullopt by default; absent YAML field → inherits config.xml value.
+        QVERIFY(!m.useNetwork.has_value());
+    }
+
+    void test_parser_absent_fields_are_nullopt()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        // JSON with only time_value_of_money set
+        QJsonObject sim;
+        sim["time_value_of_money"] = 30.0;
+        QJsonObject root;
+        root["schema_version"] = 1;
+        root["simulation"]     = sim;
+
+        auto doc = ScenarioSerializer::fromJson(root);
+        QVERIFY(doc != nullptr);
+        QVERIFY(doc->simulation.timeValueOfMoney.has_value());
+        QCOMPARE(doc->simulation.timeValueOfMoney.value(), 30.0);
+        QVERIFY(!doc->simulation.timeStep.has_value());
+        QVERIFY(!doc->simulation.shortestPathsN.has_value());
+        QVERIFY(!doc->simulation.carbonRate.has_value());
+        QVERIFY(!doc->simulation.ship.speed.has_value());
+        QVERIFY(!doc->simulation.dwellMethod.has_value());
+        QVERIFY(!doc->simulation.endTime.has_value());
     }
 
     void test_simulation_settings_fuel_struct_defaults_zero()
     {
         CargoNetSim::Backend::Scenario::SimulationSettings::Fuel f;
-        QCOMPARE(f.energy, 0.0);
-        QCOMPARE(f.carbon, 0.0);
-        QCOMPARE(f.price,  0.0);
+        // All fuel fields are nullopt by default — no C++ defaults.
+        QVERIFY(!f.energy.has_value());
+        QVERIFY(!f.carbon.has_value());
+        QVERIFY(!f.price.has_value());
     }
 
     void test_network_spec_defaults()
@@ -1173,7 +1198,8 @@ private slots:
 
         std::unique_ptr<ScenarioDocument> back = ScenarioSerializer::fromJson(j);
         QVERIFY(back != nullptr);
-        QCOMPARE(back->simulation.endTime, 3600.0);
+        QVERIFY(back->simulation.endTime.has_value());
+        QCOMPARE(back->simulation.endTime.value(), 3600.0);
     }
 
     void test_serializer_region_round_trip()
@@ -1334,8 +1360,10 @@ private slots:
         QString err;
         auto doc = ScenarioSerializer::fromYaml(path, &err);
         QVERIFY2(doc != nullptr, qPrintable(err));
-        QCOMPARE(doc->simulation.endTime, 3600.0);
-        QCOMPARE(doc->simulation.dwellMethod, QStringLiteral("normal"));
+        QVERIFY(doc->simulation.endTime.has_value());
+        QCOMPARE(doc->simulation.endTime.value(), 3600.0);
+        QVERIFY(doc->simulation.dwellMethod.has_value());
+        QCOMPARE(doc->simulation.dwellMethod.value(), QStringLiteral("normal"));
     }
 
     void test_serializer_yaml_full_fixture_parses()
@@ -1375,7 +1403,7 @@ private slots:
 
         QCOMPARE(second->regions.size(),   first->regions.size());
         QCOMPARE(second->terminals.size(), first->terminals.size());
-        QCOMPARE(second->simulation.endTime, first->simulation.endTime);
+        QCOMPARE(second->simulation.endTime.value(), first->simulation.endTime.value());
     }
 
     void test_serializer_yaml_relative_paths_resolved_against_yaml_dir()
@@ -1531,8 +1559,7 @@ private slots:
         using namespace CargoNetSim::Backend::Scenario;
         ScenarioDocument doc;
         doc.simulation.dwellMethod = "normal";
-        doc.simulation.dwellParams.clear();  // remove defaults
-        doc.simulation.dwellParams.insert("mean", 1800.0);   // std_dev missing
+        doc.simulation.dwellParams = QMap<QString,QVariant>{ {QStringLiteral("mean"), 1800.0} };
 
         auto issues = ScenarioValidator::validate(doc);
         bool sawMissing = false;
@@ -1550,9 +1577,11 @@ private slots:
         using namespace CargoNetSim::Backend::Scenario;
         ScenarioDocument doc;
         doc.simulation.dwellMethod = "normal";
-        doc.simulation.dwellParams.insert("mean", 1800.0);
-        doc.simulation.dwellParams.insert("std_dev", 300.0);
-        doc.simulation.dwellParams.insert("scale", 999.0);   // unknown for 'normal'
+        doc.simulation.dwellParams = QMap<QString,QVariant>{
+            {QStringLiteral("mean"),    1800.0},
+            {QStringLiteral("std_dev"),  300.0},
+            {QStringLiteral("scale"),    999.0}  // unknown for 'normal'
+        };
 
         auto issues = ScenarioValidator::validate(doc);
         bool sawUnknownWarning = false;
@@ -1570,8 +1599,10 @@ private slots:
         using namespace CargoNetSim::Backend::Scenario;
         ScenarioDocument doc;
         doc.simulation.dwellMethod = "gamma";
-        doc.simulation.dwellParams.insert("shape", 2.0);
-        doc.simulation.dwellParams.insert("scale", 1440.0);
+        doc.simulation.dwellParams = QMap<QString,QVariant>{
+            {QStringLiteral("shape"),  2.0},
+            {QStringLiteral("scale"), 1440.0}
+        };
 
         auto issues = ScenarioValidator::validate(doc);
         int errors = 0;

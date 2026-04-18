@@ -85,7 +85,7 @@ private slots:
         lb.terminalId = "T_D"; lb.networkName = "USA_rail"; lb.nodeId = 2;
         doc.addLinkage(lb);
 
-        doc.simulation.train.containers = 10;
+        doc.simulation.rail.containers = 10;
         doc.fleet.trainsFile = fixtureDir + "/fleet_trains.json";
 
         // --- Materialize backend state ---
@@ -372,7 +372,7 @@ private slots:
         addTerm("T_C", 3);
         addTerm("T_D", 4);
 
-        doc.simulation.train.containers = 10;  // 5 containers → 1 train per path
+        doc.simulation.rail.containers = 10;  // 5 containers → 1 train per path
         doc.fleet.trainsFile = fixtureDir + "/fleet_trains.json";
 
         auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
