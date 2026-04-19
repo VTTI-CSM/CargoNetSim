@@ -30,6 +30,8 @@ set(GUI_SOURCES
     Controllers/ConnectionController.h
     Controllers/RegionController.cpp
     Controllers/RegionController.h
+    Controllers/SettingsController.cpp
+    Controllers/SettingsController.h
     
     # Items
     Items/BackgroundPhotoItem.cpp
