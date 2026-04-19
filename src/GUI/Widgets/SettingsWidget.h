@@ -13,6 +13,8 @@
 #include <QVariant>
 #include <QWidget>
 
+#include "Backend/Scenario/SimulationSettings.h"
+
 namespace CargoNetSim
 {
 namespace GUI
@@ -38,26 +40,13 @@ public:
      */
     explicit SettingsWidget(QWidget *parent = nullptr);
 
-    /**
-     * @brief Retrieves the current settings
-     * @return QMap<QString, QVariant> The current settings
-     * values
-     */
-    QMap<QString, QVariant> getSettings() const;
-
-signals:
-    /**
-     * @brief Signal emitted when settings are applied
-     * @param settings The new settings values
-     */
-    void settingsChanged(
-        const QMap<QString, QVariant> &settings);
-
 public slots:
     /**
      * @brief Applies current settings values
      */
     void applySettings();
+
+    void refreshFromConfig();
 
 private slots:
     /**
@@ -106,12 +95,6 @@ private:
      * @brief Initialize the UI components
      */
     void initUI();
-
-    /**
-     * @brief Load settings from configuration
-     * @return bool True if settings loaded successfully
-     */
-    bool loadSettings();
 
     /**
      * @brief Add a section for nested properties
@@ -192,8 +175,6 @@ private:
     QMap<QString, QMap<QString, QVariant>> fuelTypes;
     QMap<QString, QVariant>                settings;
 
-    // Configuration
-    QObject *configLoader;
 };
 
 } // namespace GUI

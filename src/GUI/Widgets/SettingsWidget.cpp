@@ -18,6 +18,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Scenario/SimulationSettings.h"
+#include "GUI/Controllers/SettingsController.h"
 
 namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
 
@@ -29,7 +31,6 @@ namespace GUI
 // Constructor
 SettingsWidget::SettingsWidget(QWidget *parent)
     : QWidget(parent)
-    , configLoader(nullptr)
 {
     // Initialize with default values for fuel types
     fuelTypes = {{"HFO",
@@ -51,7 +52,7 @@ SettingsWidget::SettingsWidget(QWidget *parent)
     initUI();
 
     // Try to load settings after UI is initialized
-    loadSettings();
+    refreshFromConfig();
 }
 
 void SettingsWidget::initUI()
@@ -662,9 +663,10 @@ void SettingsWidget::updateFuelTypeDropdowns()
         truckFuelType->setCurrentIndex(truckIdx);
 }
 
-bool SettingsWidget::loadSettings()
+void SettingsWidget::refreshFromConfig()
 {
-    qCInfo(lcGuiUtil) << "SettingsWidget::loadSettings: begin";
+    qCInfo(lcGuiUtil)
+        << "SettingsWidget::refreshFromConfig: begin";
     try
     {
         // load settings from the controller
@@ -676,8 +678,9 @@ bool SettingsWidget::loadSettings()
                            .getConfigController()
                            ->getAllParams();
 
-        qCDebug(lcGuiUtil) << "SettingsWidget::loadSettings: loaded"
-                           << settings.size() << "top-level sections";
+        qCDebug(lcGuiUtil)
+            << "SettingsWidget::refreshFromConfig: loaded"
+            << settings.size() << "top-level sections";
         // Apply simulation settings
         if (settings.contains("simulation"))
         {
@@ -972,150 +975,73 @@ bool SettingsWidget::loadSettings()
         truckTimeValueSpin->setEnabled(
             useSpecificTimeValues->isChecked());
 
-        return true;
+        return;
     }
     catch (const std::exception &e)
     {
         qCWarning(lcGuiUtil)
             << "Failed to load settings from config file:"
             << e.what();
-        return false;
+        return;
     }
 }
 
 void SettingsWidget::applySettings()
 {
     qCInfo(lcGuiUtil) << "SettingsWidget::applySettings: begin";
-    // Collect fuel energy and prices data
-    QMap<QString, QVariant> fuelEnergy;
-    QMap<QString, QVariant> fuelPrices;
-    QMap<QString, QVariant> fuelCarbonContent;
+    using Fuel = Backend::Scenario::SimulationSettings::Fuel;
+    Backend::Scenario::SimulationSettings s;
 
-    for (auto it = fuelTypes.begin(); it != fuelTypes.end();
-         ++it)
+    s.timeStep              = timeStepSpin->value();
+    s.shortestPathsN        = shortestPathsSpin->value();
+    s.timeValueOfMoney      = averageTimeValueSpin->value();
+    s.useSpecificTimeValues = useSpecificTimeValues->isChecked();
+    s.carbonRate            = carbonRateSpin->value();
+    s.shipMultiplier        = shipMultiplierSpin->value();
+    s.railMultiplier        = trainMultiplierSpin->value();
+    s.truckMultiplier       = truckMultiplierSpin->value();
+
+    s.ship.speed      = shipSpeedSpin->value();
+    s.ship.fuelRate   = shipFuelSpin->value();
+    s.ship.containers = shipContainers->value();
+    s.ship.risk       = shipRiskSpin->value();
+    s.ship.fuelType   = shipFuelType->currentText();
+    s.ship.timeValue  = shipTimeValueSpin->value();
+
+    s.rail.speed      = trainSpeedSpin->value();
+    s.rail.fuelRate   = trainFuelSpin->value();
+    s.rail.containers = trainContainers->value();
+    s.rail.risk       = trainRiskSpin->value();
+    s.rail.fuelType   = trainFuelType->currentText();
+    s.rail.timeValue  = trainTimeValueSpin->value();
+    s.rail.useNetwork = trainUseNetwork->isChecked();
+
+    s.truck.speed      = truckSpeedSpin->value();
+    s.truck.fuelRate   = truckFuelSpin->value();
+    s.truck.containers = truckContainers->value();
+    s.truck.risk       = truckRiskSpin->value();
+    s.truck.fuelType   = truckFuelType->currentText();
+    s.truck.timeValue  = truckTimeValueSpin->value();
+    s.truck.useNetwork = truckUseNetwork->isChecked();
+
+    for (auto it = fuelTypes.constBegin();
+         it != fuelTypes.constEnd(); ++it)
     {
-        const QString                 &fuelType = it.key();
-        const QMap<QString, QVariant> &data = it.value();
-
-        fuelEnergy[fuelType] = data["calorific"];
-        fuelPrices[fuelType] = data["cost"];
-        fuelCarbonContent[fuelType] =
-            data["carbon_content"];
+        Fuel f;
+        f.energy = it.value().value("calorific").toDouble();
+        f.price  = it.value().value("cost").toDouble();
+        f.carbon =
+            it.value().value("carbon_content").toDouble();
+        s.fuelTypes[it.key()] = f;
     }
 
-    // Create a new settings map
-    QMap<QString, QVariant> newSettings;
+    auto *mainWindow = dynamic_cast<MainWindow *>(parent());
+    if (mainWindow)
+        mainWindow->settingsCtrl()->applySettings(s);
 
-    // Simulation settings
-    QMap<QString, QVariant> simulation;
-    simulation["time_step"] = timeStepSpin->value();
-    simulation[PK::Simulation::TimeValueOfMoney] =
-        averageTimeValueSpin->value();
-    simulation[PK::Simulation::UseModeSpecific] =
-        useSpecificTimeValues->isChecked();
-    simulation["shortest_paths"] =
-        shortestPathsSpin->value();
-    newSettings["simulation"] = simulation;
-
-    // Fuel data
-    newSettings["fuel_energy"]         = fuelEnergy;
-    newSettings["fuel_prices"]         = fuelPrices;
-    newSettings["fuel_carbon_content"] = fuelCarbonContent;
-
-    // Carbon taxes
-    QMap<QString, QVariant> carbonTaxes;
-    carbonTaxes["rate"] = carbonRateSpin->value();
-    carbonTaxes["ship_multiplier"] =
-        shipMultiplierSpin->value();
-    carbonTaxes["truck_multiplier"] =
-        truckMultiplierSpin->value();
-    carbonTaxes["rail_multiplier"] =
-        trainMultiplierSpin->value();
-    newSettings["carbon_taxes"] = carbonTaxes;
-
-    // Transport modes
-    QMap<QString, QVariant> transportModes;
-
-    // Ship settings
-    QMap<QString, QVariant> shipSettings;
-    shipSettings[PK::Mode::AverageSpeed] = shipSpeedSpin->value();
-    shipSettings[PK::Mode::AverageFuelConsumption] =
-        shipFuelSpin->value();
-    shipSettings[PK::Mode::AverageContainerNumber] =
-        shipContainers->value();
-    shipSettings[PK::Mode::RiskFactor] = shipRiskSpin->value();
-    shipSettings[PK::Mode::FuelType] = shipFuelType->currentText();
-    shipSettings[PK::Mode::TimeValueOfMoney] =
-        shipTimeValueSpin->value();
-    transportModes["ship"] = shipSettings;
-
-    // Train settings
-    QMap<QString, QVariant> trainSettings;
-    trainSettings[PK::Mode::AverageSpeed] =
-        trainSpeedSpin->value();
-    trainSettings[PK::Mode::UseNetwork] =
-        trainUseNetwork->isChecked();
-    trainSettings[PK::Mode::AverageFuelConsumption] =
-        trainFuelSpin->value();
-    trainSettings[PK::Mode::AverageContainerNumber] =
-        trainContainers->value();
-    trainSettings[PK::Mode::RiskFactor] = trainRiskSpin->value();
-    trainSettings[PK::Mode::FuelType] =
-        trainFuelType->currentText();
-    trainSettings[PK::Mode::TimeValueOfMoney] =
-        trainTimeValueSpin->value();
-    transportModes["rail"] = trainSettings;
-
-    // Truck settings
-    QMap<QString, QVariant> truckSettings;
-    truckSettings[PK::Mode::AverageSpeed] =
-        truckSpeedSpin->value();
-    truckSettings[PK::Mode::UseNetwork] =
-        truckUseNetwork->isChecked();
-    truckSettings[PK::Mode::AverageFuelConsumption] =
-        truckFuelSpin->value();
-    truckSettings[PK::Mode::AverageContainerNumber] =
-        truckContainers->value();
-    truckSettings[PK::Mode::RiskFactor] = truckRiskSpin->value();
-    truckSettings[PK::Mode::FuelType] =
-        truckFuelType->currentText();
-    truckSettings[PK::Mode::TimeValueOfMoney] =
-        truckTimeValueSpin->value();
-    transportModes["truck"] = truckSettings;
-
-    newSettings["transport_modes"] = transportModes;
-
-    // Update settings in the controller
-    CargoNetSim::CargoNetSimController::getInstance()
-        .getConfigController()
-        ->updateConfig(newSettings);
-    CargoNetSim::CargoNetSimController::getInstance()
-        .getConfigController()
-        ->saveConfig();
-
-    settings = newSettings;
-
-    // Emit signal that settings have changed
-    emit settingsChanged(newSettings);
-
-    // Settings applied message
-    if (!parent())
-    {
-        return;
-    }
-    MainWindow *mainWindow =
-        dynamic_cast<MainWindow *>(parent());
-    if (!mainWindow)
-    {
-        return;
-    }
-    mainWindow->showStatusBarMessage("Settings applied.",
-                                     3000);
-}
-
-QMap<QString, QVariant> SettingsWidget::getSettings() const
-{
-    return settings;
+    if (mainWindow)
+        mainWindow->showStatusBarMessage(
+            tr("Settings applied."), 3000);
 }
 
 void SettingsWidget::showEnergyCalculator(
@@ -1376,28 +1302,6 @@ void SettingsWidget::onDwellMethodChanged(
         dwellLayout->addLayout(paramLayout);
     }
 
-    // Update settings with new parameter fields
-    for (auto it = paramFields.begin();
-         it != paramFields.end(); ++it)
-    {
-        QString  paramName = it.key();
-        QWidget *widget    = it.value();
-
-        if (QLineEdit *lineEdit =
-                qobject_cast<QLineEdit *>(widget))
-        {
-            settings[QString("dwell_time.parameters.%1")
-                         .arg(paramName)] =
-                lineEdit->text();
-        }
-        else if (QComboBox *comboBox =
-                     qobject_cast<QComboBox *>(widget))
-        {
-            settings[QString("dwell_time.parameters.%1")
-                         .arg(paramName)] =
-                comboBox->currentText();
-        }
-    }
 }
 
 void SettingsWidget::addNestedPropertiesSection(
