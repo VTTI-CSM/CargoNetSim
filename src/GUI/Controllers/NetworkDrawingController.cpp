@@ -9,6 +9,8 @@
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ItemEventBinder.h"
+#include "Backend/Scenario/ScenarioRuntime.h"
+#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Utils/ColorUtils.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
@@ -44,7 +46,8 @@ NetworkDrawingController::NetworkDrawingController(
 void NetworkDrawingController::drawNetwork(
     Backend::RegionData *regionData,
     NetworkType          networkType,
-    QString             &networkName)
+    QString             &networkName,
+    bool                 skipTerminalCreation)
 {
     qCInfo(lcGuiView) << "NetworkDrawingController::drawNetwork:"
                       << "network=" << networkName
@@ -69,7 +72,8 @@ void NetworkDrawingController::drawNetwork(
     {
         auto network =
             regionData->getTrainNetwork(networkName);
-        drawTrainNetwork(network, regionName, linksColor);
+        drawTrainNetwork(network, regionName, linksColor,
+                         skipTerminalCreation, networkName);
     }
     else if (networkType == NetworkType::Truck)
     {
@@ -295,7 +299,9 @@ bool NetworkDrawingController::moveNetworkItems(
 
 void NetworkDrawingController::drawTrainNetwork(
     Backend::TrainClient::NeTrainSimNetwork *network,
-    QString &regionName, QColor &linksColor)
+    QString &regionName, QColor &linksColor,
+    bool skipTerminalCreation,
+    const QString &networkName)
 {
     qCDebug(lcRail) << "[RailDraw] drawTrainNetwork start"
              << "region=" << regionName
@@ -356,8 +362,7 @@ void NetworkDrawingController::drawTrainNetwork(
         }
         point->setReferenceNetwork(network);
 
-        // Link terminal to point
-        if (point && node->isTerminal())
+        if (!skipTerminalCreation && point && node->isTerminal())
         {
             qCDebug(lcRail)
                 << "[RailDraw]   calling createTerminalAtPoint";
@@ -371,6 +376,18 @@ void NetworkDrawingController::drawTrainNetwork(
                 << (terminal ? "terminal" : "null");
 
             point->setLinkedTerminal(terminal);
+            if (terminal && m_mainWindow->runtime())
+            {
+                GUI::Scenario::ScenarioMutator::linkTerminalToNode(
+                    &m_mainWindow->runtime()->document(),
+                    terminal->sceneRegistryKey(),
+                    networkName,
+                    node->getUserId(),
+                    Backend::Scenario::LinkageSource::Manual);
+                qCDebug(lcRail) << "[RailDraw]   NodeLinkage written"
+                                << "terminal=" << terminal->sceneRegistryKey()
+                                << "nodeId="   << node->getUserId();
+            }
             qCDebug(lcRail)
                 << "[RailDraw]   setLinkedTerminal ok";
         }
@@ -547,6 +564,9 @@ MapPoint *NetworkDrawingController::drawNode(
     QColor         color,
     const QMap<QString, QVariant> &properties)
 {
+    if (auto *existing = m_regionScene->getItemById<MapPoint>(nodeUniqueID))
+        return existing;
+
     qCDebug(lcGuiView)
         << "NetworkDrawingController::drawNode:"
         << "x=" << projectedPoint.x()

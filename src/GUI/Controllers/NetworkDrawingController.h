@@ -53,7 +53,8 @@ public:
 
     void drawNetwork(Backend::RegionData *regionData,
                      NetworkType          networkType,
-                     QString             &networkName);
+                     QString             &networkName,
+                     bool                 skipTerminalCreation = false);
 
     void removeNetwork(NetworkType          networkType,
                        Backend::RegionData *regionData,
@@ -70,7 +71,9 @@ signals:
 private:
     void drawTrainNetwork(
         Backend::TrainClient::NeTrainSimNetwork *network,
-        QString &regionName, QColor &linksColor);
+        QString &regionName, QColor &linksColor,
+        bool skipTerminalCreation,
+        const QString &networkName);
 
     void drawTruckNetwork(
         Backend::TruckClient::IntegrationSimulationConfig
