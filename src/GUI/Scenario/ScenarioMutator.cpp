@@ -348,6 +348,48 @@ bool ScenarioMutator::updateRegionGlobalPosition(
     return doc->updateRegion(regionName, r);
 }
 
+bool ScenarioMutator::addRegion(
+    Backend::Scenario::ScenarioDocument     *doc,
+    const Backend::Scenario::RegionSpec     &spec)
+{
+    if (!doc || spec.name.isEmpty()) return false;
+    qCInfo(lcGuiScene) << "ScenarioMutator::addRegion:" << spec.name;
+    return doc->addRegion(spec);
+}
+
+bool ScenarioMutator::removeRegion(
+    Backend::Scenario::ScenarioDocument *doc,
+    const QString                       &name)
+{
+    if (!doc || !doc->regions.contains(name)) return false;
+    qCInfo(lcGuiScene) << "ScenarioMutator::removeRegion:" << name;
+    return doc->removeRegion(name);
+}
+
+bool ScenarioMutator::updateRegionColor(
+    Backend::Scenario::ScenarioDocument *doc,
+    const QString                       &name,
+    const QString                       &colorHex)
+{
+    using namespace Backend::Scenario;
+    if (!doc || !doc->regions.contains(name)) return false;
+    qCDebug(lcGuiScene) << "ScenarioMutator::updateRegionColor:"
+                        << name << colorHex;
+    RegionSpec r = doc->regions[name];
+    r.color      = colorHex;
+    return doc->updateRegion(name, r);
+}
+
+bool ScenarioMutator::updateSimulationSettings(
+    Backend::Scenario::ScenarioDocument         *doc,
+    const Backend::Scenario::SimulationSettings &settings)
+{
+    if (!doc) return false;
+    qCInfo(lcGuiScene) << "ScenarioMutator::updateSimulationSettings";
+    doc->simulation = settings;
+    return true;
+}
+
 } // namespace Scenario
 } // namespace GUI
 } // namespace CargoNetSim

@@ -4,6 +4,7 @@
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Scenario/LinkageSource.h"
 #include "Backend/Scenario/RegionSpec.h"
+#include "Backend/Scenario/SimulationSettings.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "GUI/Scenario/ScenarioMutator.h"
 
@@ -237,6 +238,141 @@ private slots:
         QVERIFY(ScenarioMutator::removeTerminal(&doc, id));
         QVERIFY(!doc.terminals.contains(id));
         QCOMPARE(removedSpy.count(), 1);
+    }
+
+    // ---- addRegion ----
+
+    void test_addRegion_registers_region_and_emits_signal()
+    {
+        ScenarioDocument doc;
+        QSignalSpy spy(&doc, &ScenarioDocument::regionAdded);
+
+        RegionSpec spec;
+        spec.name  = "TestRegion";
+        spec.color = "#ff0000";
+        QVERIFY(ScenarioMutator::addRegion(&doc, spec));
+
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(doc.regions.contains("TestRegion"));
+        QCOMPARE(doc.regions["TestRegion"].color, QString("#ff0000"));
+    }
+
+    void test_addRegion_rejects_null_doc()
+    {
+        RegionSpec spec;
+        spec.name = "R";
+        QVERIFY(!ScenarioMutator::addRegion(nullptr, spec));
+    }
+
+    void test_addRegion_rejects_empty_name()
+    {
+        ScenarioDocument doc;
+        RegionSpec spec;
+        spec.name = "";
+        QVERIFY(!ScenarioMutator::addRegion(&doc, spec));
+        QVERIFY(doc.regions.isEmpty());
+    }
+
+    void test_addRegion_rejects_duplicate_name()
+    {
+        ScenarioDocument doc;
+        RegionSpec spec;
+        spec.name = "R";
+        QVERIFY(ScenarioMutator::addRegion(&doc, spec));
+        QVERIFY(!ScenarioMutator::addRegion(&doc, spec));
+        QCOMPARE(doc.regions.size(), 1);
+    }
+
+    // ---- removeRegion ----
+
+    void test_removeRegion_unregisters_region_and_emits_signal()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+        QSignalSpy spy(&doc, &ScenarioDocument::regionRemoved);
+
+        QVERIFY(ScenarioMutator::removeRegion(&doc, "R"));
+
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(!doc.regions.contains("R"));
+    }
+
+    void test_removeRegion_cascades_terminal_removal()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+        const QString id = ScenarioMutator::createTerminal(
+            &doc, "Sea Port Terminal", "R", QPointF(0, 0));
+        QVERIFY(!id.isEmpty());
+        QVERIFY(doc.terminals.contains(id));
+
+        QSignalSpy termSpy(&doc, &ScenarioDocument::terminalRemoved);
+        QVERIFY(ScenarioMutator::removeRegion(&doc, "R"));
+
+        QCOMPARE(termSpy.count(), 1);
+        QVERIFY(!doc.regions.contains("R"));
+        QVERIFY(!doc.terminals.contains(id));
+    }
+
+    void test_removeRegion_rejects_null_doc()
+    {
+        QVERIFY(!ScenarioMutator::removeRegion(nullptr, "R"));
+    }
+
+    void test_removeRegion_rejects_unknown_name()
+    {
+        ScenarioDocument doc;
+        QVERIFY(!ScenarioMutator::removeRegion(&doc, "NoSuchRegion"));
+    }
+
+    // ---- updateRegionColor ----
+
+    void test_updateRegionColor_updates_color_and_emits_signal()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+        QSignalSpy spy(&doc, &ScenarioDocument::regionChanged);
+
+        QVERIFY(ScenarioMutator::updateRegionColor(&doc, "R", "#00ff00"));
+
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(doc.regions["R"].color, QString("#00ff00"));
+    }
+
+    void test_updateRegionColor_rejects_null_doc()
+    {
+        QVERIFY(!ScenarioMutator::updateRegionColor(nullptr, "R", "#ff0000"));
+    }
+
+    void test_updateRegionColor_rejects_unknown_name()
+    {
+        ScenarioDocument doc;
+        QVERIFY(!ScenarioMutator::updateRegionColor(
+            &doc, "NoSuchRegion", "#ff0000"));
+    }
+
+    void test_updateSimulationSettings_sets_fields()
+    {
+        ScenarioDocument doc;
+        SimulationSettings s;
+        s.timeStep   = 30;
+        s.carbonRate = 75.0;
+        s.ship.speed = 25.5;
+
+        QVERIFY(ScenarioMutator::updateSimulationSettings(&doc, s));
+        QVERIFY(doc.simulation.timeStep.has_value());
+        QCOMPARE(doc.simulation.timeStep.value(), 30);
+        QVERIFY(doc.simulation.carbonRate.has_value());
+        QCOMPARE(doc.simulation.carbonRate.value(), 75.0);
+        QVERIFY(doc.simulation.ship.speed.has_value());
+        QCOMPARE(doc.simulation.ship.speed.value(), 25.5);
+    }
+
+    void test_updateSimulationSettings_rejects_null_doc()
+    {
+        SimulationSettings s;
+        s.timeStep = 10;
+        QVERIFY(!ScenarioMutator::updateSimulationSettings(nullptr, s));
     }
 };
 

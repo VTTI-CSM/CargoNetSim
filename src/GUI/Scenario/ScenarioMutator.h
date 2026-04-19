@@ -2,6 +2,8 @@
 
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Scenario/LinkageSource.h"
+#include "Backend/Scenario/RegionSpec.h"
+#include "Backend/Scenario/SimulationSettings.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include <QPointF>
 #include <QString>
@@ -164,6 +166,37 @@ public:
         Backend::Scenario::ScenarioDocument *doc,
         const QString                       &regionName,
         const QPointF                       &latLon);
+
+    /// Register a new region in the document. Returns false if @p doc is
+    /// null, @p spec.name is empty, or a region with that name already exists.
+    /// Duplicate-name rejection is delegated to ScenarioDocument::addRegion.
+    static bool addRegion(
+        Backend::Scenario::ScenarioDocument     *doc,
+        const Backend::Scenario::RegionSpec     &spec);
+
+    /// Remove region @p name and cascade-delete all owned terminals,
+    /// connections, and global links. Returns false if @p doc is null or
+    /// the region is not found.
+    static bool removeRegion(
+        Backend::Scenario::ScenarioDocument     *doc,
+        const QString                           &name);
+
+    /// Update the color field of an existing region. @p colorHex should be
+    /// QColor::name() format ("#RRGGBB"); the value is stored verbatim without
+    /// validation. Returns false if @p doc is null or the region is not found.
+    static bool updateRegionColor(
+        Backend::Scenario::ScenarioDocument     *doc,
+        const QString                           &name,
+        const QString                           &colorHex);
+
+    // ---------------- simulation ----------------
+
+    /// Replace doc.simulation with @p settings. Caller must preserve
+    /// YAML-only fields (endTime, dwellMethod, dwellParams) before calling.
+    /// Returns false only when @p doc is null.
+    static bool updateSimulationSettings(
+        Backend::Scenario::ScenarioDocument         *doc,
+        const Backend::Scenario::SimulationSettings &settings);
 };
 
 } // namespace Scenario
