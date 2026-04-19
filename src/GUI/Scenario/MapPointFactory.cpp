@@ -100,6 +100,17 @@ MapPoint *MapPointFactory::fromNodeLinkage(
 {
     if (!linkage || !regionData || !scene) return nullptr;
 
+    if (auto *existing = findByNetworkAndNode(
+            scene, linkage->networkName, linkage->nodeId))
+    {
+        qCDebug(lcGuiScene)
+            << "MapPointFactory::fromNodeLinkage: reusing existing MapPoint"
+            << "network=" << linkage->networkName
+            << "nodeId="  << linkage->nodeId;
+        existing->setLinkageModel(linkage);
+        return existing;
+    }
+
     qCInfo(lcGuiScene)
         << "MapPointFactory::fromNodeLinkage:"
         << "network=" << linkage->networkName
