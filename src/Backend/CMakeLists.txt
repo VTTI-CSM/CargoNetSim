@@ -181,6 +181,10 @@ set(Backend_SOURCES
     Scenario/ScenarioValidator.cpp
     Scenario/SegmentCostMath.h
     Scenario/SegmentCostMath.cpp
+    Scenario/SegmentPhysicsEstimator.h
+    Scenario/SegmentPhysicsEstimator.cpp
+    Scenario/EstimatedPhysicsPopulator.h
+    Scenario/EstimatedPhysicsPopulator.cpp
     Scenario/ServerStatusProbe.h
     Scenario/ServerStatusProbe.cpp
     Scenario/SimulationOrchestrator.h

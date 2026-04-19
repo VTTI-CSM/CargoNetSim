@@ -4,6 +4,7 @@
 #include <QList>
 #include <QString>
 
+#include "Backend/Models/Path.h"
 #include "Backend/Scenario/PathKey.h"
 #include "Backend/Scenario/PathMetrics.h"
 #include "Backend/Scenario/PathSimulationResult.h"
@@ -18,7 +19,7 @@ namespace Cli {
  * Output shape (schema frozen — published contract):
  * @code{.json}
  * {
- *   "schema_version": 1,
+ *   "schema_version": 2,
  *   "generated_at":   "2026-04-12T14:30:00Z",
  *   "paths": [
  *     {
@@ -47,7 +48,22 @@ namespace Cli {
  *           "fuel": 0.417, "energy_kwh": 500.0,
  *           "carbon_t": 0.134, "risk": 0.003
  *         }
- *       }
+ *       },
+ *       "segments": [
+ *         {
+ *           "segment_id":   "T1→T2",
+ *           "mode":         "rail",
+ *           "from":         "T1",
+ *           "to":           "T2",
+ *           "estimated": {
+ *             "distance_m":    50000.0,
+ *             "travel_time_s": 2040.0,
+ *             "energy_kwh":    980.0,
+ *             "carbon_t":      0.45,
+ *             "risk":          0.006
+ *           }
+ *         }
+ *       ]
  *     },
  *     ...
  *   ]
@@ -95,6 +111,10 @@ public:
      *                    tuples keyed by path id. When present, they
      *                    are emitted as top-level fields on the path
      *                    object.
+     * @param paths       Optional list of Path pointers. When a
+     *                    matching Path is found for a result's pathId,
+     *                    a `segments` array is emitted containing each
+     *                    segment's estimated metrics.
      * @return `true` on success, `false` on any I/O failure.
      */
     bool write(
@@ -105,7 +125,9 @@ public:
         const QHash<int, CargoNetSim::Backend::Scenario::PathMetrics>
                       &metrics = {},
         const QHash<int, CargoNetSim::Backend::Scenario::PathKey>
-                      &keys    = {});
+                      &keys    = {},
+        const QList<CargoNetSim::Backend::Path *>
+                      &paths   = {});
 };
 
 } // namespace Cli

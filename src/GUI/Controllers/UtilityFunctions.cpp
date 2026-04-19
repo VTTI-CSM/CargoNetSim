@@ -19,6 +19,7 @@
 #include "Backend/Scenario/ContainerAllocator.h"
 #include "Backend/Scenario/NetworkLookup.h"
 #include "Backend/Scenario/PathDistancePopulator.h"
+#include "Backend/Scenario/EstimatedPhysicsPopulator.h"
 #include "Backend/Scenario/PathMetricsCalculator.h"
 #include "Backend/Scenario/PathSimulationResult.h"
 #include "Backend/Scenario/ScenarioDocument.h"
@@ -656,6 +657,13 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                     paths,
                     mainWindow->runtime()->document(),
                     *nets, *cfg, rgn);
+            }
+
+            if (cfg)
+            {
+                EstimatedPhysicsPopulator physPop(cfg);
+                for (auto *path : paths)
+                    physPop.populate(path, mainWindow->runtime()->document());
             }
 
             // Plan 10: allocate containers across paths. Pure and

@@ -50,6 +50,21 @@ public:
     void renameRegion(const QString &oldRegionName,
                       const QString &newName);
 
+    /// Create a region: RDC first, then scene item, then ScenarioDocument.
+    void addRegion(const QString &name,
+                   const QColor  &color,
+                   const QPointF &pos = QPointF(0, 0));
+
+    /// Delete a region: remove all owned scene items, sync RDC,
+    /// cascade-remove terminals and connections from ScenarioDocument.
+    void removeRegion(const QString &name);
+
+    /// Recolor the region's RegionCenterPoint, sync RDC and ScenarioDocument.
+    void updateRegionColor(const QString &name, const QColor &color);
+
+    /// Remove every region except "Default Region".
+    void clearRegions();
+
 protected:
     GraphicsScene             *m_regionScene;
     SceneVisibilityController *m_sceneVisibility;

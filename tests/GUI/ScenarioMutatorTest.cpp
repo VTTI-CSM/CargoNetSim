@@ -359,6 +359,8 @@ private slots:
         s.carbonRate = 75.0;
         s.ship.speed = 25.5;
 
+        // ScenarioDocument has no simulationChanged signal yet; no QSignalSpy.
+        // When ScenarioDocument::updateSimulation() is introduced, add one.
         QVERIFY(ScenarioMutator::updateSimulationSettings(&doc, s));
         QVERIFY(doc.simulation.timeStep.has_value());
         QCOMPARE(doc.simulation.timeStep.value(), 30);

@@ -185,7 +185,7 @@ double PathSegment::actualRisk() const
 void PathSegment::setEstimatedDistanceAndTravelTime(
     double distanceMeters, double travelTimeSeconds)
 {
-    QJsonObject est;
+    QJsonObject est = m_attributes.value(PK::Segment::Estimated).toObject();
     est[PK::Segment::Distance]   = distanceMeters;
     est[PK::Segment::TravelTime] = travelTimeSeconds;
     m_attributes[PK::Segment::Estimated] = est;
@@ -207,6 +207,25 @@ void PathSegment::clearActual()
 {
     m_attributes.remove(PK::Segment::ActualValues);
 }
+
+void PathSegment::setEstimatedPhysicalMetrics(
+    double energyKWh, double carbonTonnes, double risk)
+{
+    QJsonObject est = m_attributes.value(PK::Segment::Estimated).toObject();
+    est[PK::Segment::EnergyConsumption] = energyKWh;
+    est[PK::Segment::CarbonEmissions]   = carbonTonnes;
+    est[PK::Segment::Risk]              = risk;
+    m_attributes[PK::Segment::Estimated] = est;
+}
+
+double PathSegment::estimatedEnergyConsumption() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::EnergyConsumption); }
+
+double PathSegment::estimatedCarbonEmissions() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::CarbonEmissions); }
+
+double PathSegment::estimatedRisk() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::Risk); }
 
 } // namespace Backend
 } // namespace CargoNetSim

@@ -1,5 +1,8 @@
 #include "JsonResultsWriter.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/TransportationMode.h"
+#include "Backend/Models/Path.h"
+#include "Backend/Models/PathSegment.h"
 
 #include <QDateTime>
 #include <QJsonArray>
@@ -19,13 +22,21 @@ bool JsonResultsWriter::write(
     const QList<Backend::Scenario::PathSimulationResult> &results,
     QString *err,
     const QHash<int, Backend::Scenario::PathMetrics> &metrics,
-    const QHash<int, Backend::Scenario::PathKey>     &keys)
+    const QHash<int, Backend::Scenario::PathKey>     &keys,
+    const QList<Backend::Path *>                     &paths)
 {
     qCInfo(lcCli) << "JsonResultsWriter::write: path" << outputPath
                   << "results:" << results.size()
                   << "metrics:" << metrics.size()
-                  << "keys:" << keys.size();
-    QJsonArray paths;
+                  << "keys:" << keys.size()
+                  << "paths:" << paths.size();
+
+    // Build a lookup index for fast O(1) segment lookup inside the loop.
+    QHash<int, Backend::Path *> pathIndex;
+    for (auto *p : paths)
+        if (p) pathIndex[p->getPathId()] = p;
+
+    QJsonArray pathsArr;
     for (const auto &r : results)
     {
         QJsonObject p;
@@ -80,18 +91,55 @@ bool JsonResultsWriter::write(
             }
         }
 
-        paths.append(p);
+        // Optional segments array — emitted when a matching Path* is available.
+        if (pathIndex.contains(r.pathId))
+        {
+            const auto *path = pathIndex.value(r.pathId);
+
+            using M = Backend::TransportationTypes::TransportationMode;
+            auto modeStr = [](M m) -> QString {
+                switch (m) {
+                    case M::Ship:  return QStringLiteral("ship");
+                    case M::Train: return QStringLiteral("rail");
+                    case M::Truck: return QStringLiteral("truck");
+                    default:       return QStringLiteral("unknown");
+                }
+            };
+
+            QJsonArray segsArr;
+            for (const auto *seg : path->getSegments())
+            {
+                if (!seg) continue;
+                QJsonObject estimated;
+                estimated[QStringLiteral("distance_m")]    = seg->estimatedDistance();
+                estimated[QStringLiteral("travel_time_s")] = seg->estimatedTravelTime();
+                estimated[QStringLiteral("energy_kwh")]    = seg->estimatedEnergyConsumption();
+                estimated[QStringLiteral("carbon_t")]      = seg->estimatedCarbonEmissions();
+                estimated[QStringLiteral("risk")]          = seg->estimatedRisk();
+
+                QJsonObject segObj;
+                segObj[QStringLiteral("segment_id")] = seg->getPathSegmentId();
+                segObj[QStringLiteral("mode")]       = modeStr(seg->getMode());
+                segObj[QStringLiteral("from")]       = seg->getStart();
+                segObj[QStringLiteral("to")]         = seg->getEnd();
+                segObj[QStringLiteral("estimated")]  = estimated;
+                segsArr.append(segObj);
+            }
+            p[QStringLiteral("segments")] = segsArr;
+        }
+
+        pathsArr.append(p);
     }
 
     QJsonObject root;
-    root[QStringLiteral("schema_version")] = 1;
+    root[QStringLiteral("schema_version")] = 2;
     // `Qt::ISODate` on a UTC `QDateTime` emits the ISO 8601 UTC form
     // "yyyy-MM-ddTHH:mm:ssZ" with the `Z` suffix already included —
     // see the Qt::DateFormat reference. Appending `Z` manually would
     // produce `ZZ`.
     root[QStringLiteral("generated_at")] =
         QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    root[QStringLiteral("paths")] = paths;
+    root[QStringLiteral("paths")] = pathsArr;
 
     // Atomic write: QSaveFile stages into a sibling tempfile, commit()
     // renames into place. A crash before commit leaves the previous

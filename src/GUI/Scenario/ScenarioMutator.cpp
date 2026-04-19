@@ -385,7 +385,8 @@ bool ScenarioMutator::updateSimulationSettings(
     const Backend::Scenario::SimulationSettings &settings)
 {
     if (!doc) return false;
-    qCInfo(lcGuiScene) << "ScenarioMutator::updateSimulationSettings";
+    qCInfo(lcGuiScene) << "ScenarioMutator::updateSimulationSettings"
+                       << "timeStep=" << settings.timeStep.value_or(-1);
     doc->simulation = settings;
     return true;
 }

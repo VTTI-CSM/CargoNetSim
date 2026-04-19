@@ -282,6 +282,15 @@ double Path::totalEstimatedLength() const
 double Path::totalEstimatedTravelTime() const
 { return sumSegments(m_segments, [](auto &s){ return s.estimatedTravelTime(); }); }
 
+double Path::totalEstimatedEnergyConsumption() const
+{ return sumSegments(m_segments, [](auto &s){ return s.estimatedEnergyConsumption(); }); }
+
+double Path::totalEstimatedCarbonEmissions() const
+{ return sumSegments(m_segments, [](auto &s){ return s.estimatedCarbonEmissions(); }); }
+
+double Path::totalEstimatedRisk() const
+{ return sumSegments(m_segments, [](auto &s){ return s.estimatedRisk(); }); }
+
 double Path::totalActualLength() const
 { return sumSegments(m_segments, [](auto &s){ return s.actualDistance(); }); }
 

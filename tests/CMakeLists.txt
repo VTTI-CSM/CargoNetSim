@@ -461,5 +461,24 @@ add_custom_command(
         ${CMAKE_BINARY_DIR}/bin/fixtures
 )
 
+# Estimated segment physics tests
+add_executable(PathSegmentTest PathSegmentTest.cpp)
+target_include_directories(PathSegmentTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(PathSegmentTest PRIVATE Qt6::Core Qt6::Test CargoNetSimBackend)
+set_target_properties(PathSegmentTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+add_executable(SegmentPhysicsEstimatorTest SegmentPhysicsEstimatorTest.cpp)
+target_include_directories(SegmentPhysicsEstimatorTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(SegmentPhysicsEstimatorTest PRIVATE Qt6::Core Qt6::Test CargoNetSimBackend)
+set_target_properties(SegmentPhysicsEstimatorTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+add_executable(EstimatedPhysicsPopulatorTest EstimatedPhysicsPopulatorTest.cpp)
+target_include_directories(EstimatedPhysicsPopulatorTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(EstimatedPhysicsPopulatorTest PRIVATE Qt6::Core Qt6::Test CargoNetSimBackend)
+set_target_properties(EstimatedPhysicsPopulatorTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 # Plan 5 CLI tests — populated incrementally by Tasks 2-20.
 add_subdirectory(CLI)

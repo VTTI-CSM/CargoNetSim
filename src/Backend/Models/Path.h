@@ -233,6 +233,9 @@ public:
 
     double totalEstimatedLength()     const;   // metres
     double totalEstimatedTravelTime() const;   // seconds
+    double totalEstimatedEnergyConsumption() const;  // kWh
+    double totalEstimatedCarbonEmissions()   const;  // tonnes CO₂
+    double totalEstimatedRisk()              const;  // dimensionless
 
     double totalActualLength()            const;   // metres (via PathSegment::actualDistance)
     double totalActualTravelTime()        const;   // seconds (via PathSegment::actualTravelTime)

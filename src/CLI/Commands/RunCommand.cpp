@@ -18,6 +18,8 @@
 #include "Backend/Scenario/ContainerAllocator.h"
 #include "Backend/Scenario/PathAllocation.h"
 #include "Backend/Scenario/PathDiscovery.h"
+#include "Backend/Scenario/PathDistancePopulator.h"
+#include "Backend/Scenario/EstimatedPhysicsPopulator.h"
 #include "Backend/Scenario/PathMetrics.h"
 #include "Backend/Scenario/PathMetricsCalculator.h"
 #include "Backend/Scenario/PathMetricsInputs.h"
@@ -244,6 +246,32 @@ int RunCommand::execute(const QStringList &args)
         return static_cast<int>(ExitCode::RunFailed);
     }
     qCDebug(lcCli) << "RunCommand::execute: path discovery found" << paths.size() << "paths";
+
+    // ---- 5a. Populate estimated distance + travel time -----------------
+    {
+        auto *cfg  = ctl.getConfigController();
+        auto *nets = ctl.getNetworkController();
+        auto *rgn  = ctl.getRegionDataController();
+        if (cfg && nets)
+        {
+            PathDistancePopulator::populate(
+                paths, rt.document(), *nets, *cfg, rgn);
+            qCDebug(lcCli) << "RunCommand::execute: distance populated";
+        }
+    }
+
+    // ---- 5b. Populate estimated energy, carbon, risk -------------------
+    {
+        auto *cfg = ctl.getConfigController();
+        if (cfg)
+        {
+            EstimatedPhysicsPopulator physPop(cfg);
+            for (auto *path : paths)
+                physPop.populate(path, rt.document());
+            qCDebug(lcCli) << "RunCommand::execute: estimated physics populated";
+        }
+    }
+
     rt.setPaths(paths);
 
     // ---- 6. State file (visible to sibling status/stop commands) -------
@@ -389,7 +417,7 @@ int RunCommand::execute(const QStringList &args)
             qCDebug(lcCli) << "RunCommand::execute: writing JSON results to" << filePath;
             JsonResultsWriter jw;
             okWrite = jw.write(filePath, results, &werr,
-                               metrics, allocation.keyByPathId);
+                               metrics, allocation.keyByPathId, rt.paths());
         }
         else if (fmt == QLatin1String("csv"))
         {

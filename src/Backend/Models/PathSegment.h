@@ -176,6 +176,18 @@ public:
     void   setEstimatedDistanceAndTravelTime(double distanceMeters,
                                              double travelTimeSeconds);
 
+    /// Physics-side setter. Merges energyKWh, carbonTonnes, and risk into
+    /// the existing "estimated" sub-object without disturbing distance or
+    /// travelTime written by setEstimatedDistanceAndTravelTime().
+    /// Safe to call before or after the geometry setter.
+    void setEstimatedPhysicalMetrics(double energyKWh,
+                                      double carbonTonnes,
+                                      double risk);
+
+    double estimatedEnergyConsumption() const;  // kWh
+    double estimatedCarbonEmissions()   const;  // tonnes CO₂
+    double estimatedRisk()              const;  // dimensionless
+
     /// SegmentCostMath-side setter. Merges each key into the existing
     /// actual sub-object — keys already present are overwritten, keys
     /// NOT in @p values are left untouched (useful for phased writes).

@@ -1,6 +1,7 @@
 #include "RegionController.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Scenario/RegionSpec.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/MainWindow.h"
@@ -11,8 +12,8 @@
 #include "GUI/Items/MapPoint.h"
 #include "GUI/Items/RegionCenterPoint.h"
 #include "GUI/Items/TerminalItem.h"
-#include "GUI/MainWindow.h"
 #include "GUI/Scenario/ItemEventBinder.h"
+#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Widgets/GraphicsScene.h"
 
 namespace CargoNetSim
@@ -187,6 +188,144 @@ void RegionController::renameRegion(
     m_sceneVisibility->updateSceneVisibility();
     qCDebug(lcGuiView) << "RegionController::renameRegion:"
                        << "complete";
+}
+
+void RegionController::addRegion(const QString &name,
+                                 const QColor  &color,
+                                 const QPointF &pos)
+{
+    qCDebug(lcGuiView) << "RegionController::addRegion:" << name;
+
+    // Step 1: RDC — createRegionCenter calls setRegionVariable on this region,
+    // so the region must exist in RDC before createRegionCenter is called.
+    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
+                    .getRegionDataController();
+    rdc->addRegion(name);
+    rdc->setRegionVariable(name, "color", color);
+
+    // Step 2: scene item
+    createRegionCenter(name, color, pos, /*keepVisible=*/false);
+
+    // Step 3: doc
+    if (m_mainWindow && m_mainWindow->runtime())
+    {
+        CargoNetSim::Backend::Scenario::RegionSpec spec;
+        spec.name  = name;
+        spec.color = color.name();
+        if (!GUI::Scenario::ScenarioMutator::addRegion(
+                &m_mainWindow->runtime()->document(), spec))
+            qCWarning(lcGuiView)
+                << "RegionController::addRegion:"
+                << "ScenarioMutator::addRegion failed for" << name;
+    }
+}
+
+void RegionController::removeRegion(const QString &name)
+{
+    qCDebug(lcGuiView) << "RegionController::removeRegion:" << name;
+    if (!m_regionScene) return;
+
+    // Step 1: scene items — copy list first; remove before doc signals fire
+    // to avoid iterator invalidation (same pattern as renameRegion).
+    const auto sceneItems = m_regionScene->items();
+    int removedCount = 0;
+    for (QGraphicsItem *item : sceneItems)
+    {
+        bool owned = false;
+        if (auto *p = dynamic_cast<MapPoint *>(item))
+            owned = (p->getRegion() == name);
+        else if (auto *l = dynamic_cast<MapLine *>(item))
+            owned = (l->getRegion() == name);
+        else if (auto *rc = dynamic_cast<RegionCenterPoint *>(item))
+            owned = (rc->getRegion() == name);
+        else if (auto *t = dynamic_cast<TerminalItem *>(item))
+            owned = (t->getRegion() == name);
+        else if (auto *cl = dynamic_cast<ConnectionLine *>(item))
+            owned = (cl->getRegion() == name);
+        else if (auto *bp = dynamic_cast<BackgroundPhotoItem *>(item))
+            owned = (bp->getRegion() == name);
+
+        if (owned)
+        {
+            m_regionScene->removeItem(item);
+            delete item;
+            ++removedCount;
+        }
+    }
+    qCDebug(lcGuiView) << "RegionController::removeRegion:"
+                       << "scene items removed:" << removedCount;
+
+    // Step 2: RDC
+    CargoNetSim::CargoNetSimController::getInstance()
+        .getRegionDataController()->removeRegion(name);
+
+    // Step 3: doc (cascades terminal/connection/global-link removal)
+    if (m_mainWindow && m_mainWindow->runtime())
+    {
+        if (!GUI::Scenario::ScenarioMutator::removeRegion(
+                &m_mainWindow->runtime()->document(), name))
+            qCWarning(lcGuiView)
+                << "RegionController::removeRegion:"
+                << "ScenarioMutator::removeRegion failed for" << name;
+    }
+
+    if (m_sceneVisibility)
+        m_sceneVisibility->updateSceneVisibility();
+}
+
+void RegionController::updateRegionColor(const QString &name,
+                                         const QColor  &color)
+{
+    qCDebug(lcGuiView) << "RegionController::updateRegionColor:" << name;
+
+    // Step 1: scene item (RegionCenterPoint)
+    if (m_regionScene)
+    {
+        const auto sceneItems = m_regionScene->items();
+        for (QGraphicsItem *item : sceneItems)
+        {
+            if (auto *rc = dynamic_cast<RegionCenterPoint *>(item))
+            {
+                if (rc->getRegion() == name)
+                {
+                    rc->setColor(color);
+                    rc->update();
+                    break;
+                }
+            }
+        }
+    }
+
+    // Step 2: RDC
+    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
+                    .getRegionDataController();
+    if (auto *data = rdc->getRegionData(name))
+        data->setVariable("color", color);
+
+    // Step 3: doc
+    if (m_mainWindow && m_mainWindow->runtime())
+    {
+        if (!GUI::Scenario::ScenarioMutator::updateRegionColor(
+                &m_mainWindow->runtime()->document(), name, color.name()))
+            qCWarning(lcGuiView)
+                << "RegionController::updateRegionColor:"
+                << "ScenarioMutator::updateRegionColor failed for" << name;
+    }
+}
+
+void RegionController::clearRegions()
+{
+    qCDebug(lcGuiView) << "RegionController::clearRegions";
+    // Snapshot names before iterating — each removeRegion call mutates RDC.
+    const QStringList all =
+        CargoNetSim::CargoNetSimController::getInstance()
+            .getRegionDataController()
+            ->getAllRegionNames();
+    for (const QString &name : all)
+    {
+        if (name != QStringLiteral("Default Region"))
+            removeRegion(name);
+    }
 }
 
 } // namespace GUI

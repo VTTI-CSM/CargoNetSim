@@ -127,7 +127,7 @@ private slots:
         QVERIFY2(w.write(out, {}, &err), qPrintable(err));
 
         const QJsonObject root = readBack(out);
-        QCOMPARE(root.value(QStringLiteral("schema_version")).toInt(), 1);
+        QCOMPARE(root.value(QStringLiteral("schema_version")).toInt(), 2);
 
         // ISO 8601 UTC: "YYYY-MM-DDTHH:MM:SSZ". The trailing Z is the
         // contract — downstream parsers depend on the explicit UTC
