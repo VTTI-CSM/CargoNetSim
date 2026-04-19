@@ -12,6 +12,8 @@
 #include "GUI/Items/MapPoint.h"
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
+#include "GUI/Commons/NetworkType.h"
+#include "GUI/Controllers/NetworkDrawingController.h"
 #include "GUI/Scenario/ConnectionLineFactory.h"
 #include "GUI/Scenario/MapPointFactory.h"
 #include "GUI/Scenario/RegionCenterPointFactory.h"
@@ -98,6 +100,39 @@ void relinkMapPointsToTerminals(
     }
 }
 
+void rebuildNetworks(Doc *doc, MainWindow *mw)
+{
+    if (!mw || !mw->networkDrawing()) return;
+    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
+                    .getRegionDataController();
+    if (!rdc) return;
+
+    for (auto it = doc->regions.constBegin();
+         it != doc->regions.constEnd(); ++it)
+    {
+        auto *rd = rdc->getRegionData(it.key());
+        if (!rd) continue;
+
+        for (auto nit = it.value().networks.constBegin();
+             nit != it.value().networks.constEnd(); ++nit)
+        {
+            const auto &spec = nit.value();
+            QString name = spec.name;
+            NetworkType type;
+            switch (spec.type) {
+            case Backend::NetworkKind::Rail:
+                type = NetworkType::Train; break;
+            case Backend::NetworkKind::Truck:
+                type = NetworkType::Truck; break;
+            default:
+                continue;
+            }
+            // Terminals are restored separately; skip duplicate creation.
+            mw->networkDrawing()->drawNetwork(rd, type, name, true);
+        }
+    }
+}
+
 } // namespace
 
 void SceneRepopulator::repopulate(Doc *doc, MainWindow *mainWindow)
@@ -128,6 +163,7 @@ void SceneRepopulator::repopulate(Doc           *doc,
     rebuildRegionCenters(doc, regionScene, mainWindow);
     qCDebug(lcGuiScene) << "SceneRepopulator::repopulate:"
                         << "regions=" << doc->regions.size();
+    rebuildNetworks(doc, mainWindow);
     const auto mapPointIndex =
         rebuildMapPoints(doc, regionScene, mainWindow);
     rebuildTerminals(doc, regionScene, mainWindow);
