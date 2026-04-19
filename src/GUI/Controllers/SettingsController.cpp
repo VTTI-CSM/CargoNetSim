@@ -20,12 +20,13 @@ SettingsController::SettingsController(MainWindow *mainWindow,
     : QObject(parent)
     , m_mainWindow(mainWindow)
 {
+    qCDebug(lcGuiView) << "SettingsController: created";
 }
 
 void SettingsController::applySettings(
     const Backend::Scenario::SimulationSettings &settings)
 {
-    qCInfo(lcGuiView) << "SettingsController::applySettings";
+    qCDebug(lcGuiView) << "SettingsController::applySettings";
 
     // 1. ConfigController (config.xml)
     auto *cfg = CargoNetSim::CargoNetSimController::getInstance()
