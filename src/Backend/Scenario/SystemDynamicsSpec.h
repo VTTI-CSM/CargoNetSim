@@ -20,8 +20,8 @@ struct SystemDynamicsSpec
     double delaySensitivity     = 0.5;
     double maxServiceRate       = 100.0;
 
-    ModeDelayParams shipDelay  { 0.5, 2.0 };
-    ModeDelayParams truckDelay { 0.3, 2.5 };
+    ModeDelayParams shipDelay  { 0.5, 2.5 };
+    ModeDelayParams truckDelay { 0.3, 2.0 };
     ModeDelayParams trainDelay { 0.8, 3.0 };
 
     double shipArrivalPenalty  = 14400.0;
