@@ -19,6 +19,7 @@ namespace GUI
 {
 // Forward declarations
 class MainWindow;
+class GraphicsScene;
 class GraphicsView;
 class TerminalItem;
 class RegionCenterPoint;
@@ -145,6 +146,7 @@ private:
     QGraphicsItem           *currentItem;
     QMap<QString, QWidget *> editFields;
     QMetaObject::Connection  m_pickConnection;
+    GraphicsScene           *m_pickScene = nullptr;
 };
 } // namespace GUI
 } // namespace CargoNetSim

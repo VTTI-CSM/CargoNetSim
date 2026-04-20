@@ -2,10 +2,12 @@
 
 #include "Backend/Scenario/InterfaceConversion.h"
 #include "GraphicsObjectBase.h"
+#include "TerminalItem.h"
 
 #include <QGraphicsObject>
 #include <QPixmap>
 #include <QPointF>
+#include <QPointer>
 #include <QString>
 #include <optional>
 
@@ -13,8 +15,6 @@ namespace CargoNetSim
 {
 namespace GUI
 {
-
-class TerminalItem;
 
 /**
  * @brief Represents a terminal on the global map view
@@ -197,8 +197,8 @@ private:
         originalPixmap;   ///< The original terminal pixmap
     QPixmap scaledPixmap; ///< The scaled version for global
                           ///< view
-    TerminalItem
-        *linkedTerminalItem; ///< The linked terminal item
+    QPointer<TerminalItem>
+        linkedTerminalItem; ///< The linked terminal item (QPointer auto-nulls on deletion)
 };
 
 } // namespace GUI

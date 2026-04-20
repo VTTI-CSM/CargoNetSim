@@ -187,11 +187,22 @@ void PropertiesPanel::displayProperties(QGraphicsItem *item)
 
 void PropertiesPanel::clearLayout()
 {
+    if (m_pickConnection || m_pickScene)
+    {
+        qCWarning(lcGuiUtil)
+            << "PropertiesPanel::clearLayout: CANCELLING PICK MODE"
+            << "m_pickConnection=" << (bool)m_pickConnection
+            << "m_pickScene=" << (void *)m_pickScene
+            << "pickModeActive=" << (m_pickScene && m_pickScene->isInPickDestinationMode());
+    }
     if (m_pickConnection)
     {
         disconnect(m_pickConnection);
         m_pickConnection = {};
     }
+    if (m_pickScene && m_pickScene->isInPickDestinationMode())
+        m_pickScene->setIsInPickDestinationMode(false);
+    m_pickScene = nullptr;
 
     // Clear all widgets except save button from layout
     for (int i = layout->count() - 1; i >= 0; --i)
@@ -936,11 +947,13 @@ void PropertiesPanel::addOriginConfigurationSection(
                 qCDebug(lcGuiUtil)
                     << "pickButton: cancelling pick";
                 scene->setIsInPickDestinationMode(false);
+                m_pickScene = nullptr;
                 return;
             }
             qCDebug(lcGuiUtil)
                 << "pickButton: entering pick mode";
             scene->setIsInPickDestinationMode(true);
+            m_pickScene = scene;
             pickButton->setText("Picking...");
         });
 

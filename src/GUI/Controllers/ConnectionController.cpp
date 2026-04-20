@@ -172,8 +172,10 @@ ConnectionLine *ConnectionController::createConnectionLine(
     // region -> delegate to ScenarioMutator::createConnection.
     auto *SP = dynamic_cast<TerminalItem *>(startItem);
     auto *EP = dynamic_cast<TerminalItem *>(endItem);
+    qCDebug(lcGuiView) << "createConnectionLine: SP=" << SP << "EP=" << EP;
     if (SP && EP && SP->getRegion() == EP->getRegion())
     {
+        qCDebug(lcGuiView) << "createConnectionLine: Case1 same-region";
         const QString sId = SP->getTerminalId();
         const QString eId = EP->getTerminalId();
         if (sId.isEmpty() || eId.isEmpty())
@@ -191,37 +193,55 @@ ConnectionLine *ConnectionController::createConnectionLine(
     // Case 2: two region-view TerminalItems in different
     // regions -> fall to legacy.
     if (SP && EP && SP->getRegion() != EP->getRegion())
+    {
+        qCDebug(lcGuiView) << "createConnectionLine: Case2 cross-region legacy";
         return createConnectionLineLegacy(startItem, endItem,
                                           connectionType);
+    }
 
     // Case 3: two GlobalTerminalItems -> cross-region
     // GlobalLink.
     auto *SPG = dynamic_cast<GlobalTerminalItem *>(startItem);
     auto *EPG = dynamic_cast<GlobalTerminalItem *>(endItem);
+    qCDebug(lcGuiView) << "createConnectionLine: SPG=" << SPG << "EPG=" << EPG;
     if (SPG && EPG && SPG != EPG)
     {
         auto *sTerm = SPG->getLinkedTerminalItem();
         auto *eTerm = EPG->getLinkedTerminalItem();
+        qCDebug(lcGuiView) << "createConnectionLine: Case3 sTerm=" << sTerm << "eTerm=" << eTerm;
         if (!sTerm || !eTerm) return nullptr;
+        qCDebug(lcGuiView) << "createConnectionLine: Case3 sRegion=" << sTerm->getRegion() << "eRegion=" << eTerm->getRegion();
         if (sTerm->getRegion() == eTerm->getRegion())
+        {
+            qCDebug(lcGuiView) << "createConnectionLine: Case3 same-region -> legacy";
             return createConnectionLineLegacy(startItem,
                                               endItem,
                                               connectionType);
+        }
 
         const QString sId = sTerm->getTerminalId();
         const QString eId = eTerm->getTerminalId();
+        qCDebug(lcGuiView) << "createConnectionLine: Case3 diff-region sId=" << sId << "eId=" << eId;
         if (sId.isEmpty() || eId.isEmpty())
             return createConnectionLineLegacy(startItem,
                                               endItem,
                                               connectionType);
+        qCDebug(lcGuiView) << "createConnectionLine: calling createGlobalLink";
         if (!Scenario::ScenarioMutator::createGlobalLink(
                 doc, sId, eId, connectionType))
+        {
+            qCDebug(lcGuiView) << "createConnectionLine: createGlobalLink failed";
             return nullptr;
-        return Scenario::ConnectionLineFactory::
+        }
+        qCDebug(lcGuiView) << "createConnectionLine: calling findGlobalLink";
+        auto *found = Scenario::ConnectionLineFactory::
             findGlobalLink(m_globalMapScene, sId, eId,
                            connectionType);
+        qCDebug(lcGuiView) << "createConnectionLine: findGlobalLink=" << found;
+        return found;
     }
 
+    qCDebug(lcGuiView) << "createConnectionLine: mixed/unknown -> legacy";
     // Mixed types / self-link / unknown — legacy path emits
     // the appropriate error message (or returns nullptr).
     return createConnectionLineLegacy(startItem, endItem,
@@ -274,9 +294,20 @@ ConnectionController::createConnectionLineLegacy(
 
         if (SPG && EPG && SPG != EPG)
         {
-            if (SPG->getLinkedTerminalItem()->getRegion()
-                == EPG->getLinkedTerminalItem()
-                       ->getRegion())
+            auto *sLink = SPG->getLinkedTerminalItem();
+            auto *eLink = EPG->getLinkedTerminalItem();
+            qCDebug(lcGuiView)
+                << "createConnectionLineLegacy:"
+                << "global sLink=" << sLink
+                << "eLink=" << eLink;
+            if (!sLink || !eLink)
+            {
+                qCWarning(lcGuiView)
+                    << "createConnectionLineLegacy:"
+                    << "null linked terminal in GlobalTerminalItem";
+                return nullptr;
+            }
+            if (sLink->getRegion() == eLink->getRegion())
             {
                 m_status->showError(
                     "Cannot link terminals in the same "
@@ -962,6 +993,24 @@ void ConnectionController::
     }
 
     // Show interface selection dialog
+    qCDebug(lcGuiView)
+        << "connectVisibleTerminalsByInterfaces:"
+        << "BEFORE dialog.exec visibleTerminals.size()="
+        << visibleTerminals.size();
+    if (isGlobalView)
+    {
+        for (auto *item : visibleTerminals)
+        {
+            auto *gti =
+                qgraphicsitem_cast<GlobalTerminalItem *>(item);
+            qCDebug(lcGuiView)
+                << "connectVisibleTerminalsByInterfaces:"
+                << "pre-dialog item=" << (void *)item
+                << "linked="
+                << (gti ? (void *)gti->getLinkedTerminalItem()
+                        : nullptr);
+        }
+    }
     InterfaceSelectionDialog dialog(
         availableInterfaces, visibleTerminalTypes,
         InterfaceSelectionDialog::InterfaceSelection,
@@ -971,6 +1020,37 @@ void ConnectionController::
         m_status->restoreButtons();
         m_status->stopProgress();
         return;
+    }
+
+    // Log scene state immediately after dialog to detect pointer staleness
+    qCDebug(lcGuiView)
+        << "connectVisibleTerminalsByInterfaces:"
+        << "AFTER dialog.exec visibleTerminals.size()="
+        << visibleTerminals.size()
+        << "scene GlobalTerminalItem count="
+        << (isGlobalView
+                ? currentScene
+                      ->getItemsByType<GlobalTerminalItem>()
+                      .size()
+                : -1);
+    if (isGlobalView)
+    {
+        for (auto *item : visibleTerminals)
+        {
+            auto *gti =
+                qgraphicsitem_cast<GlobalTerminalItem *>(item);
+            qCDebug(lcGuiView)
+                << "connectVisibleTerminalsByInterfaces:"
+                << "post-dialog item=" << (void *)item
+                << "linked="
+                << (gti ? (void *)gti->getLinkedTerminalItem()
+                        : nullptr)
+                << "linkedValid="
+                << (gti && gti->getLinkedTerminalItem()
+                        ? gti->getLinkedTerminalItem()
+                              ->getTerminalId()
+                        : QString("NULL"));
+        }
     }
 
     QList<QString> selectedInterfaces =
@@ -1092,6 +1172,11 @@ void ConnectionController::
                     UtilitiesFunctions::getCommonModes(
                         sourceItem, targetItem);
 
+            qCDebug(lcGuiView)
+                << "connectVisibleTerminalsByInterfaces:"
+                << "pair" << i << j
+                << "commonModes=" << commonModes.size();
+
             bool    skipConnection = false;
             QString sourceType;
             QString targetType;
@@ -1109,6 +1194,10 @@ void ConnectionController::
             {
                 TerminalItem *linkedSource =
                     globalSource->getLinkedTerminalItem();
+                qCDebug(lcGuiView)
+                    << "connectVisibleTerminalsByInterfaces:"
+                    << "source linkedTerminal="
+                    << (linkedSource ? linkedSource->getTerminalId() : "NULL");
                 if (linkedSource)
                 {
                     sourceType =
@@ -1129,12 +1218,22 @@ void ConnectionController::
             {
                 TerminalItem *linkedTarget =
                     globalTarget->getLinkedTerminalItem();
+                qCDebug(lcGuiView)
+                    << "connectVisibleTerminalsByInterfaces:"
+                    << "target linkedTerminal="
+                    << (linkedTarget ? linkedTarget->getTerminalId() : "NULL");
                 if (linkedTarget)
                 {
                     targetType =
                         linkedTarget->getTerminalType();
                 }
             }
+
+            qCDebug(lcGuiView)
+                << "connectVisibleTerminalsByInterfaces:"
+                << "sourceType=" << sourceType
+                << "targetType=" << targetType
+                << "skip=" << skipConnection;
 
             if ((!sourceType.isEmpty()
                  && !includedTerminalTypes.value(
@@ -1154,14 +1253,27 @@ void ConnectionController::
                         Backend::
                             interfaceModeCanonicalString(
                                 mode);
+                    qCDebug(lcGuiView)
+                        << "connectVisibleTerminalsByInterfaces:"
+                        << "mode=" << modeLabel
+                        << "selected="
+                        << selectedInterfaces.contains(modeLabel);
                     if (!modeLabel.isEmpty()
                         && selectedInterfaces.contains(
                             modeLabel))
                     {
+                        qCDebug(lcGuiView)
+                            << "connectVisibleTerminalsByInterfaces:"
+                            << "calling createConnectionLine mode="
+                            << modeLabel;
                         ConnectionLine *connection =
                             createConnectionLine(
                                 sourceItem, targetItem,
                                 mode);
+                        qCDebug(lcGuiView)
+                            << "connectVisibleTerminalsByInterfaces:"
+                            << "createConnectionLine returned"
+                            << (connection ? "non-null" : "null");
                         if (connection)
                         {
                             if (useCoordinateDistance)

@@ -9,6 +9,7 @@
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ItemEventBinder.h"
+#include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Utils/ColorUtils.h"
@@ -324,6 +325,13 @@ void NetworkDrawingController::drawTrainNetwork(
     auto nodes = network->getNodes();
     qCDebug(lcRail) << "[RailDraw] drawing nodes, count="
              << nodes.size();
+
+    if (!skipTerminalCreation && m_mainWindow && m_mainWindow->runtime())
+    {
+        auto &lnk = m_mainWindow->runtime()->document().linkages;
+        lnk.reserve(lnk.size() + nodes.size());
+    }
+
     int nodeIdx = 0;
     for (auto &node : nodes)
     {

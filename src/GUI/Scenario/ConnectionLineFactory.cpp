@@ -135,6 +135,10 @@ ConnectionLine *ConnectionLineFactory::fromGlobalLink(
         link->fromTerminalId);
     auto *endItem = globalScene->getItemById<GlobalTerminalItem>(
         link->toTerminalId);
+    qCDebug(lcGuiScene)
+        << "ConnectionLineFactory::fromGlobalLink:"
+        << "startItem=" << startItem
+        << "endItem=" << endItem;
     if (!startItem || !endItem)
     {
         qCWarning(lcGuiScene)
@@ -145,10 +149,22 @@ ConnectionLine *ConnectionLineFactory::fromGlobalLink(
         return nullptr;
     }
 
+    qCDebug(lcGuiScene)
+        << "ConnectionLineFactory::fromGlobalLink:"
+        << "constructing ConnectionLine";
     auto *line = new ConnectionLine(startItem, endItem, link->mode, {},
                                     QStringLiteral("Global"));
+    qCDebug(lcGuiScene)
+        << "ConnectionLineFactory::fromGlobalLink:"
+        << "ConnectionLine constructed line=" << line;
     line->setGlobalLinkModel(link);
+    qCDebug(lcGuiScene)
+        << "ConnectionLineFactory::fromGlobalLink:"
+        << "calling addAndBindLine";
     addAndBindLine(line, globalScene, mainWindow);
+    qCDebug(lcGuiScene)
+        << "ConnectionLineFactory::fromGlobalLink:"
+        << "done, returning line=" << line;
     return line;
 }
 

@@ -480,6 +480,13 @@ void ConnectionLine::paint(
         CONNECTION_STYLES.value(m_connectionType);
 
     // Set up pen with appropriate scale
+    if (!scene() || scene()->views().isEmpty())
+    {
+        qCWarning(lcGuiScene)
+            << "ConnectionLine::paint:"
+            << "no scene or no views, skipping paint id=" << m_id;
+        return;
+    }
     QGraphicsView *view      = scene()->views().first();
     qreal          viewScale = view->transform().m11();
 
