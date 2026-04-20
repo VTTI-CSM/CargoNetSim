@@ -9,9 +9,9 @@ simulation: { time_step: 60, end_time: 3600, shortest_paths_n: 5,
               fuel_types: {},
               dwell_time: { method: normal, parameters: { mean: 1800, std_dev: 300 } } }
 output: { directory: ./results, formats: [json], container_tracking: true }
-fleet:  { trains: { file: "", inline: [] },
-          ships:  { file: "", inline: [] },
-          trucks: { file: "", inline: [] } }
+fleet:  { trains: { files: [], inline: [] },
+          ships:  { files: [], inline: [] },
+          trucks: { files: [], inline: [] } }
 regions:
   - name: USA
     color: "#ff0000"

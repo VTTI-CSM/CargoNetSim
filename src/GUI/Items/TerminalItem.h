@@ -8,6 +8,7 @@
 #include <QMap>
 #include <QPixmap>
 #include <QPointF>
+#include <QPointer>
 #include <QPropertyAnimation>
 #include <QString>
 #include <QVariant>
@@ -77,10 +78,7 @@ public:
      * @brief Get the global terminal item
      * @return Pointer to the global terminal item
      */
-    GlobalTerminalItem *getGlobalTerminalItem() const
-    {
-        return m_globalTerminalItem;
-    }
+    GlobalTerminalItem *getGlobalTerminalItem() const;
 
     /**
      * @brief Get the terminal's m_region
@@ -369,6 +367,9 @@ protected:
     void hoverLeaveEvent(
         QGraphicsSceneHoverEvent *event) override;
 
+    void contextMenuEvent(
+        QGraphicsSceneContextMenuEvent *event) override;
+
 private:
     QPixmap m_pixmap; ///< Visual representation
     QString m_region; ///< Region this terminal belongs to
@@ -379,8 +380,8 @@ private:
         m_boundingRectValue; ///< Cached bounding rectangle
     QPointF m_dragOffset;    ///< Offset for dragging
     bool    m_wasSelected;   ///< Previous selection state
-    GlobalTerminalItem
-        *m_globalTerminalItem; ///< Linked global terminal
+    QPointer<GlobalTerminalItem>
+        m_globalTerminalItem; ///< Linked global terminal (QPointer auto-nulls on deletion)
 
     /// Non-owning pointer into ScenarioDocument's terminals map. When
     /// non-null, this item is a VIEW of the placement; when null, the

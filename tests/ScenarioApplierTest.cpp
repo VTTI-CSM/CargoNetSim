@@ -41,7 +41,7 @@ private slots:
     void test_truck_fleet_spec_defaults()
     {
         CargoNetSim::Backend::Scenario::TruckFleetSpec s;
-        QVERIFY(s.file.isEmpty());
+        QVERIFY(s.files.isEmpty());
         QVERIFY(s.inline_.isEmpty());
     }
 
@@ -150,9 +150,9 @@ private slots:
         using namespace CargoNetSim::Backend;
         Scenario::ScenarioRegistry r;
         Scenario::TruckFleetSpec spec;
-        spec.file = "/abs/trucks.json";
+        spec.files = { "/abs/trucks.json" };
         r.setTruckFleet(spec);
-        QCOMPARE(r.truckFleet().file, QStringLiteral("/abs/trucks.json"));
+        QCOMPARE(r.truckFleet().files, QStringList{ "/abs/trucks.json" });
     }
 
     // ---- ScenarioApplier (skeleton) ----
@@ -438,10 +438,10 @@ private slots:
         using namespace CargoNetSim::Backend::Scenario;
 
         ScenarioDocument doc;
-        doc.fleet.trainsFile = QDir(QCoreApplication::applicationDirPath())
-                                   .filePath("fixtures/scenario/fleet_trains.json");
-        doc.fleet.shipsFile  = QDir(QCoreApplication::applicationDirPath())
-                                   .filePath("fixtures/scenario/fleet_ships.json");
+        doc.fleet.trainsFiles = { QDir(QCoreApplication::applicationDirPath())
+                                      .filePath("fixtures/scenario/fleet_trains.json") };
+        doc.fleet.shipsFiles  = { QDir(QCoreApplication::applicationDirPath())
+                                      .filePath("fixtures/scenario/fleet_ships.json") };
 
         auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
         ScenarioRegistry registry;
@@ -452,12 +452,31 @@ private slots:
         QVERIFY(ctl.getVehicleController()->shipCount()  >= 1);
     }
 
+    void test_applier_multi_file_fleet_does_not_error()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+
+        ScenarioDocument doc;
+        const QString path = QDir(QCoreApplication::applicationDirPath())
+                                 .filePath("fixtures/scenario/fleet_trains.json");
+        // Smoke test: a two-element trainsFiles list must not fail or crash.
+        // Both entries point to the same file so train IDs overwrite; this
+        // verifies the apply path accepts a list without asserting iteration count.
+        doc.fleet.trainsFiles = { path, path };
+
+        auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
+        ScenarioRegistry registry;
+        QString err;
+        QVERIFY2(ScenarioApplier::apply(doc, ctl, registry, &err), qPrintable(err));
+        QVERIFY(ctl.getVehicleController()->trainCount() >= 1);
+    }
+
     void test_applier_stores_truck_fleet_spec_in_registry()
     {
         using namespace CargoNetSim::Backend::Scenario;
 
         ScenarioDocument doc;
-        doc.fleet.trucksFile = "/some/abs/path/trucks.json";
+        doc.fleet.trucksFiles = { "/some/abs/path/trucks.json" };
 
         QJsonObject truckInline; truckInline["user_id"] = "TRK-1";
         doc.fleet.trucksInline.append(truckInline);
@@ -467,7 +486,7 @@ private slots:
         QString err;
         QVERIFY2(ScenarioApplier::apply(doc, ctl, registry, &err), qPrintable(err));
 
-        QCOMPARE(registry.truckFleet().file, QStringLiteral("/some/abs/path/trucks.json"));
+        QCOMPARE(registry.truckFleet().files, QStringList{ "/some/abs/path/trucks.json" });
         QCOMPARE(registry.truckFleet().inline_.size(), 1);
     }
 

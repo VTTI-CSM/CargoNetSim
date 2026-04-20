@@ -1,8 +1,9 @@
+// src/Backend/Scenario/TruckFleetSpec.h
 #pragma once
 
 #include <QJsonObject>
 #include <QList>
-#include <QString>
+#include <QStringList>
 
 namespace CargoNetSim
 {
@@ -11,14 +12,11 @@ namespace Backend
 namespace Scenario
 {
 
-/// Truck-fleet spec carried from the scenario to Plan 3's executor.
-/// VehicleController has no truck API today; Plan 3 feeds this into
-/// TruckClient::ClientConfiguration::masterFilePath (for file-based) and
-/// inline entries when the scenario provides them.
+/// Truck-fleet spec carried from the scenario to the executor.
 struct TruckFleetSpec
 {
-    QString            file;
-    QList<QJsonObject> inline_;  // "inline" is a reserved word.
+    QStringList        files;
+    QList<QJsonObject> inline_;
 };
 
 } // namespace Scenario

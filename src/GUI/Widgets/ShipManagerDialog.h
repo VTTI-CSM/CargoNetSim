@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QList>
 #include <QSplitter>
+#include <QStringList>
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QToolBar>
@@ -51,6 +52,9 @@ public:
      * @return List of ship objects
      */
     QList<Backend::Ship *> getShips() const;
+
+    /// @brief Returns the list of file paths loaded during this dialog session.
+    QStringList newlyLoadedFiles() const { return m_newlyLoadedFiles; }
 
     /**
      * @brief Set the ships to be managed
@@ -123,6 +127,7 @@ private:
 
     // Data
     QList<Backend::Ship *> m_ships;
+    QStringList            m_newlyLoadedFiles;
 };
 
 } // namespace GUI

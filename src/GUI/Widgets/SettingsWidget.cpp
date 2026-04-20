@@ -689,7 +689,7 @@ void SettingsWidget::refreshFromConfig()
 
             if (simSettings.contains("time_step"))
                 timeStepSpin->setValue(
-                    simSettings["time_step"].toInt());
+                    simSettings["time_step"].toInt() / 60);
 
             // Load the average time value of money
             if (simSettings.contains(PK::Simulation::TimeValueOfMoney))
@@ -992,7 +992,7 @@ void SettingsWidget::applySettings()
     using Fuel = Backend::Scenario::SimulationSettings::Fuel;
     Backend::Scenario::SimulationSettings s;
 
-    s.timeStep              = timeStepSpin->value();
+    s.timeStep              = timeStepSpin->value() * 60;
     s.shortestPathsN        = shortestPathsSpin->value();
     s.timeValueOfMoney      = averageTimeValueSpin->value();
     s.useSpecificTimeValues = useSpecificTimeValues->isChecked();
@@ -1037,11 +1037,11 @@ void SettingsWidget::applySettings()
 
     auto *mainWindow = dynamic_cast<MainWindow *>(parent());
     if (mainWindow)
+    {
         mainWindow->settingsCtrl()->applySettings(s);
-
-    if (mainWindow)
         mainWindow->showStatusBarMessage(
             tr("Settings applied."), 3000);
+    }
 }
 
 void SettingsWidget::showEnergyCalculator(

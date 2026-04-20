@@ -46,6 +46,8 @@ public slots:
      */
     void applySettings();
 
+    /// Reload all spinboxes from ConfigController. Called via
+    /// SettingsController::configChanged() after scenario load or apply.
     void refreshFromConfig();
 
 private slots:

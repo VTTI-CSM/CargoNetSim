@@ -5,6 +5,8 @@
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Controllers/RegionDataController.h"
 #include "Backend/Controllers/VehicleController.h"
+#include "Backend/Models/ShipSystem.h"
+#include "Backend/Models/TrainSystem.h"
 #include "Backend/Models/Terminal.h"
 #include "InterfaceConversion.h"
 #include "PropertyKeys.h"
@@ -296,8 +298,8 @@ bool ScenarioApplier::applyFleet(const ScenarioDocument &doc,
                                  QString *error)
 {
     qCDebug(lcScenario) << "ScenarioApplier::applyFleet: trains="
-                        << doc.fleet.trainsFile << "ships=" << doc.fleet.shipsFile
-                        << "trucks=" << doc.fleet.trucksFile;
+                        << doc.fleet.trainsFiles.size() << "file(s) ships="
+                        << doc.fleet.shipsFiles.size()  << "file(s)";
     auto *vehicles = controller.getVehicleController();
     if (!vehicles)
     {
@@ -306,35 +308,46 @@ bool ScenarioApplier::applyFleet(const ScenarioDocument &doc,
         return false;
     }
 
-    if (!doc.fleet.trainsFile.isEmpty())
+    for (const QString &path : doc.fleet.trainsFiles)
     {
-        if (!vehicles->loadTrainsFromFile(doc.fleet.trainsFile))
+        QVector<Backend::Train *> loaded =
+            Backend::TrainsReader::readTrainsFile(path, vehicles);
+        if (loaded.isEmpty())
         {
-            qCWarning(lcScenario) << "ScenarioApplier::applyFleet: failed to load trains from"
-                                  << doc.fleet.trainsFile;
-            if (error) *error = QStringLiteral("Failed to load trains from '%1'")
-                                    .arg(doc.fleet.trainsFile);
+            qCWarning(lcScenario) << "ScenarioApplier::applyFleet: no trains loaded from" << path;
+            if (error) *error = QStringLiteral("Failed to load trains from '%1'").arg(path);
             return false;
         }
+        for (Backend::Train *t : loaded)
+        {
+            if (!vehicles->addTrain(t))
+                qCWarning(lcScenario) << "ScenarioApplier::applyFleet: duplicate train id in" << path;
+        }
+        qCDebug(lcScenario) << "ScenarioApplier::applyFleet: loaded"
+                            << loaded.size() << "trains from" << path;
     }
-    // Inline trains — defer until VehicleController exposes an inline addTrain
-    // path; for now, Plan 2 keeps inline entries in the document (serializer
-    // preserved them) for a future extension. Emit no warning.
 
-    if (!doc.fleet.shipsFile.isEmpty())
+    for (const QString &path : doc.fleet.shipsFiles)
     {
-        if (!vehicles->loadShipsFromFile(doc.fleet.shipsFile))
+        QVector<Backend::Ship *> loaded =
+            Backend::ShipsReader::readShipsFile(path, vehicles);
+        if (loaded.isEmpty())
         {
-            qCWarning(lcScenario) << "ScenarioApplier::applyFleet: failed to load ships from"
-                                  << doc.fleet.shipsFile;
-            if (error) *error = QStringLiteral("Failed to load ships from '%1'")
-                                    .arg(doc.fleet.shipsFile);
+            qCWarning(lcScenario) << "ScenarioApplier::applyFleet: no ships loaded from" << path;
+            if (error) *error = QStringLiteral("Failed to load ships from '%1'").arg(path);
             return false;
         }
+        for (Backend::Ship *s : loaded)
+        {
+            if (!vehicles->addShip(s))
+                qCWarning(lcScenario) << "ScenarioApplier::applyFleet: duplicate ship id in" << path;
+        }
+        qCDebug(lcScenario) << "ScenarioApplier::applyFleet: loaded"
+                            << loaded.size() << "ships from" << path;
     }
 
     TruckFleetSpec truck;
-    truck.file    = doc.fleet.trucksFile;
+    truck.files   = doc.fleet.trucksFiles;
     truck.inline_ = doc.fleet.trucksInline;
     registry.setTruckFleet(truck);
 

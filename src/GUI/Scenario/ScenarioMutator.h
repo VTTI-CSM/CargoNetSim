@@ -3,6 +3,7 @@
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Scenario/LinkageSource.h"
 #include "Backend/Scenario/RegionSpec.h"
+#include "Backend/Scenario/FleetSpec.h"
 #include "Backend/Scenario/SimulationSettings.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include <QPointF>
@@ -56,6 +57,15 @@ public:
         Backend::Scenario::ScenarioDocument *doc,
         const QString                       &terminalId,
         Backend::Scenario::TerminalPlacement::TerminalRole role);
+
+    /// Change a terminal's type. Resets properties to the new type's defaults
+    /// (preserving the current role and applying role side-effects), clears any
+    /// per-terminal interface override so runtime derives from the new type, and
+    /// emits terminalChanged so the scene item and PropertiesPanel refresh.
+    static bool setTerminalType(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &terminalId,
+        const QString                       &newType);
 
     static bool removeTerminal(
         Backend::Scenario::ScenarioDocument *doc,
@@ -189,6 +199,31 @@ public:
         const QString                           &name,
         const QString                           &colorHex);
 
+    // ---------------- networks ----------------
+
+    /// Record a new network in the document. @p spec must have name and type
+    /// set; referencePoint should be populated from the region's localOrigin
+    /// before calling. Returns false if @p doc is null or region not found.
+    static bool addNetwork(
+        Backend::Scenario::ScenarioDocument  *doc,
+        const QString                        &region,
+        const Backend::Scenario::NetworkSpec &spec);
+
+    /// Remove a network from the document. Returns false if @p doc is null,
+    /// region not found, or network not found.
+    static bool removeNetwork(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &region,
+        const QString                       &networkName);
+
+    /// Rename a network in the document. Returns false if @p doc is null,
+    /// region not found, oldName not found, or newName already exists.
+    static bool renameNetwork(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &region,
+        const QString                       &oldName,
+        const QString                       &newName);
+
     // ---------------- simulation ----------------
 
     /// Replace doc.simulation with @p settings. Caller must preserve
@@ -197,6 +232,13 @@ public:
     static bool updateSimulationSettings(
         Backend::Scenario::ScenarioDocument         *doc,
         const Backend::Scenario::SimulationSettings &settings);
+
+    /// Replaces doc->fleet with @p fleet. Caller must build the updated FleetSpec
+    /// (merge existing + new paths) before calling.
+    /// Returns false only when @p doc is null.
+    static bool updateFleet(
+        Backend::Scenario::ScenarioDocument *doc,
+        const Backend::Scenario::FleetSpec  &fleet);
 };
 
 } // namespace Scenario

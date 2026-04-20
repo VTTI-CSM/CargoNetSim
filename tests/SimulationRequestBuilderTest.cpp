@@ -86,7 +86,7 @@ private slots:
         doc.addLinkage(lb);
 
         doc.simulation.rail.containers = 10;
-        doc.fleet.trainsFile = fixtureDir + "/fleet_trains.json";
+        doc.fleet.trainsFiles = { fixtureDir + "/fleet_trains.json" };
 
         // --- Materialize backend state ---
         auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
@@ -272,7 +272,7 @@ private slots:
         doc.addTerminal(d);
 
         doc.simulation.ship.containers = 10;  // 5 containers → 1 ship
-        doc.fleet.shipsFile = fixtureDir + "/fleet_ships.json";
+        doc.fleet.shipsFiles = { fixtureDir + "/fleet_ships.json" };
 
         auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
         ScenarioRegistry registry;
@@ -373,7 +373,7 @@ private slots:
         addTerm("T_D", 4);
 
         doc.simulation.rail.containers = 10;  // 5 containers → 1 train per path
-        doc.fleet.trainsFile = fixtureDir + "/fleet_trains.json";
+        doc.fleet.trainsFiles = { fixtureDir + "/fleet_trains.json" };
 
         auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
         ScenarioRegistry registry;

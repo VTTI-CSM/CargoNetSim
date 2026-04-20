@@ -158,6 +158,42 @@ bool ScenarioMutator::setTerminalRole(
     return doc->updateTerminal(terminalId, p);
 }
 
+bool ScenarioMutator::setTerminalType(
+    Backend::Scenario::ScenarioDocument *doc,
+    const QString                       &terminalId,
+    const QString                       &newType)
+{
+    using namespace Backend::Scenario;
+    if (!doc || !doc->terminals.contains(terminalId))
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioMutator::setTerminalType:"
+            << "doc null or terminal not found:" << terminalId;
+        return false;
+    }
+    if (!TerminalTypeDefaults::isValidType(newType))
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioMutator::setTerminalType:"
+            << "invalid type:" << newType;
+        return false;
+    }
+
+    TerminalPlacement p = doc->terminals[terminalId];
+    if (p.type == newType) return true;
+
+    qCInfo(lcGuiScene)
+        << "ScenarioMutator::setTerminalType:"
+        << terminalId << p.type << "->" << newType;
+
+    p.type       = newType;
+    p.properties = TerminalTypeDefaults::defaultProperties(newType);
+    applyRoleSideEffects(p);
+    p.interfaces = {};  // clear override; runtime derives from new type
+
+    return doc->updateTerminal(terminalId, p);
+}
+
 bool ScenarioMutator::linkTerminalToNode(
     Backend::Scenario::ScenarioDocument *doc,
     const QString                       &terminalId,

@@ -402,6 +402,7 @@ void RegionCenterPoint::refreshFromSpec(
     if (!spec->color.isEmpty())
         color = QColor(spec->color);
 
+    emit propertiesChanged();
     update();
 }
 

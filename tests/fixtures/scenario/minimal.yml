@@ -22,9 +22,9 @@ output:
   container_tracking: true
 
 fleet:
-  trains: { file: "", inline: [] }
-  ships:  { file: "", inline: [] }
-  trucks: { file: "", inline: [] }
+  trains: { files: [], inline: [] }
+  ships:  { files: [], inline: [] }
+  trucks: { files: [], inline: [] }
 
 regions: []
 terminals: []

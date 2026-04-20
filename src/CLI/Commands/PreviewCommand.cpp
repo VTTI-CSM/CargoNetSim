@@ -103,7 +103,7 @@ int PreviewCommand::execute(const QStringList &args)
     // the JSON would double-count any auto-derived entries. The doc
     // is thrown away after we serialise it.
     qCDebug(lcCli) << "PreviewCommand::execute: resolving linkages, connections, global links...";
-    doc->linkages    = ScenarioLinker::resolveLinkages   (*doc, registry);
+    doc->linkages = ScenarioLinker::resolveLinkages(*doc, registry);
     doc->connections = ScenarioLinker::resolveConnections(*doc, registry);
     doc->globalLinks = ScenarioLinker::resolveGlobalLinks(*doc, registry);
 

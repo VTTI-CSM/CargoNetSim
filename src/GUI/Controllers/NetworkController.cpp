@@ -8,6 +8,7 @@
 #include "GUI/Controllers/UtilityFunctions.h"
 #include "GUI/Controllers/SceneVisibilityController.h"
 #include "GUI/Controllers/NetworkDrawingController.h"
+#include "GUI/Scenario/ScenarioMutator.h"
 
 #include <QColor>
 #include <QFileDialog>
@@ -122,33 +123,14 @@ QString NetworkController::importNetwork(
     if (networkType == NetworkType::Train)
     {
         if (NetworkController::importTrainNetwork(
-                mainWindow, regionData, networkName)
-            == true)
-        {
-            // Update the network list in the Network
-            // Manager dialog
-            if (mainWindow->networkManagerDock_)
-            {
-                mainWindow->networkManagerDock_
-                    ->updateNetworkList("Rail Network");
-            }
+                mainWindow, regionData, networkName))
             return networkName;
-        }
     }
     else if (networkType == NetworkType::Truck)
     {
         if (NetworkController::importTruckNetwork(
                 mainWindow, regionData, networkName))
-        {
-            // Update the network list in the Network
-            // Manager dialog
-            if (mainWindow->networkManagerDock_)
-            {
-                mainWindow->networkManagerDock_
-                    ->updateNetworkList("Truck Network");
-            }
             return networkName;
-        }
     }
 
     return QString();
@@ -175,12 +157,24 @@ void recordNetworkInDocument(
                           << "network=" << networkName
                           << "region=" << regionName;
     if (!mainWindow || !mainWindow->runtime()) return;
+    auto &doc = mainWindow->runtime()->document();
     CargoNetSim::Backend::Scenario::NetworkSpec spec;
     spec.name = networkName;
     spec.type = kind;
     for (const auto &role_path : files)
         spec.files.insert(role_path.first, role_path.second);
-    mainWindow->runtime()->document().addNetwork(regionName, spec);
+    if (doc.regions.contains(regionName))
+    {
+        const auto &origin = doc.regions[regionName].localOrigin;
+        // x = longitude, y = latitude — matches the Qt geo-point convention used elsewhere.
+        spec.referencePoint.x = origin.longitude;
+        spec.referencePoint.y = origin.latitude;
+    }
+    if (!GUI::Scenario::ScenarioMutator::addNetwork(&doc, regionName, spec))
+        qCWarning(lcGuiNetwork)
+            << "recordNetworkInDocument:"
+            << "ScenarioMutator::addNetwork failed for"
+            << networkName;
 }
 
 } // namespace
@@ -332,20 +326,32 @@ bool NetworkController::removeNetwork(
         networkType, regionData, networkName);
 
     // remove the network from the backend
+    bool ok = false;
     if (networkType == NetworkType::Train)
     {
-        return regionData->removeTrainNetwork(networkName);
+        ok = regionData->removeTrainNetwork(networkName);
     }
     else if (networkType == NetworkType::Truck)
     {
-        return regionData->removeTruckNetwork(networkName);
+        ok = regionData->removeTruckNetwork(networkName);
     }
     else if (networkType == NetworkType::Ship)
     {
         throw std::runtime_error(
             "Ship network removal is not supported yet.");
     }
-    return false;
+
+    if (ok && mainWindow && mainWindow->runtime())
+    {
+        if (!GUI::Scenario::ScenarioMutator::removeNetwork(
+                &mainWindow->runtime()->document(),
+                regionData->getRegion(), networkName))
+            qCWarning(lcGuiNetwork)
+                << "NetworkController::removeNetwork:"
+                << "ScenarioMutator::removeNetwork failed for"
+                << networkName;
+    }
+    return ok;
 }
 
 bool NetworkController::renameNetwork(
@@ -421,27 +427,15 @@ bool NetworkController::renameNetwork(
 
         if (success)
         {
-
-            // Update network manager lists
-            if (mainWindow->networkManagerDock_)
+            if (mainWindow && mainWindow->runtime())
             {
-                if (networkType == NetworkType::Train)
-                {
-                    mainWindow->networkManagerDock_
-                        ->updateNetworkList("Rail Network");
-                }
-                else if (networkType == NetworkType::Truck)
-                {
-                    mainWindow->networkManagerDock_
-                        ->updateNetworkList(
-                            "Truck Network");
-                }
-                else if (networkType == NetworkType::Ship)
-                {
-                    throw std::runtime_error(
-                        "Ship network rename is not "
-                        "supported yet.");
-                }
+                if (!GUI::Scenario::ScenarioMutator::renameNetwork(
+                        &mainWindow->runtime()->document(),
+                        regionData->getRegion(), oldName, newName))
+                    qCWarning(lcGuiNetwork)
+                        << "NetworkController::renameNetwork:"
+                        << "ScenarioMutator::renameNetwork failed for"
+                        << oldName << "->" << newName;
             }
         }
 

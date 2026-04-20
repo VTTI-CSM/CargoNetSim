@@ -272,8 +272,6 @@ void NetworkManagerDialog::deleteNetwork(
                     : NetworkType::Truck;
             NetworkController::removeNetwork(
                 mainWindow, type, networkName, regionData);
-
-            updateNetworkList(networkType);
         }
         catch (const std::exception &e)
         {

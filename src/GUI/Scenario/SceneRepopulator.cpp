@@ -14,6 +14,7 @@
 #include "GUI/MainWindow.h"
 #include "GUI/Commons/NetworkType.h"
 #include "GUI/Controllers/NetworkDrawingController.h"
+#include "GUI/Controllers/TerminalController.h"
 #include "GUI/Scenario/ConnectionLineFactory.h"
 #include "GUI/Scenario/MapPointFactory.h"
 #include "GUI/Scenario/RegionCenterPointFactory.h"
@@ -83,7 +84,11 @@ rebuildMapPoints(Doc *doc, GraphicsScene *scene, MainWindow *mw)
 void rebuildTerminals(Doc *doc, GraphicsScene *scene, MainWindow *mw)
 {
     for (auto it = doc->terminals.begin(); it != doc->terminals.end(); ++it)
-        TerminalItemFactory::fromPlacement(&it.value(), scene, mw);
+    {
+        auto *item = TerminalItemFactory::fromPlacement(&it.value(), scene, mw);
+        if (item && mw && mw->terminalCtrl())
+            mw->terminalCtrl()->updateGlobalMapItem(item);
+    }
 }
 
 void relinkMapPointsToTerminals(

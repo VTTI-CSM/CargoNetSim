@@ -26,6 +26,7 @@
 #include "Backend/Scenario/RegionSpec.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
+#include "GUI/Controllers/FleetController.h"
 #include "GUI/Controllers/SceneVisibilityController.h"
 #include "GUI/Controllers/TerminalController.h"
 
@@ -1062,6 +1063,7 @@ void BasicButtonController::toggleDockWidget(
 void BasicButtonController::showTrainManager(
     MainWindow *mainWindow)
 {
+    if (!mainWindow) return;
     TrainManagerDialog dialog(mainWindow);
 
     auto trains =
@@ -1077,12 +1079,14 @@ void BasicButtonController::showTrainManager(
         CargoNetSim::CargoNetSimController::getInstance()
             .getVehicleController()
             ->updateTrains(newTrains);
+        mainWindow->fleetCtrl()->appendTrainFiles(dialog.newlyLoadedFiles());
     }
 }
 
 void BasicButtonController::showShipManager(
     MainWindow *mainWindow)
 {
+    if (!mainWindow) return;
     ShipManagerDialog dialog(mainWindow);
 
     auto ships =
@@ -1099,6 +1103,7 @@ void BasicButtonController::showShipManager(
         CargoNetSim::CargoNetSimController::getInstance()
             .getVehicleController()
             ->updateShips(newShips);
+        mainWindow->fleetCtrl()->appendShipFiles(dialog.newlyLoadedFiles());
     }
 }
 

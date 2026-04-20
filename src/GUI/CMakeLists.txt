@@ -32,6 +32,8 @@ set(GUI_SOURCES
     Controllers/RegionController.h
     Controllers/SettingsController.cpp
     Controllers/SettingsController.h
+    Controllers/FleetController.cpp
+    Controllers/FleetController.h
     
     # Items
     Items/BackgroundPhotoItem.cpp

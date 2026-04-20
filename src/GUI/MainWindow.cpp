@@ -38,6 +38,8 @@
 #include <QSplashScreen>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QPointer>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -66,6 +68,8 @@
 #include "Controllers/NetworkController.h"
 #include "Controllers/NetworkDrawingController.h"
 #include "Controllers/RegionController.h"
+#include "Controllers/SettingsController.h"
+#include "Controllers/FleetController.h"
 #include "Controllers/SceneVisibilityController.h"
 #include "Controllers/TerminalController.h"
 #include "Controllers/ToolbarController.h"
@@ -110,6 +114,11 @@ MainWindow::MainWindow()
     tableWasVisible_  = false;
     previousTabIndex_ = 0;
 
+    // SettingsController must be created BEFORE initializeUI()
+    // because settingsWidget_ is created in initializeUI()
+    // and the connect() call needs m_settingsCtrl to be non-null.
+    m_settingsCtrl = new SettingsController(this, this);
+
     // Setup UI components (must happen before controllers
     // and setRuntime because both need scenes/views).
     initializeUI();
@@ -118,6 +127,7 @@ MainWindow::MainWindow()
     // triggers changeRegion which calls
     // sceneVisibility()->updateSceneVisibility(). Controllers
     // must exist before that call.
+    m_fleetCtrl = new FleetController(this, this);
     m_sceneVisibility = new SceneVisibilityController(
         regionScene_, globalMapScene_, this, this);
     m_terminalCtrl = new TerminalController(
@@ -220,6 +230,8 @@ void MainWindow::setRuntime(
         auto *doc = &m_runtime->document();
         GUI::Scenario::SceneRepopulator::repopulate(doc, this);
 
+        m_settingsCtrl->loadFromDocument();
+
         qCDebug(lcGui) << "MainWindow::setRuntime:"
                        << "regions=" << doc->regions.size()
                        << "terminals=" << doc->terminals.size()
@@ -240,7 +252,7 @@ void MainWindow::setRuntime(
 
 void MainWindow::subscribeDocumentObservers()
 {
-    qCDebug(lcGui) << "MainWindow::subscribeDocumentObservers: wiring" << 15 << "observers";
+    qCDebug(lcGui) << "MainWindow::subscribeDocumentObservers: wiring" << 19 << "observers";
     using namespace Backend::Scenario;
     if (!m_runtime) return;
     auto *doc = &m_runtime->document();
@@ -271,9 +283,12 @@ void MainWindow::subscribeDocumentObservers()
     connect(doc, &ScenarioDocument::terminalAdded, this,
             [this, doc, regionScene](const QString &id) {
                 auto it = doc->terminals.find(id);
-                if (it != doc->terminals.end())
+                if (it == doc->terminals.end()) return;
+                auto *item =
                     GUI::Scenario::TerminalItemFactory::fromPlacement(
                         &it.value(), regionScene, this);
+                if (item && m_terminalCtrl)
+                    m_terminalCtrl->updateGlobalMapItem(item);
             });
     connect(doc, &ScenarioDocument::terminalRemoved, this,
             [regionScene](const QString &id) {
@@ -295,11 +310,28 @@ void MainWindow::subscribeDocumentObservers()
                         : nullptr;
                 if (item)
                     item->setPlacement(&it.value());
-                // Refresh PropertiesPanel if it's showing
-                // this terminal.
-                if (item && selectedTerminal_ == item)
+                if (item && m_terminalCtrl)
+                    m_terminalCtrl->updateGlobalMapItem(item);
+                // Refresh PropertiesPanel if it's showing this
+                // terminal. Deferred to avoid re-entrancy: the
+                // role combobox signal is still on the call stack
+                // when terminalChanged fires; displayProperties →
+                // clearLayout would delete the sender mid-signal.
+                qCDebug(lcGui)
+                    << "MainWindow: terminalChanged panel check:"
+                    << "item=" << (void *)item
+                    << "currentItem=" << (void *)propertiesPanel_->getCurrentItem()
+                    << "match=" << (item && propertiesPanel_->getCurrentItem() == item);
+                if (item
+                    && propertiesPanel_->getCurrentItem()
+                           == item)
                 {
-                    propertiesPanel_->displayProperties(item);
+                    QPointer<TerminalItem> safeItem = item;
+                    QTimer::singleShot(0, this, [this, safeItem]() {
+                        if (safeItem)
+                            propertiesPanel_->displayProperties(
+                                safeItem);
+                    });
                 }
             });
 
@@ -540,6 +572,27 @@ void MainWindow::subscribeDocumentObservers()
                     globalMapScene_->removeItemWithId<ConnectionLine>(
                         line->sceneRegistryKey());
             });
+
+    // Network lifecycle → refresh NetworkManagerDialog lists.
+    connect(doc, &ScenarioDocument::networkAdded, this,
+            [this](const QString &region, const QString &) {
+                if (networkManagerDock_)
+                    networkManagerDock_->updateNetworkListForChangedRegion(
+                        region);
+            });
+    connect(doc, &ScenarioDocument::networkRemoved, this,
+            [this](const QString &region, const QString &) {
+                if (networkManagerDock_)
+                    networkManagerDock_->updateNetworkListForChangedRegion(
+                        region);
+            });
+    connect(doc, &ScenarioDocument::networkRenamed, this,
+            [this](const QString &region, const QString &,
+                   const QString &) {
+                if (networkManagerDock_)
+                    networkManagerDock_->updateNetworkListForChangedRegion(
+                        region);
+            });
 }
 
 MainWindow::~MainWindow()
@@ -765,13 +818,8 @@ void MainWindow::setupDocks()
     shortestPathTableDock_
         ->hide(); // Start with shortest paths table hidden
 
-    // Connect the settingsChanged signal
-    connect(
-        settingsWidget_, &SettingsWidget::settingsChanged,
-        [this](const QMap<QString, QVariant> &settings) {
-            showStatusBarMessage(
-                "Simulation settings updated.", 2000);
-        });
+    connect(m_settingsCtrl,  &SettingsController::configChanged,
+            settingsWidget_, &SettingsWidget::refreshFromConfig);
 
     // Terminal library dock
     setupTerminalLibrary();

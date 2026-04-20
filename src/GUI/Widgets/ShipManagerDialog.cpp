@@ -176,6 +176,7 @@ void ShipManagerDialog::loadShips()
                          << loadedShips.size() << "ships from" << fileName;
         // Extend the existing ships list
         m_ships.append(loadedShips);
+        m_newlyLoadedFiles.append(fileName);
         updateTable();
 
         // Emit signal

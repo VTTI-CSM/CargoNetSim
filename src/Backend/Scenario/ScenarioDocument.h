@@ -119,6 +119,9 @@ public:
     // Network CRUD (nested inside a region).
     bool addNetwork(const QString &region, const NetworkSpec &n);
     bool removeNetwork(const QString &region, const QString &network);
+    bool renameNetwork(const QString &region,
+                       const QString &oldName,
+                       const QString &newName);
 
     // Linkage / Connection / GlobalLink CRUD.
     bool addLinkage(const NodeLinkage &l);
@@ -251,6 +254,9 @@ signals:
     void regionChanged(const QString &name);
     void networkAdded(const QString &region, const QString &network);
     void networkRemoved(const QString &region, const QString &network);
+    void networkRenamed(const QString &region,
+                        const QString &oldName,
+                        const QString &newName);
     void terminalAdded(const QString &id);
     void terminalRemoved(const QString &id);
     void terminalChanged(const QString &id);

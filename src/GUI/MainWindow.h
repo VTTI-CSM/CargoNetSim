@@ -60,6 +60,8 @@ class TerminalController;
 class NetworkDrawingController;
 class ConnectionController;
 class RegionController;
+class SettingsController;
+class FleetController;
 
 /**
  * @class MainWindow
@@ -198,6 +200,10 @@ public:
     { return m_connectionCtrl; }
     RegionController *regionCtrl() const
     { return m_regionCtrl; }
+    SettingsController *settingsCtrl() const
+    { return m_settingsCtrl; }
+    FleetController *fleetCtrl() const
+    { return m_fleetCtrl; }
 
     /**
      * @brief Gets the currently active scene
@@ -542,6 +548,8 @@ protected:
     NetworkDrawingController   *m_networkDrawing   = nullptr;
     ConnectionController       *m_connectionCtrl   = nullptr;
     RegionController           *m_regionCtrl       = nullptr;
+    SettingsController         *m_settingsCtrl     = nullptr;
+    FleetController            *m_fleetCtrl        = nullptr;
 
     // Toolbar organization
     ScrollableToolBar *toolbar_;

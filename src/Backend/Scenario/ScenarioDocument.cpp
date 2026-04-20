@@ -475,6 +475,25 @@ bool ScenarioDocument::removeNetwork(const QString &region, const QString &netwo
     return true;
 }
 
+bool ScenarioDocument::renameNetwork(const QString &region,
+                                     const QString &oldName,
+                                     const QString &newName)
+{
+    qCDebug(lcScenario) << "ScenarioDocument::renameNetwork:"
+                        << region << oldName << "->" << newName;
+    if (oldName == newName)              return true;
+    if (newName.isEmpty())               return false;
+    if (!regions.contains(region))       return false;
+    auto &r = regions[region];
+    if (!r.networks.contains(oldName))       return false;
+    if (r.networks.contains(newName))        return false;
+    NetworkSpec spec = r.networks.take(oldName);
+    spec.name        = newName;
+    r.networks.insert(newName, spec);
+    emit networkRenamed(region, oldName, newName);
+    return true;
+}
+
 bool ScenarioDocument::addLinkage(const NodeLinkage &l)
 {
     qCDebug(lcScenario) << "ScenarioDocument::addLinkage: terminal:" << l.terminalId

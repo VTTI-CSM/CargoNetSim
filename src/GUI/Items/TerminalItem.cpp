@@ -1,4 +1,5 @@
 #include "TerminalItem.h"
+#include "GlobalTerminalItem.h"
 
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Scenario/TerminalPlacement.h"
@@ -6,12 +7,15 @@
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ScenarioMutator.h"
+#include "GUI/Utils/IconCreator.h"
 #include "GUI/Widgets/GraphicsView.h"
 
 #include <QApplication>
 #include <QCursor>
 #include <QGraphicsScene>
+#include <QGraphicsSceneContextMenuEvent>
 #include <QGraphicsSceneMouseEvent>
+#include <QMenu>
 #include <QGraphicsView>
 #include <QPainter>
 #include <QPropertyAnimation>
@@ -127,6 +131,11 @@ void TerminalItem::setGlobalTerminalItem(
     m_globalTerminalItem = globalTerminalItem;
 }
 
+GlobalTerminalItem *TerminalItem::getGlobalTerminalItem() const
+{
+    return m_globalTerminalItem;
+}
+
 void TerminalItem::updateProperties(
     const QMap<QString, QVariant> &newProperties)
 {
@@ -181,6 +190,15 @@ void TerminalItem::setPlacement(
     m_placement = placement;
     if (m_placement)
     {
+        // Update icon when type changes.
+        if (m_terminalType != m_placement->type)
+        {
+            const QPixmap p =
+                IconFactory::createTerminalIcons().value(
+                    m_placement->type);
+            if (!p.isNull())
+                m_pixmap = p;
+        }
         // Snapshot into local state so getters (including legacy
         // readers that grep m_properties directly) see a consistent
         // view between Task-21 observer deliveries. See the cache-
@@ -484,6 +502,80 @@ void TerminalItem::hoverLeaveEvent(
         << "name=" << m_properties.value("Name").toString();
     unsetCursor();
     QGraphicsObject::hoverLeaveEvent(event);
+}
+
+void TerminalItem::contextMenuEvent(
+    QGraphicsSceneContextMenuEvent *event)
+{
+    if (!m_placement || m_placement->id.isEmpty())
+    {
+        event->ignore();
+        return;
+    }
+
+    auto *view = (scene() && !scene()->views().isEmpty())
+                     ? qobject_cast<GraphicsView *>(
+                           scene()->views().first())
+                     : nullptr;
+    auto *mw   = view
+                   ? qobject_cast<MainWindow *>(view->window())
+                   : nullptr;
+    if (!mw || !mw->runtime())
+    {
+        event->ignore();
+        return;
+    }
+
+    using Role = Backend::Scenario::TerminalPlacement::TerminalRole;
+    const Role currentRole = m_placement->role;
+
+    QMenu   menu;
+    QAction *originAction =
+        menu.addAction(tr("Set as Origin"));
+    QAction *destinationAction =
+        menu.addAction(tr("Set as Destination"));
+    QAction *transitAction =
+        menu.addAction(tr("Set as Transit"));
+    originAction->setEnabled(currentRole != Role::Origin);
+    destinationAction->setEnabled(
+        currentRole != Role::Destination);
+    transitAction->setEnabled(currentRole != Role::Transit);
+
+    menu.addSeparator();
+
+    QMenu        *changeTypeMenu = menu.addMenu(tr("Change Type"));
+    const QString currentType    = m_placement->type;
+    for (const QString &type :
+         Backend::Scenario::TerminalTypeDefaults::allTypes())
+    {
+        if (type == currentType) continue;
+        changeTypeMenu->addAction(type);
+    }
+
+    QAction *selected = menu.exec(event->screenPos());
+    if (!selected) { event->accept(); return; }
+
+    if (selected == originAction)
+        Scenario::ScenarioMutator::setTerminalRole(
+            &mw->runtime()->document(),
+            m_placement->id,
+            Role::Origin);
+    else if (selected == destinationAction)
+        Scenario::ScenarioMutator::setTerminalRole(
+            &mw->runtime()->document(),
+            m_placement->id,
+            Role::Destination);
+    else if (selected == transitAction)
+        Scenario::ScenarioMutator::setTerminalRole(
+            &mw->runtime()->document(),
+            m_placement->id,
+            Role::Transit);
+    else
+        Scenario::ScenarioMutator::setTerminalType(
+            &mw->runtime()->document(),
+            m_placement->id,
+            selected->text());
+    event->accept();
 }
 
 QMap<QString, QVariant> TerminalItem::toDict() const

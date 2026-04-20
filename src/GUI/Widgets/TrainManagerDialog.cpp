@@ -197,6 +197,7 @@ void TrainManagerDialog::loadTrains()
         qCInfo(lcGuiNetwork) << "TrainManagerDialog::loadTrains: loaded"
                          << newTrains.size() << "trains from" << fileName;
         m_trains.append(newTrains);
+        m_newlyLoadedFiles.append(fileName);
         updateTable();
 
         QMessageBox::information(
