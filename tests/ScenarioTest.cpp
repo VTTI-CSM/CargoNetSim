@@ -256,6 +256,9 @@ private slots:
     void test_fleet_spec_inline_entries_empty_by_default()
     {
         CargoNetSim::Backend::Scenario::FleetSpec f;
+        QVERIFY(f.trainsFiles.isEmpty());
+        QVERIFY(f.shipsFiles.isEmpty());
+        QVERIFY(f.trucksFiles.isEmpty());
         QVERIFY(f.trainsInline.isEmpty());
         QVERIFY(f.shipsInline.isEmpty());
         QVERIFY(f.trucksInline.isEmpty());
@@ -362,7 +365,6 @@ private slots:
     void test_terminal_placement_defaults()
     {
         CargoNetSim::Backend::Scenario::TerminalPlacement t;
-        QCOMPARE(t.showOnGlobalMap, true);
         QCOMPARE(static_cast<int>(t.mode),
                  static_cast<int>(CargoNetSim::Backend::Scenario::
                                       TerminalPlacement::PositionMode::NetworkNode));
@@ -477,6 +479,74 @@ private slots:
         QVERIFY(doc.removeRegion("USA"));
         QCOMPARE(spy.count(), 1);
         QVERIFY(doc.regions.isEmpty());
+    }
+
+    void test_scenario_document_renameNetwork_updates_key_and_name()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        ScenarioDocument doc;
+        RegionSpec r; r.name = "USA"; doc.addRegion(r);
+        NetworkSpec net; net.name = "Rail-A"; net.type = NetworkSpec::Type::Rail;
+        QVERIFY(doc.addNetwork("USA", net));
+
+        QSignalSpy spy(&doc, &ScenarioDocument::networkRenamed);
+        QVERIFY(doc.renameNetwork("USA", "Rail-A", "Rail-B"));
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(!doc.regions["USA"].networks.contains("Rail-A"));
+        QVERIFY( doc.regions["USA"].networks.contains("Rail-B"));
+        QCOMPARE(doc.regions["USA"].networks["Rail-B"].name,
+                 QStringLiteral("Rail-B"));
+    }
+
+    void test_scenario_document_renameNetwork_rejects_duplicate_name()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        ScenarioDocument doc;
+        RegionSpec r; r.name = "USA"; doc.addRegion(r);
+        NetworkSpec a; a.name = "Rail-A"; a.type = NetworkSpec::Type::Rail;
+        NetworkSpec b; b.name = "Rail-B"; b.type = NetworkSpec::Type::Rail;
+        QVERIFY(doc.addNetwork("USA", a));
+        QVERIFY(doc.addNetwork("USA", b));
+
+        QVERIFY(!doc.renameNetwork("USA", "Rail-A", "Rail-B"));
+        QVERIFY(doc.regions["USA"].networks.contains("Rail-A"));
+        QVERIFY(doc.regions["USA"].networks.contains("Rail-B"));
+    }
+
+    void test_scenario_document_renameNetwork_rejects_unknown_network()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        ScenarioDocument doc;
+        RegionSpec r; r.name = "USA"; doc.addRegion(r);
+
+        QVERIFY(!doc.renameNetwork("USA", "NoSuch", "Rail-B"));
+    }
+
+    void test_scenario_document_renameNetwork_same_name_is_noop()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        ScenarioDocument doc;
+        RegionSpec r; r.name = "USA"; doc.addRegion(r);
+        NetworkSpec net; net.name = "Rail-A"; net.type = NetworkSpec::Type::Rail;
+        QVERIFY(doc.addNetwork("USA", net));
+
+        QSignalSpy spy(&doc, &ScenarioDocument::networkRenamed);
+        QVERIFY(doc.renameNetwork("USA", "Rail-A", "Rail-A"));
+        QCOMPARE(spy.count(), 0);  // no signal for no-op
+        QVERIFY(doc.regions["USA"].networks.contains("Rail-A"));
+    }
+
+    void test_scenario_document_renameNetwork_rejects_empty_new_name()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        ScenarioDocument doc;
+        RegionSpec r; r.name = "USA"; doc.addRegion(r);
+        NetworkSpec net; net.name = "Rail-A"; net.type = NetworkSpec::Type::Rail;
+        QVERIFY(doc.addNetwork("USA", net));
+
+        QVERIFY(!doc.renameNetwork("USA", "Rail-A", ""));
+        QVERIFY(doc.regions["USA"].networks.contains("Rail-A"));
+        QVERIFY(!doc.regions["USA"].networks.contains(""));
     }
 
     void test_scenario_document_rename_region_updates_key_and_struct_name()

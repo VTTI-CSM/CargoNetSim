@@ -57,7 +57,6 @@ struct TerminalPlacement
     QString id;         ///< Globally unique across the scenario.
     QString type;       ///< One of TerminalTypeDefaults::allTypes().
     QString region;
-    bool    showOnGlobalMap = true;
     TerminalRole role = TerminalRole::Transit;
 
     /// Terminal-local unstructured config (mirrors TerminalItem property bag

@@ -168,8 +168,9 @@ YAML::Node jsonValueToYamlNode(const QJsonValue &v)
 
 // ----- Relative path resolution -----
 //
-// Walks regions[*].networks[*].files.*, fleet.*.file, and output.log_file,
-// replacing every relative path with an absolute path anchored on yamlDir.
+// Walks regions[*].networks[*].files.*, fleet.*.files[], output.log_file,
+// and output.path_report_pdf, replacing every relative path with an absolute
+// path anchored on yamlDir.
 void resolvePathsRelativeTo(ScenarioDocument &doc, const QString &yamlDir)
 {
     const QDir anchor(yamlDir);
@@ -186,9 +187,9 @@ void resolvePathsRelativeTo(ScenarioDocument &doc, const QString &yamlDir)
             for (auto it = n.files.begin(); it != n.files.end(); ++it)
                 resolve(it.value());
 
-    resolve(doc.fleet.trainsFile);
-    resolve(doc.fleet.shipsFile);
-    resolve(doc.fleet.trucksFile);
+    for (QString &p : doc.fleet.trainsFiles) resolve(p);
+    for (QString &p : doc.fleet.shipsFiles)  resolve(p);
+    for (QString &p : doc.fleet.trucksFiles) resolve(p);
 
     resolve(doc.output.logFile);
     resolve(doc.output.pathReportPdf);
@@ -229,9 +230,8 @@ QJsonObject terminalPlacementToJson(const TerminalPlacement &t)
     o["type"]               = t.type;
     if (t.role != TerminalPlacement::TerminalRole::Transit)
         o["role"] = roleToString(t.role);
-    o["region"]             = t.region;
-    o["show_on_global_map"] = t.showOnGlobalMap;
-    o["properties"]         = variantMapToJson(t.properties);
+    o["region"]     = t.region;
+    o["properties"] = variantMapToJson(t.properties);
 
     QJsonObject position;
     position["mode"] = positionModeToString(t.mode);
@@ -298,9 +298,8 @@ TerminalPlacement terminalPlacementFromJson(const QJsonObject &o)
     TerminalPlacement t;
     t.id     = o.value("id").toString();
     t.type   = o.value("type").toString();
-    t.region = o.value("region").toString();
-    t.showOnGlobalMap = o.value("show_on_global_map").toBool(true);
-    t.properties      = jsonToVariantMap(o.value("properties").toObject());
+    t.region     = o.value("region").toString();
+    t.properties = jsonToVariantMap(o.value("properties").toObject());
 
     if (o.contains("role"))
     {
@@ -665,32 +664,32 @@ QList<QJsonObject> jsonArrayToInline(const QJsonArray &a)
 
 QJsonObject fleetSpecToJson(const FleetSpec &f)
 {
-    auto one = [](const QString &file, const QList<QJsonObject> &inl)
+    auto one = [](const QStringList &files, const QList<QJsonObject> &inl)
     {
         QJsonObject o;
-        o["file"]   = file;
+        o["files"]  = stringListToArray(files);
         o["inline"] = inlineJsonArray(inl);
         return o;
     };
     QJsonObject o;
-    o["trains"] = one(f.trainsFile, f.trainsInline);
-    o["ships"]  = one(f.shipsFile,  f.shipsInline);
-    o["trucks"] = one(f.trucksFile, f.trucksInline);
+    o["trains"] = one(f.trainsFiles, f.trainsInline);
+    o["ships"]  = one(f.shipsFiles,  f.shipsInline);
+    o["trucks"] = one(f.trucksFiles, f.trucksInline);
     return o;
 }
 
 FleetSpec fleetSpecFromJson(const QJsonObject &j)
 {
     FleetSpec f;
-    auto one = [&](const QString &key, QString &file, QList<QJsonObject> &inl)
+    auto one = [&j](const QString &key, QStringList &files, QList<QJsonObject> &inl)
     {
-        QJsonObject o = j.value(key).toObject();
-        file = o.value("file").toString();
-        inl  = jsonArrayToInline(o.value("inline").toArray());
+        const QJsonObject o = j.value(key).toObject();
+        files = arrayToStringList(o.value("files").toArray());
+        inl   = jsonArrayToInline(o.value("inline").toArray());
     };
-    one("trains", f.trainsFile, f.trainsInline);
-    one("ships",  f.shipsFile,  f.shipsInline);
-    one("trucks", f.trucksFile, f.trucksInline);
+    one("trains", f.trainsFiles, f.trainsInline);
+    one("ships",  f.shipsFiles,  f.shipsInline);
+    one("trucks", f.trucksFiles, f.trucksInline);
     return f;
 }
 

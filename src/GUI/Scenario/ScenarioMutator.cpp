@@ -79,6 +79,7 @@ QString ScenarioMutator::createTerminal(
     p.mode       = TerminalPlacement::PositionMode::LatLon;
     p.latLon     = toLatLon(localLatLon);
     p.properties = TerminalTypeDefaults::defaultProperties(terminalType);
+    p.properties[QStringLiteral("Region")] = p.region;
     p.role       = role;
     applyRoleSideEffects(p);
 
@@ -380,6 +381,40 @@ bool ScenarioMutator::updateRegionColor(
     return doc->updateRegion(name, r);
 }
 
+bool ScenarioMutator::addNetwork(
+    Backend::Scenario::ScenarioDocument        *doc,
+    const QString                              &region,
+    const Backend::Scenario::NetworkSpec       &spec)
+{
+    if (!doc) return false;
+    qCDebug(lcGuiScene) << "ScenarioMutator::addNetwork:"
+                        << region << spec.name;
+    return doc->addNetwork(region, spec);
+}
+
+bool ScenarioMutator::removeNetwork(
+    Backend::Scenario::ScenarioDocument *doc,
+    const QString                       &region,
+    const QString                       &networkName)
+{
+    if (!doc) return false;
+    qCDebug(lcGuiScene) << "ScenarioMutator::removeNetwork:"
+                        << region << networkName;
+    return doc->removeNetwork(region, networkName);
+}
+
+bool ScenarioMutator::renameNetwork(
+    Backend::Scenario::ScenarioDocument *doc,
+    const QString                       &region,
+    const QString                       &oldName,
+    const QString                       &newName)
+{
+    if (!doc) return false;
+    qCDebug(lcGuiScene) << "ScenarioMutator::renameNetwork:"
+                        << region << oldName << "->" << newName;
+    return doc->renameNetwork(region, oldName, newName);
+}
+
 bool ScenarioMutator::updateSimulationSettings(
     Backend::Scenario::ScenarioDocument         *doc,
     const Backend::Scenario::SimulationSettings &settings)
@@ -388,6 +423,18 @@ bool ScenarioMutator::updateSimulationSettings(
     qCInfo(lcGuiScene) << "ScenarioMutator::updateSimulationSettings"
                        << "timeStep=" << settings.timeStep.value_or(-1);
     doc->simulation = settings;
+    return true;
+}
+
+bool ScenarioMutator::updateFleet(
+    Backend::Scenario::ScenarioDocument *doc,
+    const Backend::Scenario::FleetSpec  &fleet)
+{
+    if (!doc) return false;
+    qCInfo(lcGuiScene) << "ScenarioMutator::updateFleet"
+                       << "trainFiles=" << fleet.trainsFiles.size()
+                       << "shipFiles="  << fleet.shipsFiles.size();
+    doc->fleet = fleet;
     return true;
 }
 

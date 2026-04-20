@@ -32,9 +32,9 @@ output:
   formats: [json]
 
 fleet:
-  trains: { file: "../scenario/fleet_trains.json", inline: [] }
-  ships:  { file: "",                               inline: [] }
-  trucks: { file: "",                               inline: [] }
+  trains: { files: ["../scenario/fleet_trains.json"], inline: [] }
+  ships:  { files: [],                                inline: [] }
+  trucks: { files: [],                                inline: [] }
 
 regions:
   - name: USA
@@ -52,13 +52,11 @@ terminals:
   - id: O
     type: "Intermodal Land Terminal"
     region: USA
-    show_on_global_map: false
     position: { mode: scene, x: 1100978.0, y: 2831426.0 }
     properties: { Name: "Origin" }
   - id: D
     type: "Intermodal Land Terminal"
     region: USA
-    show_on_global_map: false
     position: { mode: scene, x: 1153646.0, y: 2246022.0 }
     properties: { Name: "Destination" }
 

@@ -24,9 +24,9 @@ output:
   container_tracking: true
 
 fleet:
-  trains: { file: "fleet_trains.json", inline: [] }
-  ships:  { file: "fleet_ships.json",  inline: [] }
-  trucks: { file: "",                  inline: [] }
+  trains: { files: ["fleet_trains.json"], inline: [] }
+  ships:  { files: ["fleet_ships.json"],  inline: [] }
+  trucks: { files: [],                    inline: [] }
 
 regions:
   - name: USA
@@ -52,7 +52,6 @@ terminals:
   - id: IL1
     type: "Intermodal Land Terminal"
     region: USA
-    show_on_global_map: false
     # Real fixture node 1 is at (1100978.17, 2831426.60). Place near it so
     # land_terminal_to_rail_node picks node 1 as the nearest.
     position: { mode: scene, x: 1100978.0, y: 2831426.0 }
@@ -61,13 +60,11 @@ terminals:
   - id: SP_USA
     type: "Sea Port Terminal"
     region: USA
-    show_on_global_map: true
     position: { mode: latlon, latitude: 40.7, longitude: -74.0 }
     properties: {}
   - id: SP_EU
     type: "Sea Port Terminal"
     region: EU
-    show_on_global_map: true
     position: { mode: latlon, latitude: 51.5, longitude: 0.0 }
     properties: {}
 
