@@ -379,9 +379,22 @@ void PropertiesPanel::displayTerminalProperties(
     // `Containers` is the legacy property-bag slot that no longer exists
     // (typed store only); skipping it stays defensive against any old
     // snapshot that may still carry it.
+    // Region is a first-class field on TerminalPlacement, not bag storage.
+    // Build the ComboBox here so it always appears regardless of bag contents.
+    {
+        QComboBox *combo = new QComboBox();
+        combo->addItems(
+            CargoNetSim::CargoNetSimController::getInstance()
+                .getRegionDataController()
+                ->getAllRegionNames());
+        combo->setCurrentText(item->getRegion());
+        editFields[QStringLiteral("Region")] = combo;
+        layout->addRow(tr("Region:"), combo);
+    }
+
     displayGenericProperties(
         item,
-        {"ID", "Type", "capacity", "cost", "dwell_time",
+        {"ID", "Type", "Region", "capacity", "cost", "dwell_time",
          "customs", "Available Interfaces", "Containers",
          PK::Terminal::InitialContainerCount,
          PK::Terminal::DestinationTerminal,
@@ -1076,18 +1089,6 @@ void PropertiesPanel::displayGenericProperties(
             editFields[it.key()] = checkbox;
             layout->addRow(it.key() + ":", checkbox);
         }
-        else if (it.key() == "Region")
-        {
-            QComboBox *combo = new QComboBox();
-            combo->addItems(
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getAllRegionNames());
-            combo->setCurrentText(it.value().toString());
-            editFields[it.key()] = combo;
-            layout->addRow(it.key() + ":", combo);
-        }
         else
         {
             addGenericField(it.key(), it.value());
@@ -1423,17 +1424,21 @@ void PropertiesPanel::saveTerminalProperties(
         && mainWindow && mainWindow->runtime())
     {
         auto *doc = &mainWindow->runtime()->document();
-        const QString id = terminal->getTerminalId();
+        const QString id        = terminal->getTerminalId();
+        const QString oldRegion = terminal->getRegion();
 
         // Start from BACKEND truth, not local snapshot.
         Backend::Scenario::TerminalPlacement p =
             doc->terminals[id];
 
         // Apply only keys that the user actually changed.
+        // "Region" is a first-class field handled separately below.
         int changedCount = 0;
         for (auto it = newProperties.constBegin();
              it != newProperties.constEnd(); ++it)
         {
+            if (it.key() == QStringLiteral("Region"))
+                continue;
             if (oldProperties.value(it.key()) != it.value())
             {
                 p.properties[it.key()] = it.value();
@@ -1441,30 +1446,30 @@ void PropertiesPanel::saveTerminalProperties(
             }
         }
 
-        if (changedCount > 0)
+        // Region is a first-class field on TerminalPlacement.
+        const QString newRegion =
+            newProperties.value(QStringLiteral("Region")).toString();
+        const bool regionChanged =
+            !newRegion.isEmpty() && newRegion != oldRegion;
+        if (regionChanged)
+            p.region = newRegion;
+
+        if (changedCount > 0 || regionChanged)
             doc->updateTerminal(id, p);
 
         qCDebug(lcGuiUtil)
             << "saveTerminalProperties: persisted"
-            << changedCount
-            << "changed properties to backend for"
-            << id;
+            << changedCount << "bag changes +"
+            << (regionChanged ? "region change" : "no region change")
+            << "to backend for" << id;
+
+        if (regionChanged)
+            handleRegionChange(terminal, newRegion);
     }
     else
     {
         // Legacy fallback — no backend binding
         terminal->updateProperties(newProperties);
-    }
-
-    // Handle region change (existing logic — does offset
-    // calculations for terminal position).
-    if (newProperties.contains("Region")
-        && terminal->getRegion()
-               != newProperties["Region"].toString())
-    {
-        handleRegionChange(
-            terminal,
-            newProperties["Region"].toString());
     }
 
     // Update the visibility of the global terminal

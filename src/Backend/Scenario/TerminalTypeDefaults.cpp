@@ -126,9 +126,6 @@ QMap<QString, QVariant> defaultProperties(const QString &type)
     interfaces[QStringLiteral("sea_side")]  = typedToStringList(pair.second);
     props[QStringLiteral("Available Interfaces")] = interfaces;
 
-    // Region placeholder — caller fills in.
-    props[QStringLiteral("Region")] = QString();
-
     QMap<QString, QVariant> cost;
     cost[QStringLiteral("fixed_fees")]   = QStringLiteral("400");
     cost[QStringLiteral("customs_fees")] = QStringLiteral("100");

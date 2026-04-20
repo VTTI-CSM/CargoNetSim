@@ -2,7 +2,9 @@
 #include <QTest>
 
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Scenario/FleetSpec.h"
 #include "Backend/Scenario/LinkageSource.h"
+#include "Backend/Scenario/NetworkSpec.h"
 #include "Backend/Scenario/RegionSpec.h"
 #include "Backend/Scenario/SimulationSettings.h"
 #include "Backend/Scenario/ScenarioDocument.h"
@@ -375,6 +377,125 @@ private slots:
         SimulationSettings s;
         s.timeStep = 10;
         QVERIFY(!ScenarioMutator::updateSimulationSettings(nullptr, s));
+    }
+
+    void test_updateFleet_sets_files()
+    {
+        ScenarioDocument doc;
+        FleetSpec f;
+        f.trainsFiles = { "/path/to/trains.json" };
+        f.shipsFiles  = { "/path/to/ships.json" };
+
+        QVERIFY(ScenarioMutator::updateFleet(&doc, f));
+        QCOMPARE(doc.fleet.trainsFiles, QStringList{ "/path/to/trains.json" });
+        QCOMPARE(doc.fleet.shipsFiles,  QStringList{ "/path/to/ships.json" });
+    }
+
+    void test_updateFleet_rejects_null_doc()
+    {
+        FleetSpec f;
+        f.trainsFiles = { "/path/to/trains.json" };
+        QVERIFY(!ScenarioMutator::updateFleet(nullptr, f));
+    }
+
+    // ---- networks ----
+
+    void test_addNetwork_records_in_document()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+        QSignalSpy spy(&doc, &ScenarioDocument::networkAdded);
+
+        NetworkSpec spec;
+        spec.name = "Rail-A";
+        spec.type = NetworkSpec::Type::Rail;
+        spec.files.insert("nodes", "/n.csv");
+        spec.files.insert("links", "/l.csv");
+
+        QVERIFY(ScenarioMutator::addNetwork(&doc, "R", spec));
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(doc.regions["R"].networks.contains("Rail-A"));
+    }
+
+    void test_addNetwork_rejects_null_doc()
+    {
+        NetworkSpec spec;
+        spec.name = "Rail-A";
+        spec.type = NetworkSpec::Type::Rail;
+        QVERIFY(!ScenarioMutator::addNetwork(nullptr, "R", spec));
+    }
+
+    void test_removeNetwork_drops_from_document()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+        NetworkSpec spec;
+        spec.name = "Rail-A";
+        spec.type = NetworkSpec::Type::Rail;
+        QVERIFY(ScenarioMutator::addNetwork(&doc, "R", spec));
+
+        QSignalSpy spy(&doc, &ScenarioDocument::networkRemoved);
+        QVERIFY(ScenarioMutator::removeNetwork(&doc, "R", "Rail-A"));
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(!doc.regions["R"].networks.contains("Rail-A"));
+    }
+
+    void test_removeNetwork_rejects_null_doc()
+    {
+        QVERIFY(!ScenarioMutator::removeNetwork(nullptr, "R", "Rail-A"));
+    }
+
+    void test_removeNetwork_rejects_unknown_network()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+        QVERIFY(!ScenarioMutator::removeNetwork(&doc, "R", "does-not-exist"));
+    }
+
+    void test_renameNetwork_updates_key_in_document()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+        NetworkSpec spec;
+        spec.name = "Rail-A";
+        spec.type = NetworkSpec::Type::Rail;
+        QVERIFY(ScenarioMutator::addNetwork(&doc, "R", spec));
+
+        QSignalSpy spy(&doc, &ScenarioDocument::networkRenamed);
+        QVERIFY(ScenarioMutator::renameNetwork(&doc, "R", "Rail-A", "Rail-B"));
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(!doc.regions["R"].networks.contains("Rail-A"));
+        QVERIFY( doc.regions["R"].networks.contains("Rail-B"));
+        QCOMPARE(doc.regions["R"].networks["Rail-B"].name, QString("Rail-B"));
+    }
+
+    void test_renameNetwork_rejects_null_doc()
+    {
+        QVERIFY(!ScenarioMutator::renameNetwork(nullptr, "R", "A", "B"));
+    }
+
+    void test_renameNetwork_rejects_unknown_network()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+        QVERIFY(!ScenarioMutator::renameNetwork(&doc, "R", "does-not-exist", "B"));
+    }
+
+    void test_create_terminal_properties_bag_has_no_region()
+    {
+        ScenarioDocument doc;
+        seedRegion(doc, "R");
+
+        const QString id = ScenarioMutator::createTerminal(
+            &doc, "Intermodal Land Terminal", "R", QPointF(0.1, 0.2));
+
+        QVERIFY(!id.isEmpty());
+        const auto &p = doc.terminals[id];
+
+        // Region is a first-class field, not bag storage.
+        QVERIFY(!p.properties.contains("Region"));
+        // Canonical field must be set correctly.
+        QCOMPARE(p.region, QStringLiteral("R"));
     }
 };
 

@@ -88,16 +88,15 @@ void TerminalItem::initializeDefaultProperties()
 
     // Per-type defaults are owned by Backend's single source of truth; we
     // only override the per-instance Name (suffixed with the type-counter
-    // ID) and Region (passed at construction time). Any divergence here
-    // would re-create the bug Plan 8 closes — do not duplicate the
-    // per-type branching logic from TerminalTypeDefaults::defaultProperties.
+    // ID). Any divergence here would re-create the bag/field split this
+    // refactor closes — do not duplicate the per-type branching logic from
+    // TerminalTypeDefaults::defaultProperties.
     const QString typeId = getNewTerminalID(m_terminalType);
     m_properties =
         Backend::Scenario::TerminalTypeDefaults::defaultProperties(
             m_terminalType);
     m_properties[QStringLiteral("Name")] =
         QString("%1%2").arg(m_terminalType).arg(typeId);
-    m_properties[QStringLiteral("Region")] = m_region;
 
     qCDebug(lcGuiScene)
         << "TerminalItem::initializeDefaultProperties:"
@@ -112,9 +111,8 @@ void TerminalItem::setRegion(const QString &newRegion)
             << "TerminalItem::setRegion:"
             << "old=" << m_region
             << "new=" << newRegion;
-        QString oldRegion      = m_region;
-        m_region               = newRegion;
-        m_properties["Region"] = newRegion;
+        QString oldRegion = m_region;
+        m_region          = newRegion;
         emit regionChanged(newRegion);
     }
 }

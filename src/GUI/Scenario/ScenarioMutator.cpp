@@ -79,7 +79,6 @@ QString ScenarioMutator::createTerminal(
     p.mode       = TerminalPlacement::PositionMode::LatLon;
     p.latLon     = toLatLon(localLatLon);
     p.properties = TerminalTypeDefaults::defaultProperties(terminalType);
-    p.properties[QStringLiteral("Region")] = p.region;
     p.role       = role;
     applyRoleSideEffects(p);
 
