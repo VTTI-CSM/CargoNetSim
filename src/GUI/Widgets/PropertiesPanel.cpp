@@ -1464,7 +1464,7 @@ void PropertiesPanel::saveTerminalProperties(
             << "to backend for" << id;
 
         if (regionChanged)
-            handleRegionChange(terminal, newRegion);
+            handleRegionChange(terminal, newRegion, oldRegion);
     }
     else
     {
@@ -1890,11 +1890,14 @@ QVariant PropertiesPanel::getWidgetValue(QWidget *widget)
 }
 
 void PropertiesPanel::handleRegionChange(
-    TerminalItem *terminal, const QString &newRegionName)
+    TerminalItem *terminal, const QString &newRegionName,
+    const QString &oldRegionName)
 {
-    QString oldRegionName = terminal->getRegion();
+    // Always update the item's region field, regardless of whether
+    // we can compute a position offset (centers may not exist in
+    // non-visual contexts).
+    terminal->setRegion(newRegionName);
 
-    // Get the new region's center point
     RegionCenterPoint *newRegionCenter = nullptr;
     RegionCenterPoint *oldRegionCenter = nullptr;
 
@@ -1913,22 +1916,16 @@ void PropertiesPanel::handleRegionChange(
 
     if (newRegionCenter && oldRegionCenter)
     {
-        // Calculate item's offset from old region center
         QPointF oldOffset(terminal->pos().x()
                               - oldRegionCenter->pos().x(),
                           terminal->pos().y()
                               - oldRegionCenter->pos().y());
 
-        // Apply offset to new region center
         QPointF newPos(
             newRegionCenter->pos().x() + oldOffset.x(),
             newRegionCenter->pos().y() + oldOffset.y());
 
-        // Update item position
         terminal->setPos(newPos);
-
-        // Update region property
-        terminal->setRegion(newRegionName);
     }
 }
 
