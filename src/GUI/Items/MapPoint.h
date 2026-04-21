@@ -37,6 +37,18 @@ class TerminalItem;
  * MapPoint is a visual representation of a network node
  * that can be linked to a terminal. It can have different
  * shapes and belongs to a specific network region.
+ *
+ * Delete-policy: MapPoints are network-scoped — the network
+ * owns a fixed set of nodes and a MapPoint's identity is
+ * its node id inside that network. Deleting a single node
+ * would desynchronize the scene from the network model, so
+ * per-item Delete is not supported. The network-removal path
+ * (NetworkDrawingController::removeNetwork) iterates nodes
+ * and links and removes every MapPoint/MapLine belonging to
+ * the network in one pass. We therefore deliberately do NOT
+ * override GraphicsObjectBase::createDeleteCommand — base's
+ * nullptr return makes Delete a silent no-op on this item,
+ * which is the intended behaviour.
  */
 class MapPoint : public GraphicsObjectBase,
                  public Input::IClickable,

@@ -27,6 +27,18 @@ namespace GUI
  * A global map representation using the same pixmap as
  * TerminalItem but scaled down. Links to the original
  * terminal item and represents it on the global map.
+ *
+ * Delete-policy: GlobalTerminalItem is a mirror, not an
+ * independently addressable entity. Deleting it in isolation
+ * would leave the underlying TerminalItem + placement orphaned
+ * of its global representation while the placement still says
+ * "Show on Global Map = true". The mirror is owned by the
+ * lifecycle of the linked TerminalItem: deleting the terminal,
+ * toggling its "Show on Global Map" flag, or removing the
+ * region is the only way to remove the mirror. We therefore
+ * deliberately do NOT override GraphicsObjectBase::createDeleteCommand
+ * — base's nullptr return makes Delete a silent no-op on this
+ * item, which is the intended behaviour.
  */
 class GlobalTerminalItem : public GraphicsObjectBase,
                            public Input::IClickable,
