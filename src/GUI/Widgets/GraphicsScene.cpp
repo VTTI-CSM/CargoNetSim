@@ -85,16 +85,11 @@ void GraphicsScene::keyPressEvent(QKeyEvent *event)
 
 void GraphicsScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
 {
-    if (m_inputController) {
-        Input::MoveEvent ie{
-            event->buttons(), event->modifiers(),
-            event->scenePos(), event->screenPos()
-        };
-        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
-            event->accept();
-            return;
-        }
-    }
+    // Move events are dispatched exclusively by GraphicsView::mouseMoveEvent
+    // (the Adapter for the view-level input source). Dispatching here again
+    // causes double-fire and, during scrollbar-driven panning, Qt synthesises
+    // additional scene-level move events whose screenPos is the original
+    // press location — they cancel the user's drag and freeze the pan.
     QGraphicsScene::mouseMoveEvent(event);
 }
 

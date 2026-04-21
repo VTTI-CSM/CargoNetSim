@@ -186,6 +186,16 @@ void PropertiesPanel::displayProperties(QGraphicsItem *item)
     }
 
     layout->addRow(saveButton);
+
+    // Bring the properties dock to the front so the user sees the panel
+    // they just populated even if another tabified dock (e.g. Settings)
+    // currently covers it.
+    if (!mainWindow)
+        mainWindow = qobject_cast<MainWindow *>(window());
+    if (mainWindow && mainWindow->propertiesDock_) {
+        mainWindow->propertiesDock_->show();
+        mainWindow->propertiesDock_->raise();
+    }
 }
 
 void PropertiesPanel::clearLayout()

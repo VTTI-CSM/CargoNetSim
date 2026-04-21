@@ -811,8 +811,9 @@ void GraphicsView::mousePressEvent(QMouseEvent *event)
         << "hasController=" << (m_inputController != nullptr);
 
     if (panTrigger && m_inputController) {
-        qCInfo(lcGuiScene) << "  -> pushing PanMode with initial pos" << event->pos();
-        m_inputController->pushMode<Input::PanMode>(event->pos());
+        const QPoint initialScreenPos = event->globalPosition().toPoint();
+        qCInfo(lcGuiScene) << "  -> pushing PanMode with initial screenPos" << initialScreenPos;
+        m_inputController->pushMode<Input::PanMode>(initialScreenPos);
         event->accept();
         return;
     }

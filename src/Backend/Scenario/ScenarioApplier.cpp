@@ -97,8 +97,16 @@ bool ScenarioApplier::applyRegions(const ScenarioDocument &doc,
             if (error) *error = QStringLiteral("Region '%1' disappeared after add").arg(r.name);
             return false;
         }
-        if (!r.color.isEmpty())
-            rd->setVariable("color", r.color);
+        if (!r.color.isEmpty()) {
+            qCInfo(lcScenario)
+                << "ScenarioApplier::applyRegions: setRegionVariable color for"
+                << r.name << "value=" << r.color;
+            // Route through the controller so regionVariableChanged fires —
+            // observers (RegionManagerWidget) that refreshed on the earlier
+            // regionAdded signal need this event to pick up the colour,
+            // since it's only set AFTER the add.
+            regions->setRegionVariable(r.name, "color", r.color);
+        }
 
         QVariantMap center;
         center["latitude"]         = r.localOrigin.latitude;

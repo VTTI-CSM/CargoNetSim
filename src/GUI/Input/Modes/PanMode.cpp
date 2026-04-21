@@ -10,25 +10,25 @@
 
 namespace CargoNetSim::GUI::Input {
 
-PanMode::PanMode(QPoint initialViewPos)
-    : m_lastViewPos(initialViewPos)
+PanMode::PanMode(QPoint initialScreenPos)
+    : m_lastScreenPos(initialScreenPos)
 {
-    qCDebug(lcGuiInputMode) << "PanMode ctor; initial view pos =" << m_lastViewPos;
+    qCDebug(lcGuiInputMode) << "PanMode ctor; initial screen pos =" << m_lastScreenPos;
 }
 
 PanMode::~PanMode() = default;
 
-Handled PanMode::onMove(const MoveEvent&, const ClickContext& ctx)
+Handled PanMode::onMove(const MoveEvent& e, const ClickContext& ctx)
 {
     if (!ctx.view) {
         qCInfo(lcGuiInputMode) << "PanMode::onMove: no view — PassThrough";
         return Handled::PassThrough;
     }
-    QPoint currentViewPos = ctx.view->mapFromScene(ctx.scenePos);
-    QPoint delta          = currentViewPos - m_lastViewPos;
-    qCInfo(lcGuiInputMode) << "PanMode::onMove: viewPos=" << currentViewPos
+    // Delta in GLOBAL screen coords — unaffected by our own scrollbar edits.
+    const QPoint delta = e.screenPos - m_lastScreenPos;
+    m_lastScreenPos    = e.screenPos;
+    qCInfo(lcGuiInputMode) << "PanMode::onMove: screenPos=" << e.screenPos
                            << "delta=" << delta;
-    m_lastViewPos         = currentViewPos;
 
     if (auto* hbar = ctx.view->horizontalScrollBar()) hbar->setValue(hbar->value() - delta.x());
     if (auto* vbar = ctx.view->verticalScrollBar())   vbar->setValue(vbar->value() - delta.y());

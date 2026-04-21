@@ -13,7 +13,11 @@ namespace CargoNetSim::GUI::Input {
  */
 class PanMode final : public IInteractionMode {
 public:
-    explicit PanMode(QPoint initialViewPos);
+    /// @param initialScreenPos Global screen position of the triggering press.
+    /// Tracking in screen (not view) coords avoids pan-drift: panning the
+    /// scrollbars shifts the viewport transform, so round-tripping scenePos
+    /// through mapFromScene would always cancel the motion the user just made.
+    explicit PanMode(QPoint initialScreenPos);
     ~PanMode() override;
 
     QString name() const override { return QStringLiteral("Pan"); }
@@ -24,7 +28,7 @@ public:
     Handled onRelease(const ReleaseEvent&, const ClickContext&) override;
 
 private:
-    QPoint m_lastViewPos;   // last mouse position in VIEW coords
+    QPoint m_lastScreenPos;   // last mouse position in GLOBAL screen coords
 };
 
 } // namespace CargoNetSim::GUI::Input

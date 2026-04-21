@@ -98,6 +98,17 @@ void RegionManagerWidget::setupUI()
                 });
         connect(rdc, &Backend::RegionDataController::regionsCleared,
                 this, [this]() { updateRegionList(); });
+        // Startup and scenario-load both route through ScenarioApplier,
+        // which adds the region to RDC FIRST and only then writes its
+        // "color" variable. The regionAdded refresh above fires with no
+        // colour set — we'd render a black swatch. Re-refresh whenever
+        // the colour key actually lands so the swatch catches up.
+        connect(rdc, &Backend::RegionDataController::regionVariableChanged,
+                this,
+                [this](const QString &, const QString &key, const QVariant &) {
+                    if (key == QStringLiteral("color"))
+                        updateRegionList();
+                });
     }
 }
 
@@ -111,13 +122,24 @@ void RegionManagerWidget::updateRegionList()
              ->getAllRegionNames())
     {
 
+        auto *rd = CargoNetSim::CargoNetSimController::getInstance()
+                       .getRegionDataController()
+                       ->getRegionData(regionName);
+        const QVariant rawColor = rd ? rd->getVariable("color") : QVariant();
+        qCInfo(lcGuiUtil)
+            << "RegionManagerWidget::updateRegionList:"
+            << "region=" << regionName
+            << "rd=" << static_cast<void*>(rd)
+            << "variantType=" << rawColor.typeName()
+            << "userType=" << rawColor.userType()
+            << "rawValue=" << rawColor
+            << "canConvertQColor=" << rawColor.canConvert<QColor>();
+
         // get the color assigned to the region
-        QColor color =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getRegionData(regionName)
-                    ->getVariableAs<QColor>("color");
+        QColor color = rd ? rd->getVariableAs<QColor>("color") : QColor();
+        qCInfo(lcGuiUtil)
+            << "  -> QColor via getVariableAs: valid=" << color.isValid()
+            << "name=" << color.name();
 
         // Create color swatch pixmap
         QPixmap pixmap(24, 24);

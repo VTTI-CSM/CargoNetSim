@@ -92,6 +92,7 @@ class MainWindow : public CustomMainWindow, public StatusReporter
     friend class NetworkController;
     friend class UtilitiesFunctions;
     friend class TerminalSelectionDialog;
+    friend class PropertiesPanel;
 
 public:
     /**

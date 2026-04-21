@@ -201,6 +201,10 @@ void RegionController::addRegion(const QString &name,
     auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
                     .getRegionDataController();
     rdc->addRegion(name);
+    qCInfo(lcGuiView)
+        << "RegionController::addRegion: setRegionVariable color"
+        << "region=" << name << "color=" << color.name()
+        << "as QVariant(QColor)";
     rdc->setRegionVariable(name, "color", color);
 
     // Step 2: scene item
