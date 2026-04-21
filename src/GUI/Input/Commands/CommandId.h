@@ -24,6 +24,7 @@ constexpr int CreateTerminalAtPoint         = 1010;
 constexpr int SetTerminalGlobalPosition     = 1011;
 constexpr int DeleteItem                    = 1012;
 constexpr int DeleteTerminal                = 1013;
+constexpr int DeleteBackgroundPhoto         = 1014;
 
 } // namespace CommandId
 

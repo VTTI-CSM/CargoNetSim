@@ -272,6 +272,12 @@ public:
     /// Implementation in .cpp (needs TerminalPlacement's full definition).
     QString getTerminalId() const;
 
+    /// Emit a command that removes this terminal from the document. Returns
+    /// nullptr when the terminal is unbound (no domain id to address) or the
+    /// document pointer is absent.
+    std::unique_ptr<QUndoCommand> createDeleteCommand(
+        Backend::Scenario::ScenarioDocument* doc) const override;
+
 protected:
     /// Scene-registration hook: terminal id when bound, else empty so the
     /// base's sceneRegistryKey() falls back to the auto-UUID.

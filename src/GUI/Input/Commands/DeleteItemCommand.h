@@ -8,7 +8,9 @@
 
 namespace CargoNetSim {
 namespace Backend::Scenario { class ScenarioDocument; }
-namespace GUI::Input {
+namespace GUI {
+class BackgroundPhotoItem;
+namespace Input {
 
 /// Factory that maps a selected graphics item type to the right concrete
 /// QUndoCommand for deletion. Keeps NormalMode::onKeyPress(Delete) and other
@@ -25,7 +27,12 @@ public:
         QString                                             fromId,
         QString                                             toId,
         Backend::TransportationTypes::TransportationMode    mode);
+
+    /// Factory for background-photo deletion (GUI-only, not in ScenarioDocument).
+    static std::unique_ptr<QUndoCommand> forBackgroundPhoto(
+        BackgroundPhotoItem* item);
 };
 
-} // namespace GUI::Input
+} // namespace Input
+} // namespace GUI
 } // namespace CargoNetSim

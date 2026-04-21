@@ -178,6 +178,8 @@ set(GUI_SOURCES
     Input/Commands/CreateTerminalAtMapPointCommand.cpp
     Input/Commands/CreateTerminalAtPointCommand.h
     Input/Commands/CreateTerminalAtPointCommand.cpp
+    Input/Commands/DeleteBackgroundPhotoCommand.h
+    Input/Commands/DeleteBackgroundPhotoCommand.cpp
     Input/Commands/DeleteConnectionCommand.h
     Input/Commands/DeleteConnectionCommand.cpp
     Input/Commands/DeleteItemCommand.h

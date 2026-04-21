@@ -8,6 +8,7 @@
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Input/ClickContext.h"
 #include "GUI/Input/Commands/CommandBus.h"
+#include "GUI/Input/Commands/DeleteItemCommand.h"
 #include "GUI/Input/Commands/SetTerminalRoleCommand.h"
 #include "GUI/Input/Commands/SetTerminalTypeCommand.h"
 #include "GUI/Input/Commands/UpdateTerminalPositionCommand.h"
@@ -219,6 +220,15 @@ void TerminalItem::setPlacement(
 QString TerminalItem::getTerminalId() const
 {
     return m_placement ? m_placement->id : QString();
+}
+
+std::unique_ptr<QUndoCommand> TerminalItem::createDeleteCommand(
+    Backend::Scenario::ScenarioDocument* doc) const
+{
+    if (!doc) return nullptr;
+    const QString id = getTerminalId();
+    if (id.isEmpty()) return nullptr;
+    return Input::DeleteItemCommand::forTerminal(doc, id);
 }
 
 Backend::Scenario::InterfaceConversion::InterfaceMap

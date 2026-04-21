@@ -1,6 +1,7 @@
 #include "BackgroundPhotoItem.h"
 #include "Backend/Commons/LogCategories.h"
 #include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/DeleteItemCommand.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
@@ -345,6 +346,16 @@ void BackgroundPhotoItem::updateProperty(
         m_properties[key] = value;
         emit propertyChanged(key, value);
     }
+}
+
+std::unique_ptr<QUndoCommand> BackgroundPhotoItem::createDeleteCommand(
+    Backend::Scenario::ScenarioDocument* /*doc*/) const
+{
+    // Factory accepts a non-const pointer because the command mutates the item
+    // (removes it from the scene); the cast is safe — the scene already holds
+    // the item as non-const.
+    return Input::DeleteItemCommand::forBackgroundPhoto(
+        const_cast<BackgroundPhotoItem*>(this));
 }
 
 QMap<QString, QVariant> BackgroundPhotoItem::toDict() const

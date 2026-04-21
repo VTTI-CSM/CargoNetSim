@@ -3,9 +3,8 @@
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Controllers/CargoNetSimController.h"
 #include "../../../Backend/Controllers/RegionDataController.h"
-#include "../../../Backend/Scenario/Connection.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Items/ConnectionLine.h"
+#include "../../Items/GraphicsObjectBase.h"
 #include "../../Items/TerminalItem.h"
 #include "../../MainWindow.h"
 #include "../../Widgets/GraphicsScene.h"
@@ -13,13 +12,17 @@
 #include "../ClickContext.h"
 #include "../Commands/CommandBus.h"
 #include "../Commands/CreateTerminalAtPointCommand.h"
-#include "../Commands/DeleteItemCommand.h"
 #include "../InteractionController.h"
 
 #include <QDataStream>
 #include <QGraphicsItem>
 #include <QLoggingCategory>
 #include <QMimeData>
+#include <QUndoCommand>
+
+#include <memory>
+#include <utility>
+#include <vector>
 
 namespace CargoNetSim::GUI::Input {
 
@@ -32,35 +35,31 @@ Handled NormalMode::onKeyPress(const KeyPressEvent& e, const ClickContext& ctx)
     if (selected.isEmpty()) return Handled::PassThrough;
 
     qCInfo(lcGuiInputMode) << "NormalMode: Delete on" << selected.size() << "items";
-    if (!ctx.document) {
-        qCWarning(lcGuiInputMode) << "NormalMode: delete requested with null document";
-        return Handled::Yes;
+
+    // Collect one command per deletable item via the polymorphic item hook.
+    // Items that are not deletable (unbound, missing document binding, or a
+    // type with no delete semantics) return nullptr and are silently skipped;
+    // the mode never needs a per-type dynamic_cast ladder here.
+    Backend::Scenario::ScenarioDocument* doc =
+        ctx.document ? ctx.document.data() : nullptr;
+
+    std::vector<std::unique_ptr<QUndoCommand>> cmds;
+    cmds.reserve(selected.size());
+    for (QGraphicsItem* item : selected) {
+        auto* obj = dynamic_cast<GraphicsObjectBase*>(item);
+        if (!obj) continue;
+        if (auto cmd = obj->createDeleteCommand(doc))
+            cmds.push_back(std::move(cmd));
     }
 
-    ctx.commandBus->beginMacro(QStringLiteral("Delete %1 item(s)").arg(selected.size()));
-    for (QGraphicsItem* item : selected) {
-        if (auto* t = dynamic_cast<TerminalItem*>(item)) {
-            ctx.commandBus->submit(
-                DeleteItemCommand::forTerminal(
-                    ctx.document.data(), t->getTerminalId()));
-        } else if (auto* c = dynamic_cast<ConnectionLine*>(item)) {
-            // Prefer the bound Connection model for the (from,to,mode) key;
-            // unbound lines cannot be mapped to a document entity.
-            if (auto* conn = c->connectionModel()) {
-                ctx.commandBus->submit(
-                    DeleteItemCommand::forConnection(
-                        ctx.document.data(),
-                        conn->fromTerminalId,
-                        conn->toTerminalId,
-                        conn->mode));
-            } else {
-                qCWarning(lcGuiInputMode)
-                    << "NormalMode::onKeyPress: ConnectionLine has no bound"
-                    << "Connection model; cannot delete from document.";
-            }
-        }
-        // Other types added as follow-ups.
+    if (cmds.empty()) {
+        qCDebug(lcGuiInputMode)
+            << "NormalMode: no deletable items in selection; passing event through";
+        return Handled::PassThrough;
     }
+
+    ctx.commandBus->beginMacro(QStringLiteral("Delete %1 item(s)").arg(cmds.size()));
+    for (auto& cmd : cmds) ctx.commandBus->submit(std::move(cmd));
     ctx.commandBus->endMacro();
     return Handled::Yes;
 }

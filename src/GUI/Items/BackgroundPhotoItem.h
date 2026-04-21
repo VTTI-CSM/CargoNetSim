@@ -103,6 +103,16 @@ public:
     }
 
     /**
+     * @brief Access the underlying pixmap.
+     * @return The pixmap stored by this item.
+     *
+     * Exposed so commands that need to snapshot and later re-construct the
+     * image (e.g., undoable deletion) can capture the raw image without
+     * round-tripping through the serialized dict.
+     */
+    const QPixmap &pixmap() const { return m_pixmap; }
+
+    /**
      * @brief Get the current scale factor
      * @return The scale factor as a float
      */
@@ -137,6 +147,12 @@ public:
     static BackgroundPhotoItem *
     fromDict(const QMap<QString, QVariant> &data,
              QGraphicsItem *parent = nullptr);
+
+    // Emit a command that removes this background image from its scene and
+    // the RegionDataController pointer slot, with undo that restores both.
+    // Ignores the `doc` pointer — backgrounds are GUI-only overlays.
+    std::unique_ptr<QUndoCommand> createDeleteCommand(
+        Backend::Scenario::ScenarioDocument* doc) const override;
 
     // Input interface overrides
     Input::Handled

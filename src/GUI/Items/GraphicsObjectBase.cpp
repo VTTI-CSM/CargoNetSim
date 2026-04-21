@@ -52,6 +52,13 @@ QString GraphicsObjectBase::getID() const
     return m_id;
 }
 
+std::unique_ptr<QUndoCommand> GraphicsObjectBase::createDeleteCommand(
+    Backend::Scenario::ScenarioDocument* /*doc*/) const
+{
+    // Default: item has no user-deletable semantics. Concrete types override.
+    return nullptr;
+}
+
 void GraphicsObjectBase::flash(bool          evenIfHidden,
                                const QColor &color)
 {

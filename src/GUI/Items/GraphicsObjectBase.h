@@ -6,8 +6,15 @@
 #include <QGraphicsRectItem>
 #include <QPointer>
 #include <QPropertyAnimation>
+#include <memory>
 
-namespace CargoNetSim::GUI
+class QUndoCommand;
+
+namespace CargoNetSim
+{
+namespace Backend::Scenario { class ScenarioDocument; }
+
+namespace GUI
 {
 
 class GraphicsScene;
@@ -50,6 +57,15 @@ public:
     /// Lookup via the scene's stored pointer; nullptr if item has not been
     /// added to a GraphicsScene.
     Input::InteractionController* interactionController() const;
+
+    /// Produce a QUndoCommand that removes this item from whatever owns it
+    /// (document, scene, controller state), or nullptr if the item cannot or
+    /// should not be deleted via the user-delete path. Each concrete type
+    /// owns its own removal semantics — callers (NormalMode::onKeyPress,
+    /// future delete sites) must NOT dynamic_cast per type. `doc` may be
+    /// null for items whose deletion does not touch the ScenarioDocument.
+    virtual std::unique_ptr<QUndoCommand> createDeleteCommand(
+        Backend::Scenario::ScenarioDocument* doc) const;
 
 protected:
     /// Hook for derived classes that view a document entity. Return the
@@ -95,4 +111,5 @@ private:
     bool                                            m_draggingSincePress = false;
 };
 
-} // namespace CargoNetSim::GUI
+} // namespace GUI
+} // namespace CargoNetSim

@@ -1,5 +1,6 @@
 #include "DeleteItemCommand.h"
 
+#include "DeleteBackgroundPhotoCommand.h"
 #include "DeleteConnectionCommand.h"
 #include "DeleteTerminalCommand.h"
 
@@ -19,6 +20,12 @@ std::unique_ptr<QUndoCommand> DeleteItemCommand::forConnection(
 {
     return std::make_unique<DeleteConnectionCommand>(
         doc, std::move(fromId), std::move(toId), mode);
+}
+
+std::unique_ptr<QUndoCommand> DeleteItemCommand::forBackgroundPhoto(
+    BackgroundPhotoItem* item)
+{
+    return std::make_unique<DeleteBackgroundPhotoCommand>(item);
 }
 
 } // namespace CargoNetSim::GUI::Input

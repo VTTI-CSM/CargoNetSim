@@ -18,6 +18,7 @@
 #include "Backend/Scenario/Connection.h"
 #include "Backend/Scenario/GlobalLink.h"
 #include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/DeleteItemCommand.h"
 
 namespace CargoNetSim
 {
@@ -104,6 +105,15 @@ ConnectionLine::ConnectionLine(
 
     // Initialize position and geometry
     updatePosition();
+}
+
+std::unique_ptr<QUndoCommand> ConnectionLine::createDeleteCommand(
+    Backend::Scenario::ScenarioDocument* doc) const
+{
+    if (!doc || !m_connection) return nullptr;
+    return Input::DeleteItemCommand::forConnection(
+        doc, m_connection->fromTerminalId, m_connection->toTerminalId,
+        m_connection->mode);
 }
 
 ConnectionLine::~ConnectionLine()

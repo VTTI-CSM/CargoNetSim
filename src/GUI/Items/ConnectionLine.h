@@ -138,6 +138,13 @@ public:
         return m_connection;
     }
 
+    /// Emit a command that removes this connection from the document. Returns
+    /// nullptr when the line is unbound (no Connection model) or when the
+    /// document pointer is absent — unbound lines cannot be mapped to any
+    /// document entity.
+    std::unique_ptr<QUndoCommand> createDeleteCommand(
+        Backend::Scenario::ScenarioDocument* doc) const override;
+
     /// Non-owning global-link pointer, or nullptr when unbound / in
     /// Connection mode.
     Backend::Scenario::GlobalLink *globalLinkModel() const
