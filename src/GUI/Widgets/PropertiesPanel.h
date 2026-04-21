@@ -14,6 +14,8 @@
 #include <QSpinBox>
 #include <QVariant>
 #include <QWidget>
+
+#include "../Input/PickSession.h"
 namespace CargoNetSim
 {
 namespace GUI
@@ -28,7 +30,7 @@ class ConnectionLine;
 class BackgroundPhotoItem;
 class MapPoint;
 class DestinationListEditor;
-namespace Input { class InteractionController; }
+namespace Input { class InteractionController; } // namespace Input
 class PropertiesPanel : public QWidget
 {
     Q_OBJECT
@@ -163,12 +165,27 @@ private:
     QPushButton             *saveButton;
     QGraphicsItem           *currentItem;
     QMap<QString, QWidget *> editFields;
-    QMetaObject::Connection  m_pickConnection;
-    Input::InteractionController *m_pickController = nullptr;
+
+    /// When an Origin Configuration section is rendered, these track the
+    /// origin and its multi-destination editor so that PickCoordinator
+    /// resolutions can be routed to the right place by slot.
+    QString                  m_currentOriginId;
+    DestinationListEditor   *m_currentListEditor = nullptr;
+
+    /// True once we've subscribed to the coordinator's destinationResolved
+    /// signal. Subscription happens lazily (needs a valid MainWindow).
+    bool                     m_coordConnected = false;
 
     QPointer<GraphicsScene>  m_regionScene;
     QPointer<GraphicsScene>  m_globalScene;
     QPointer<GraphicsScene>  m_activeScene;
+
+private slots:
+    /// Routes a pick result by PickSlot variant: primary -> direct mutator
+    /// write; multi-row -> forward to m_currentListEditor.
+    void onDestinationResolved(const Input::PickSession &session,
+                               const QString &terminalId,
+                               const QString &terminalName);
 };
 } // namespace GUI
 } // namespace CargoNetSim

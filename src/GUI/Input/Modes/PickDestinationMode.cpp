@@ -8,6 +8,7 @@
 #include "../ClickContext.h"
 #include "../InteractionController.h"
 #include "../Modes/NormalMode.h"
+#include "../PickCoordinator.h"
 
 #include <QGraphicsItem>
 #include <QLoggingCategory>
@@ -82,8 +83,15 @@ Handled PickDestinationMode::onPress(const PressEvent& e, const ClickContext& ct
     }
 
     qCInfo(lcGuiInputMode) << "PickDestinationMode: picked" << id << name;
-    emit ctx.controller->destinationPicked(id, name);
-    ctx.controller->setMode<NormalMode>();
+    auto* coord = ctx.controller ? ctx.controller->coordinator() : nullptr;
+    if (!coord) {
+        qCWarning(lcGuiInputMode)
+            << "PickDestinationMode::onPress: no coordinator on controller — pick dropped";
+        ctx.controller->setMode<NormalMode>();
+        return Handled::Yes;
+    }
+    coord->resolve(id, name);
+    // Mode transition is driven by PickCoordinator::syncControllerModes().
     return Handled::Yes;
 }
 
@@ -91,7 +99,11 @@ Handled PickDestinationMode::onKeyPress(const KeyPressEvent& e, const ClickConte
 {
     if (e.key == Qt::Key_Escape) {
         qCDebug(lcGuiInputMode) << "PickDestinationMode: Escape — cancel";
-        ctx.controller->setMode<NormalMode>();
+        if (auto* coord = ctx.controller ? ctx.controller->coordinator() : nullptr) {
+            coord->cancel();
+        } else {
+            ctx.controller->setMode<NormalMode>();
+        }
         return Handled::Yes;
     }
     return Handled::PassThrough;

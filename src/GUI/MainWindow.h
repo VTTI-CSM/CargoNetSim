@@ -32,6 +32,7 @@
 #include "Widgets/RegionManagerWidget.h"
 #include "Input/Commands/CommandBus.h"
 #include "Input/InteractionController.h"
+#include "Input/PickCoordinator.h"
 
 #include <memory>
 
@@ -209,6 +210,7 @@ public:
     { return m_fleetCtrl; }
 
     Input::CommandBus*            commandBus()             const { return m_commandBus; }
+    Input::PickCoordinator*       pickCoordinator()        const { return m_pickCoordinator; }
     Input::InteractionController* regionInputController()  const { return m_regionInputController; }
     Input::InteractionController* globalInputController()  const { return m_globalInputController; }
 
@@ -559,6 +561,7 @@ protected:
     FleetController            *m_fleetCtrl        = nullptr;
 
     Input::CommandBus*            m_commandBus            = nullptr;   // shared by both controllers
+    Input::PickCoordinator*       m_pickCoordinator       = nullptr;   // shared by both controllers
     Input::InteractionController* m_regionInputController = nullptr;
     Input::InteractionController* m_globalInputController = nullptr;
 

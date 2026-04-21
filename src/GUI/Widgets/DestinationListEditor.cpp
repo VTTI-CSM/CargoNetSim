@@ -1,9 +1,8 @@
 // src/GUI/Widgets/DestinationListEditor.cpp
 #include "DestinationListEditor.h"
 #include "GraphicsScene.h"
-#include "../Input/InteractionController.h"
-#include "../Input/Modes/NormalMode.h"
-#include "../Input/Modes/PickDestinationMode.h"
+#include "../Input/PickCoordinator.h"
+#include "../Input/PickSession.h"
 #include "Backend/Commons/LogCategories.h"
 
 #include <QDoubleSpinBox>
@@ -152,11 +151,26 @@ void DestinationListEditor::addRow()
     auto *pickBtn = new QPushButton("Pick");
     pickBtn->setToolTip(tr("Click terminal on canvas"));
     connect(pickBtn, &QPushButton::clicked, this,
-        [this, row, pickBtn]() {
-            if (!m_controller) return;
+        [this, row]() {
+            if (!m_coordinator) {
+                qCWarning(lcGuiUtil)
+                    << "DestinationListEditor: Pick clicked without coordinator";
+                return;
+            }
+            // Toggle: if this row is already the active pick target, cancel.
+            const auto &s = m_coordinator->activeSession();
+            if (s && s->requesterId == m_originTerminalId &&
+                s->targetsRow(static_cast<std::size_t>(row)))
+            {
+                m_coordinator->cancel();
+                return;
+            }
             m_activePickRow = row;
-            m_controller->setMode<Input::PickDestinationMode>();
-            pickBtn->setText("Picking...");
+            m_coordinator->begin(Input::PickSession{
+                m_originTerminalId,
+                m_originTerminalId,
+                Input::MultiDestinationRowSlot{ static_cast<std::size_t>(row) }
+            });
         });
     m_table->setCellWidget(row, kColTerminal, pickBtn);
 
@@ -210,39 +224,73 @@ void DestinationListEditor::refreshSumLabel()
     m_sumLabel->setPalette(p);
 }
 
-void DestinationListEditor::setController(Input::InteractionController *ctrl)
+void DestinationListEditor::setCoordinator(Input::PickCoordinator *coord)
 {
-    if (m_pickConnection)
-        disconnect(m_pickConnection);
-    m_controller = ctrl;
-    if (!m_controller) return;
-    m_pickConnection = connect(
-        m_controller, &Input::InteractionController::destinationPicked,
-        this,
-        [this](const QString &destId,
-               const QString &destName) {
-            if (m_activePickRow < 0) return;
-            if (destId == m_originTerminalId) return;
-            qCDebug(lcGuiUtil)
-                << "DestinationListEditor: picked"
-                << destId << "for row"
-                << m_activePickRow;
-            if (m_activePickRow < m_rowTerminalIds.size())
-                m_rowTerminalIds[m_activePickRow] = destId;
-            if (auto *btn = qobject_cast<QPushButton *>(
-                    m_table->cellWidget(
-                        m_activePickRow, kColTerminal)))
-            {
-                btn->setText(
-                    QStringLiteral("Picked \u2713"));
-                btn->setToolTip(
-                    destName.isEmpty() ? destId
-                                      : destName);
-            }
+    if (m_coordinator == coord) return;
+    if (m_coordinator) disconnect(m_coordinator, nullptr, this, nullptr);
+    m_coordinator = coord;
+    if (!m_coordinator) return;
+    connect(m_coordinator, &Input::PickCoordinator::sessionChanged,
+            this, &DestinationListEditor::onSessionChanged);
+}
+
+void DestinationListEditor::applyPickedTerminalToActiveRow(
+    const QString &id, const QString &name)
+{
+    if (m_activePickRow < 0) {
+        qCWarning(lcGuiUtil)
+            << "DestinationListEditor::applyPickedTerminalToActiveRow:"
+            << "no active pick row";
+        return;
+    }
+    if (m_activePickRow < m_rowTerminalIds.size())
+        m_rowTerminalIds[m_activePickRow] = id;
+    if (auto *btn = qobject_cast<QPushButton *>(
+            m_table->cellWidget(m_activePickRow, kColTerminal))) {
+        btn->setText(QStringLiteral("Picked ✓"));
+        btn->setToolTip(name.isEmpty() ? id : name);
+    }
+    m_activePickRow = -1;
+    refreshSumLabel();
+    emit changed();
+}
+
+void DestinationListEditor::onSessionChanged()
+{
+    if (!m_coordinator || !m_coordinator->isActive()) {
+        if (m_activePickRow >= 0) {
+            const int row = m_activePickRow;
             m_activePickRow = -1;
-            refreshSumLabel();
-            emit changed();
-        });
+            refreshRowButtonLabel(row);
+        }
+        return;
+    }
+    const auto &s = m_coordinator->activeSession();
+    if (s->requesterId != m_originTerminalId) return;
+    if (auto *r = std::get_if<Input::MultiDestinationRowSlot>(&s->slot)) {
+        m_activePickRow = static_cast<int>(r->rowIndex);
+        refreshRowButtonLabel(m_activePickRow);
+    }
+}
+
+void DestinationListEditor::refreshRowButtonLabel(int row)
+{
+    if (row < 0 || row >= m_table->rowCount()) return;
+    auto *btn = qobject_cast<QPushButton *>(
+        m_table->cellWidget(row, kColTerminal));
+    if (!btn) return;
+    const bool isActive = m_coordinator && m_coordinator->isActive() &&
+                          m_coordinator->activeSession()->requesterId == m_originTerminalId &&
+                          m_coordinator->activeSession()->targetsRow(static_cast<std::size_t>(row));
+    const QString currentId = (row < m_rowTerminalIds.size())
+                                  ? m_rowTerminalIds[row] : QString();
+    if (isActive) {
+        btn->setText(tr("Picking..."));
+    } else if (!currentId.isEmpty()) {
+        btn->setText(QStringLiteral("Picked ✓"));
+    } else {
+        btn->setText(tr("Pick"));
+    }
 }
 
 void DestinationListEditor::setOriginTerminalId(

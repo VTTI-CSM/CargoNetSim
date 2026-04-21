@@ -205,6 +205,15 @@ MainWindow::MainWindow()
         regionView_    ->setInputController(m_regionInputController);
         globalMapScene_->setInputController(m_globalInputController);
         globalMapView_ ->setInputController(m_globalInputController);
+
+        // App-scope pick-session coordinator. Owns the live PickSession and
+        // mediates both controllers so whichever scene is visible is the one
+        // running PickDestinationMode.
+        m_pickCoordinator = new Input::PickCoordinator(this);
+        m_pickCoordinator->registerController(m_regionInputController);
+        m_pickCoordinator->registerController(m_globalInputController);
+        m_regionInputController->setCoordinator(m_pickCoordinator);
+        m_globalInputController->setCoordinator(m_pickCoordinator);
     }
 
     connect(m_networkDrawing,
@@ -235,15 +244,24 @@ MainWindow::MainWindow()
                 const bool onGlobalTab = (index == 1);
                 GraphicsScene *active =
                     onGlobalTab ? globalMapScene_ : regionScene_;
+                // Tell the coordinator which controller is now visible
+                // BEFORE updating the panel so any pick-session mode sync
+                // (PickDestinationMode hops to the newly-active controller)
+                // happens before the panel's refresh logic runs.
+                m_pickCoordinator->setActiveController(
+                    onGlobalTab ? m_globalInputController
+                                : m_regionInputController);
                 propertiesPanel_->setActiveScene(active);
                 // Properties dock is only meaningful on the region tab.
                 if (propertiesDock_) {
                     propertiesDock_->setVisible(!onGlobalTab);
                 }
             });
+    const bool initialGlobal = (tabWidget_->currentIndex() == 1);
+    m_pickCoordinator->setActiveController(
+        initialGlobal ? m_globalInputController : m_regionInputController);
     propertiesPanel_->setActiveScene(
-        tabWidget_->currentIndex() == 1 ? globalMapScene_
-                                        : regionScene_);
+        initialGlobal ? globalMapScene_ : regionScene_);
 
     qCDebug(lcGui)
         << "MainWindow::MainWindow: initializing"

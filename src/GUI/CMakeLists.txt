@@ -150,6 +150,9 @@ set(GUI_SOURCES
     Input/ClickContext.h
     Input/InteractionController.h
     Input/InteractionController.cpp
+    Input/PickSession.h
+    Input/PickCoordinator.h
+    Input/PickCoordinator.cpp
     Input/Interfaces/IInteractionMode.h
     Input/Interfaces/IClickable.h
     Input/Interfaces/IContextMenuProvider.h

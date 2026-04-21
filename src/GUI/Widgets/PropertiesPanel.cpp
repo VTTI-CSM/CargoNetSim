@@ -25,6 +25,7 @@
 #include "../Input/InteractionController.h"
 #include "../Input/Modes/NormalMode.h"
 #include "../Input/Modes/PickDestinationMode.h"
+#include "../Input/PickCoordinator.h"
 
 #include <QApplication>
 #include <QDebug>
@@ -204,22 +205,12 @@ void PropertiesPanel::displayProperties(QGraphicsItem *item)
 
 void PropertiesPanel::clearLayout()
 {
-    if (m_pickConnection || m_pickController)
-    {
-        qCWarning(lcGuiUtil)
-            << "PropertiesPanel::clearLayout: CANCELLING PICK MODE"
-            << "m_pickConnection=" << (bool)m_pickConnection
-            << "m_pickController=" << (void *)m_pickController;
-    }
-    if (m_pickConnection)
-    {
-        disconnect(m_pickConnection);
-        m_pickConnection = {};
-    }
-    if (m_pickController) {
-        m_pickController->setMode<Input::NormalMode>();
-    }
-    m_pickController = nullptr;
+    // Note: pick-session state is owned by PickCoordinator, not by this
+    // panel. clearLayout() intentionally does NOT cancel any active pick --
+    // refreshFromSelection() short-circuits while a session's requester
+    // is displayed, so this path is only hit when it's safe to rebuild.
+    m_currentListEditor = nullptr;
+    m_currentOriginId.clear();
 
     // Clear all widgets except save button from layout
     for (int i = layout->count() - 1; i >= 0; --i)
@@ -944,74 +935,47 @@ void PropertiesPanel::addOriginConfigurationSection(
                     .toString());
     }
 
-    auto *ctrl = mainWindow ? mainWindow->inputController() : nullptr;
-    qCDebug(lcGuiUtil)
-        << "addOriginConfigurationSection: pickButton"
-        << "controller=" << (void *)ctrl;
-    connect(pickButton, &QPushButton::clicked, this,
-        [this, ctrl, pickButton]() {
-            qCDebug(lcGuiUtil)
-                << "pickButton: clicked, controller="
-                << (void *)ctrl;
-            if (!ctrl)
-            {
-                qCWarning(lcGuiUtil)
-                    << "pickButton: controller is null!";
-                return;
-            }
-            const bool active =
-                (m_pickController == ctrl);
-            if (active)
-            {
-                qCDebug(lcGuiUtil)
-                    << "pickButton: cancelling pick";
-                ctrl->setMode<Input::NormalMode>();
-                m_pickController = nullptr;
-                return;
-            }
-            qCDebug(lcGuiUtil)
-                << "pickButton: entering pick mode";
-            ctrl->setMode<Input::PickDestinationMode>();
-            m_pickController = ctrl;
-            pickButton->setText("Picking...");
-        });
+    auto *coord = mainWindow ? mainWindow->pickCoordinator() : nullptr;
+    // Remember which origin this section is for so the coordinator's
+    // destinationResolved signal can be routed back here (see
+    // onDestinationResolved / ensureCoordinatorConnected).
+    m_currentOriginId = id;
 
-    // Receive picked terminal -- lambda captures only
-    // long-lived objects. Button state updates via
-    // terminalChanged -> panel rebuild.
-    if (m_pickConnection)
-        disconnect(m_pickConnection);
-    m_pickConnection = connect(
-        ctrl, &Input::InteractionController::destinationPicked, this,
-        [this, doc, id](const QString &destId,
-                        const QString &destName) {
-            Q_UNUSED(destName);
-            if (destId == id)
-            {
+    // Reflect any already-live pick session in the button label.
+    if (coord && coord->isActive() &&
+        coord->activeSession()->requesterId == id &&
+        coord->activeSession()->targetsPrimary())
+    {
+        pickButton->setText(tr("Picking... (cancel)"));
+    }
+
+    connect(pickButton, &QPushButton::clicked, this,
+        [this, coord, id]() {
+            if (!coord) {
                 qCWarning(lcGuiUtil)
-                    << "addOriginConfigurationSection:"
-                    << "cannot set self as destination";
-                if (mainWindow)
-                    mainWindow->showMessage(
-                        "Cannot set a terminal as its"
-                        " own destination", 2000);
+                    << "pickButton: no PickCoordinator";
                 return;
             }
-            qCDebug(lcGuiUtil)
-                << "addOriginConfigurationSection:"
-                << "destination picked:" << destId;
-            GUI::Scenario::ScenarioMutator::
-                setTerminalProperty(
-                    doc, id,
-                    PK::Terminal::DestinationTerminal,
-                    destId);
+            // Toggle: if a primary-slot pick is already live for this
+            // origin, the button acts as Cancel.
+            if (coord->isActive() &&
+                coord->activeSession()->requesterId == id &&
+                coord->activeSession()->targetsPrimary())
+            {
+                coord->cancel();
+                return;
+            }
+            coord->begin(Input::PickSession{
+                id, id, Input::PrimaryDestinationSlot{}
+            });
         });
 
     // ---- Multi: DestinationListEditor --------------------------------
     auto *listEditor = new DestinationListEditor();
-    listEditor->setController(mainWindow ? mainWindow->inputController() : nullptr);
+    listEditor->setCoordinator(coord);
     listEditor->setOriginTerminalId(id);
     listEditor->setRoutes(doc->destinationsFor(id));
+    m_currentListEditor = listEditor;
     connect(listEditor, &DestinationListEditor::changed,
             this, [doc, id, listEditor]() {
                 if (!listEditor->isValid()) return;  // wait for valid state
@@ -2044,6 +2008,23 @@ void PropertiesPanel::setScenes(GraphicsScene *regionScene,
     // Default active scene is the region scene; MainWindow overrides
     // on tab-switch via setActiveScene.
     m_activeScene = regionScene;
+
+    // Lazy: MainWindow has parented us by this point, so the coordinator
+    // is reachable. Subscribe exactly once.
+    if (!m_coordConnected) {
+        if (!mainWindow) mainWindow = qobject_cast<MainWindow *>(window());
+        if (mainWindow) {
+            if (auto *coord = mainWindow->pickCoordinator()) {
+                connect(coord, &Input::PickCoordinator::destinationResolved,
+                        this, &PropertiesPanel::onDestinationResolved);
+                // Clearing a session (cancel / resolve) must trigger a
+                // refresh so the pinned panel unpins and repaints.
+                connect(coord, &Input::PickCoordinator::sessionChanged,
+                        this, &PropertiesPanel::refreshFromSelection);
+                m_coordConnected = true;
+            }
+        }
+    }
 }
 
 void PropertiesPanel::setActiveScene(GraphicsScene *activeScene)
@@ -2054,6 +2035,24 @@ void PropertiesPanel::setActiveScene(GraphicsScene *activeScene)
 
 void PropertiesPanel::refreshFromSelection()
 {
+    // Pin-to-requester: while a pick session is live AND we are already
+    // showing its requester, do NOT rebuild the layout on scene selection
+    // change. This is what lets the DestinationListEditor (and its local
+    // per-row buffer) survive a region/tab switch mid-pick.
+    if (!mainWindow) mainWindow = qobject_cast<MainWindow *>(window());
+    if (mainWindow) {
+        auto *coord = mainWindow->pickCoordinator();
+        if (coord && coord->isActive() &&
+            !m_currentOriginId.isEmpty() &&
+            coord->activeSession()->requesterId == m_currentOriginId)
+        {
+            qCDebug(lcGuiUtil)
+                << "PropertiesPanel::refreshFromSelection: pinned to requester"
+                << m_currentOriginId << "-- skipping rebuild";
+            return;
+        }
+    }
+
     auto pickSelection = [](GraphicsScene *s) -> QList<QGraphicsItem *> {
         return s ? s->selectedItems() : QList<QGraphicsItem *>{};
     };
@@ -2086,6 +2085,43 @@ void PropertiesPanel::refreshFromSelection()
     }
 
     displayProperties(sel.first());
+}
+
+void PropertiesPanel::onDestinationResolved(
+    const Input::PickSession &session,
+    const QString &terminalId,
+    const QString &terminalName)
+{
+    qCDebug(lcGuiUtil)
+        << "PropertiesPanel::onDestinationResolved requester="
+        << session.requesterId << "picked=" << terminalId;
+
+    // Route by slot variant. Multi-row forwards to the live editor (which
+    // owns the per-row buffer); primary writes straight through the mutator.
+    if (std::holds_alternative<Input::MultiDestinationRowSlot>(session.slot)) {
+        if (m_currentListEditor &&
+            session.requesterId == m_currentOriginId) {
+            m_currentListEditor->applyPickedTerminalToActiveRow(
+                terminalId, terminalName);
+        } else {
+            qCWarning(lcGuiUtil)
+                << "PropertiesPanel::onDestinationResolved: multi-row pick"
+                   " resolved but no matching editor is displayed (requester="
+                << session.requesterId << "shown=" << m_currentOriginId << ")";
+        }
+        return;
+    }
+
+    // PrimaryDestinationSlot: write scalar DestinationTerminal.
+    if (!mainWindow || !mainWindow->runtime()) {
+        qCWarning(lcGuiUtil)
+            << "PropertiesPanel::onDestinationResolved: no runtime -- dropped";
+        return;
+    }
+    auto *doc = &mainWindow->runtime()->document();
+    GUI::Scenario::ScenarioMutator::setTerminalProperty(
+        doc, session.requesterId,
+        PK::Terminal::DestinationTerminal, terminalId);
 }
 
 } // namespace GUI

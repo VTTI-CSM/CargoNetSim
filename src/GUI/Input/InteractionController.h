@@ -23,6 +23,7 @@ namespace Input {
 
 class CommandBus;
 class IInteractionMode;
+class PickCoordinator;
 struct ClickContext;
 
 /**
@@ -67,6 +68,8 @@ public:
     // --- Services ---
 
     CommandBus*    commandBus() const { return m_commandBus; }
+    void              setCoordinator(PickCoordinator* c) { m_coordinator = c; }
+    PickCoordinator*  coordinator()   const              { return m_coordinator; }
     GraphicsScene* scene()      const;
     GraphicsView*  view()       const;
     MainWindow*    mainWindow() const;
@@ -83,7 +86,6 @@ public:
 
 signals:
     void modeChanged       (IInteractionMode* newMode, IInteractionMode* oldMode);
-    void destinationPicked (const QString& terminalId, const QString& terminalName);
 
 private:
     Handled      dispatchToMode(const InputEvent&, const ClickContext&);
@@ -97,6 +99,7 @@ private:
     QPointer<GraphicsView>                         m_view;
     QPointer<Backend::Scenario::ScenarioDocument>  m_document;
     CommandBus*                                    m_commandBus;   // non-owning, lifetime >= this
+    PickCoordinator*                               m_coordinator = nullptr;  // non-owning, set by MainWindow
 };
 
 } // namespace Input

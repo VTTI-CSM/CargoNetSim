@@ -12,7 +12,7 @@ class QLabel;
 
 namespace CargoNetSim { namespace GUI {
 class GraphicsScene;
-namespace Input { class InteractionController; }
+namespace Input { class PickCoordinator; }
 } }
 
 namespace CargoNetSim {
@@ -44,11 +44,18 @@ public:
     /// setScene() so the widget can enter pick-destination mode.
     explicit DestinationListEditor(QWidget *parent = nullptr);
 
-    /// Wire up to the interaction controller for pick-on-canvas flow.
-    void setController(Input::InteractionController *ctrl);
+    /// Wire up to the app-scope PickCoordinator for cross-scene pick flow.
+    /// Must be called before the user can click any per-row Pick button.
+    void setCoordinator(Input::PickCoordinator *coord);
 
     /// Store the origin terminal id so self-picks are rejected.
     void setOriginTerminalId(const QString &id);
+
+    /// Called by the hosting PropertiesPanel when the coordinator resolves
+    /// a multi-row pick targeted at this editor. Writes the id into the
+    /// active row's buffer, updates the button label, and emits changed().
+    /// No-op if m_activePickRow == -1.
+    void applyPickedTerminalToActiveRow(const QString &id, const QString &name);
 
     /// Replace the current list (read-back on every load).
     void setRoutes(
@@ -71,18 +78,23 @@ private slots:
     void removeCurrentRow();
     void onCellChanged();
 
+private slots:
+    /// Re-renders per-row Pick button labels when the coordinator's session
+    /// starts/ends/resolves. Pure projection of coordinator state — no edits.
+    void onSessionChanged();
+
 private:
     void refreshSumLabel();
+    void refreshRowButtonLabel(int row);
 
     QTableWidget *m_table;
     QPushButton  *m_addButton;
     QPushButton  *m_removeButton;
     QLabel       *m_sumLabel;
 
-    Input::InteractionController *m_controller = nullptr;
+    Input::PickCoordinator *m_coordinator = nullptr;
     QString        m_originTerminalId;
     int            m_activePickRow = -1;
-    QMetaObject::Connection m_pickConnection;
     QStringList    m_rowTerminalIds;
 };
 
