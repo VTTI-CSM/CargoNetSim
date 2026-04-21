@@ -24,6 +24,12 @@ namespace GUI
  * MapLine is a visual representation of a connection
  * between two points in a network. It belongs to a specific
  * network region and can have various properties.
+ *
+ * Delete-policy: same as MapPoint — network-scoped; removed
+ * en-bloc by NetworkDrawingController::removeNetwork. We
+ * deliberately do NOT override
+ * GraphicsObjectBase::createDeleteCommand. See MapPoint.h for
+ * the full rationale.
  */
 class MapLine : public GraphicsObjectBase,
                 public Input::IClickable
