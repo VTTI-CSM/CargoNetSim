@@ -196,8 +196,8 @@ void RegionController::addRegion(const QString &name,
 {
     qCDebug(lcGuiView) << "RegionController::addRegion:" << name;
 
-    // Step 1: RDC — createRegionCenter calls setRegionVariable on this region,
-    // so the region must exist in RDC before createRegionCenter is called.
+    // Step 1: RDC — factory's publishToControllerLegacyKey writes the
+    // "regionCenterPoint" variable, so the region must exist in RDC first.
     auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
                     .getRegionDataController();
     rdc->addRegion(name);
@@ -207,10 +207,10 @@ void RegionController::addRegion(const QString &name,
         << "as QVariant(QColor)";
     rdc->setRegionVariable(name, "color", color);
 
-    // Step 2: scene item
-    createRegionCenter(name, color, pos, /*keepVisible=*/false);
-
-    // Step 3: doc
+    // Step 2: doc — the ScenarioDocument::regionAdded handler wired in
+    // MainWindow drives the scene-item creation via RegionCenterPointFactory,
+    // so we must NOT also call createRegionCenter here (would create two
+    // RegionCenterPoints, one visible, one leaked).
     if (m_mainWindow && m_mainWindow->runtime())
     {
         CargoNetSim::Backend::Scenario::RegionSpec spec;
@@ -222,6 +222,11 @@ void RegionController::addRegion(const QString &name,
                 << "RegionController::addRegion:"
                 << "ScenarioMutator::addRegion failed for" << name;
     }
+
+    // Step 3: hide the freshly created center point unless its region is
+    // currently active. Mirrors the call in removeRegion.
+    if (m_sceneVisibility)
+        m_sceneVisibility->updateSceneVisibility();
 }
 
 void RegionController::removeRegion(const QString &name)
