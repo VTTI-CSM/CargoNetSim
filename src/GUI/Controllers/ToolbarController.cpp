@@ -126,13 +126,49 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
 
     QUndoStack *undoStack = mainWindow->commandBus()->undoStack();
 
-    QAction *undoAction = undoStack->createUndoAction(mainWindow, "Undo");
+    // Static button label; the hover tooltip carries the dynamic
+    // command description so the ribbon stays visually stable.
+    QAction *undoAction = new QAction(
+        QIcon::fromTheme("edit-undo"), QStringLiteral("Undo"), mainWindow);
     undoAction->setShortcut(QKeySequence::Undo);
-    undoAction->setIcon(QIcon::fromTheme("edit-undo"));
+    undoAction->setEnabled(undoStack->canUndo());
+    auto refreshUndoTooltip = [undoAction, undoStack]() {
+        const QString cmd = undoStack->undoText();
+        undoAction->setToolTip(cmd.isEmpty()
+                                   ? QStringLiteral("Undo")
+                                   : QStringLiteral("Undo %1").arg(cmd));
+    };
+    refreshUndoTooltip();
+    QObject::connect(undoStack, &QUndoStack::canUndoChanged,
+                     undoAction, &QAction::setEnabled);
+    QObject::connect(undoStack, &QUndoStack::undoTextChanged,
+                     undoAction,
+                     [refreshUndoTooltip](const QString &) {
+                         refreshUndoTooltip();
+                     });
+    QObject::connect(undoAction, &QAction::triggered,
+                     undoStack, &QUndoStack::undo);
 
-    QAction *redoAction = undoStack->createRedoAction(mainWindow, "Redo");
+    QAction *redoAction = new QAction(
+        QIcon::fromTheme("edit-redo"), QStringLiteral("Redo"), mainWindow);
     redoAction->setShortcut(QKeySequence::Redo);
-    redoAction->setIcon(QIcon::fromTheme("edit-redo"));
+    redoAction->setEnabled(undoStack->canRedo());
+    auto refreshRedoTooltip = [redoAction, undoStack]() {
+        const QString cmd = undoStack->redoText();
+        redoAction->setToolTip(cmd.isEmpty()
+                                   ? QStringLiteral("Redo")
+                                   : QStringLiteral("Redo %1").arg(cmd));
+    };
+    refreshRedoTooltip();
+    QObject::connect(undoStack, &QUndoStack::canRedoChanged,
+                     redoAction, &QAction::setEnabled);
+    QObject::connect(undoStack, &QUndoStack::redoTextChanged,
+                     redoAction,
+                     [refreshRedoTooltip](const QString &) {
+                         refreshRedoTooltip();
+                     });
+    QObject::connect(redoAction, &QAction::triggered,
+                     undoStack, &QUndoStack::redo);
 
     QToolButton *undoButton = new QToolButton();
     undoButton->setToolButtonStyle(
