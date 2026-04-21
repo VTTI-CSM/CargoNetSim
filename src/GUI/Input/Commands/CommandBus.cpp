@@ -56,13 +56,21 @@ bool CommandBus::submit(std::unique_ptr<QUndoCommand> command)
 
     m_inSubmit = false;
 
-    // After push, raw may be obsolete (QUndoStack removed it). Detect via undoStack state.
-    // A simpler signal: if the stack's count did not increase, the command was obsoleted.
-    const bool accepted = (m_stack.count() > 0 && m_stack.command(m_stack.count() - 1) == raw);
-    if (!accepted) {
-        qCWarning(lcGuiInputCmd) << "command obsoleted during redo:" << desc;
-        emit commandFailed(nullptr, QStringLiteral("command marked obsolete"));
-        return false;
+    // Obsolete-detection heuristic: after push(), a command that marked itself
+    // obsolete has been deleted by QUndoStack, so we can't query its state.
+    // We infer from the top-level stack count. This ONLY works outside a
+    // macro — inside beginMacro/endMacro, pushes are absorbed into the open
+    // macro command and the top-level count does not change per push, which
+    // would false-positive every macro push. Skip the check while nested.
+    if (m_macroDepth == 0) {
+        const bool accepted =
+            (m_stack.count() > 0
+             && m_stack.command(m_stack.count() - 1) == raw);
+        if (!accepted) {
+            qCWarning(lcGuiInputCmd) << "command obsoleted during redo:" << desc;
+            emit commandFailed(nullptr, QStringLiteral("command marked obsolete"));
+            return false;
+        }
     }
 
     qCDebug(lcGuiInputCmd) << "submit done, stack size =" << m_stack.count();
@@ -73,12 +81,14 @@ bool CommandBus::submit(std::unique_ptr<QUndoCommand> command)
 void CommandBus::beginMacro(const QString& text)
 {
     qCInfo(lcGuiInputCmd) << "beginMacro:" << text;
+    ++m_macroDepth;
     m_stack.beginMacro(text);
 }
 
 void CommandBus::endMacro()
 {
     m_stack.endMacro();
+    if (m_macroDepth > 0) --m_macroDepth;
     qCInfo(lcGuiInputCmd) << "endMacro (stack size now" << m_stack.count() << ")";
 }
 

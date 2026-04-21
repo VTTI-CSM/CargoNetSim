@@ -178,7 +178,7 @@ void SceneRepopulator::repopulate(Doc           *doc,
 
     // 6. Connection → ConnectionLine on the region scene.
     for (auto &conn : doc->connections)
-        ConnectionLineFactory::fromConnection(&conn, regionScene,
+        ConnectionLineFactory::fromConnection(doc, &conn, regionScene,
                                               mainWindow);
 
     qCDebug(lcGuiScene) << "SceneRepopulator::repopulate:"
@@ -187,7 +187,7 @@ void SceneRepopulator::repopulate(Doc           *doc,
     // 7. GlobalLink → ConnectionLine on the global scene.
     if (globalScene)
         for (auto &gl : doc->globalLinks)
-            ConnectionLineFactory::fromGlobalLink(&gl, globalScene,
+            ConnectionLineFactory::fromGlobalLink(doc, &gl, globalScene,
                                                   mainWindow);
 
     qCInfo(lcGuiScene) << "SceneRepopulator::repopulate: complete";

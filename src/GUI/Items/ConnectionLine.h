@@ -8,6 +8,7 @@
 #include <QGraphicsObject>
 #include <QMap>
 #include <QPen>
+#include <QPointer>
 #include <QPropertyAnimation>
 #include <QVariant>
 
@@ -17,6 +18,7 @@ namespace Backend {
 namespace Scenario {
 struct Connection;
 struct GlobalLink;
+class  ScenarioDocument;
 } // namespace Scenario
 } // namespace Backend
 
@@ -102,55 +104,76 @@ public:
                      const QVariant &value);
 
     /**
-     * @brief Bind this line to a region-level Connection (non-owning).
+     * @brief Bind this line to a region-level Connection identified by
+     *        (fromTerminalId, toTerminalId, mode) in @p doc.
      *
-     * Setting the connection model clears any GlobalLink binding — a
-     * ConnectionLine is either a region-local Connection OR a
-     * cross-region GlobalLink, never both.
+     * Storage is the key triple — NOT a pointer into `doc->connections`.
+     * That QList reshuffles element addresses on every insert/remove, so
+     * any raw `Connection*` held across a mutation becomes dangling.
+     * `connectionModel()` re-resolves the triple to a live pointer on
+     * every call, returning nullptr if the entry is gone.
      *
-     * View-only binding (Task 11). User-driven property edits that
-     * should mutate the document route through ScenarioMutator at the
-     * ViewController layer (Task 15/16), not here.
-     *
-     * Passing nullptr unbinds.
+     * Calling this with a non-null doc clears any prior GlobalLink
+     * binding — a line is either a region Connection view OR a
+     * cross-region GlobalLink view, never both.
      */
-    void setConnectionModel(
-        Backend::Scenario::Connection *connection)
+    void bindToConnection(
+        Backend::Scenario::ScenarioDocument              *doc,
+        const QString                                    &fromTerminalId,
+        const QString                                    &toTerminalId,
+        Backend::TransportationTypes::TransportationMode  mode);
+
+    /// GlobalLink counterpart of bindToConnection. Same stable-key
+    /// invariant; resolves against `doc->globalLinks`.
+    void bindToGlobalLink(
+        Backend::Scenario::ScenarioDocument              *doc,
+        const QString                                    &fromTerminalId,
+        const QString                                    &toTerminalId,
+        Backend::TransportationTypes::TransportationMode  mode);
+
+    /// Drop whichever binding is active. `connectionModel()` and
+    /// `globalLinkModel()` will return nullptr until a rebind.
+    void unbindModel();
+
+    /// Resolve the stored (fromId, toId, mode) triple against the
+    /// document's connections list, returning the current live Connection
+    /// pointer or nullptr if the entry has been removed, the binding is a
+    /// GlobalLink instead, or the doc is gone.
+    Backend::Scenario::Connection *connectionModel() const;
+
+    /// Resolve the stored triple against `doc->globalLinks`. Returns
+    /// nullptr when the binding is a Connection instead, when the entry
+    /// is gone, or when the doc is gone.
+    Backend::Scenario::GlobalLink *globalLinkModel() const;
+
+    /// True iff the line is bound as a region Connection view (regardless
+    /// of whether the entry currently exists in the doc). Useful for
+    /// filtering queries that must distinguish binding kind without
+    /// triggering a lookup.
+    bool isConnectionBinding() const
     {
-        m_connection = connection;
-        if (connection) m_global = nullptr;
+        return m_binding == BindingKind::Connection;
     }
 
-    /**
-     * @brief Bind this line to a cross-region GlobalLink (non-owning).
-     *        Mutually exclusive with setConnectionModel.
-     */
-    void setGlobalLinkModel(Backend::Scenario::GlobalLink *link)
+    /// True iff the line is bound as a GlobalLink view.
+    bool isGlobalLinkBinding() const
     {
-        m_global = link;
-        if (link) m_connection = nullptr;
+        return m_binding == BindingKind::GlobalLink;
     }
 
-    /// Non-owning connection pointer, or nullptr when unbound / in
-    /// GlobalLink mode.
-    Backend::Scenario::Connection *connectionModel() const
-    {
-        return m_connection;
-    }
+    /// The bound-from terminal id (empty when unbound).
+    const QString &boundFromTerminalId() const { return m_fromId; }
 
-    /// Emit a command that removes this connection from the document. Returns
-    /// nullptr when the line is unbound (no Connection model) or when the
-    /// document pointer is absent — unbound lines cannot be mapped to any
-    /// document entity.
+    /// The bound-to terminal id (empty when unbound).
+    const QString &boundToTerminalId()   const { return m_toId; }
+
+    /// Emit a command that removes this connection from the document.
+    /// Returns nullptr when the line is unbound, is a GlobalLink view
+    /// (no per-line delete semantics), or when the doc pointer is
+    /// absent. The command is built from the stored triple directly —
+    /// never dereferences a model pointer.
     std::unique_ptr<QUndoCommand> createDeleteCommand(
         Backend::Scenario::ScenarioDocument* doc) const override;
-
-    /// Non-owning global-link pointer, or nullptr when unbound / in
-    /// Connection mode.
-    Backend::Scenario::GlobalLink *globalLinkModel() const
-    {
-        return m_global;
-    }
 
     // Update methods
     void updatePosition(const QPointF &newPos  = QPointF(),
@@ -242,10 +265,16 @@ private:
     // Static members
     static int CONNECTION_LINE_ID;
 
-    /// Non-owning pointers into ScenarioDocument. At most one is
-    /// non-null at a time (mutual exclusion enforced by setters).
-    Backend::Scenario::Connection *m_connection = nullptr;
-    Backend::Scenario::GlobalLink *m_global     = nullptr;
+    /// Stable-key binding to a ScenarioDocument entity. Raw pointers into
+    /// doc->connections / doc->globalLinks are not stored because those
+    /// QLists reshuffle element addresses on any mutation. Instead we
+    /// keep the natural identity triple and the owning document, and
+    /// resolve to a live pointer on demand.
+    enum class BindingKind { Unbound, Connection, GlobalLink };
+    QPointer<Backend::Scenario::ScenarioDocument> m_doc;
+    QString                                       m_fromId;
+    QString                                       m_toId;
+    BindingKind                                   m_binding = BindingKind::Unbound;
 };
 
 } // namespace GUI

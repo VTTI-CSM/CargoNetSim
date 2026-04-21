@@ -21,6 +21,7 @@
 #include <QUndoCommand>
 
 #include <memory>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -36,19 +37,29 @@ Handled NormalMode::onKeyPress(const KeyPressEvent& e, const ClickContext& ctx)
 
     qCInfo(lcGuiInputMode) << "NormalMode: Delete on" << selected.size() << "items";
 
-    // Collect one command per deletable item via the polymorphic item hook.
-    // Items that are not deletable (unbound, missing document binding, or a
-    // type with no delete semantics) return nullptr and are silently skipped;
-    // the mode never needs a per-type dynamic_cast ladder here.
+    // Collapse the selection to its unique delete-targets first. Child-decoration
+    // items (e.g., ConnectionLabel) redirect to their owning parent; selecting
+    // both a decoration and its parent collapses to one target, so the macro
+    // submits one command, not two.
+    std::unordered_set<const GraphicsObjectBase*> targets;
+    targets.reserve(static_cast<size_t>(selected.size()));
+    for (QGraphicsItem* item : selected) {
+        if (auto* obj = dynamic_cast<GraphicsObjectBase*>(item)) {
+            if (const auto* target = obj->deleteTarget())
+                targets.insert(target);
+        }
+    }
+
+    // Produce one command per target via the polymorphic hook. Targets whose
+    // type has no user-deletable semantics return nullptr and are silently
+    // skipped — the mode never needs a per-type dynamic_cast ladder.
     Backend::Scenario::ScenarioDocument* doc =
         ctx.document ? ctx.document.data() : nullptr;
 
     std::vector<std::unique_ptr<QUndoCommand>> cmds;
-    cmds.reserve(selected.size());
-    for (QGraphicsItem* item : selected) {
-        auto* obj = dynamic_cast<GraphicsObjectBase*>(item);
-        if (!obj) continue;
-        if (auto cmd = obj->createDeleteCommand(doc))
+    cmds.reserve(targets.size());
+    for (const auto* target : targets) {
+        if (auto cmd = target->createDeleteCommand(doc))
             cmds.push_back(std::move(cmd));
     }
 

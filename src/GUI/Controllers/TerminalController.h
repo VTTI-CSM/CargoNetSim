@@ -40,7 +40,24 @@ public:
         StatusReporter *status,
         QObject        *parent = nullptr);
 
+    /// Reconcile the global-scene mirror for @p terminal against the
+    /// terminal's current state ("Show on Global Map" property, position,
+    /// region). Creates, moves, or removes the GlobalTerminalItem as
+    /// needed. The one entry point to invoke on add/change events.
     void updateGlobalMapItem(TerminalItem *terminal);
+
+    /// Unconditionally remove the GlobalTerminalItem (if any) registered
+    /// under @p terminalId from the global scene. The only entry point
+    /// to invoke on the remove event: the bound TerminalItem may already
+    /// have been destroyed by the regionScene observer, so lookup goes
+    /// by terminal id through the global scene's registry, not through
+    /// TerminalItem::getGlobalTerminalItem().
+    ///
+    /// This keeps the "a GlobalTerminalItem exists iff the bound
+    /// TerminalItem exists AND show-on-global-map is true" invariant
+    /// owned entirely by TerminalController — callers only signal
+    /// lifecycle events, never mutate the mirror directly.
+    void removeGlobalMirror(const QString &terminalId);
 
     TerminalItem *createTerminalAtPoint(
         const QString &region,

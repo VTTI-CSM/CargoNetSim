@@ -2,6 +2,7 @@
 
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Scenario/Connection.h"
+#include "Backend/Scenario/GlobalLink.h"
 #include "Backend/Scenario/LinkageSource.h"
 #include "Backend/Scenario/NodeLinkage.h"
 #include "Backend/Scenario/RegionSpec.h"
@@ -250,6 +251,13 @@ public:
     static bool restoreConnection(
         Backend::Scenario::ScenarioDocument   *doc,
         const Backend::Scenario::Connection   &snapshot);
+
+    /// Re-insert a previously captured GlobalLink snapshot. Used by undo
+    /// of DeleteGlobalLinkCommand. Returns false if @p doc is null or if
+    /// a link with the same (fromId, toId, mode) already exists.
+    static bool restoreGlobalLink(
+        Backend::Scenario::ScenarioDocument   *doc,
+        const Backend::Scenario::GlobalLink   &snapshot);
 
     /// Re-insert a previously captured NodeLinkage snapshot. Used by undo
     /// of UnlinkTerminalCommand. Returns false if @p doc is null or an

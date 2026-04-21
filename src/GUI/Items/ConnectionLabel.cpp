@@ -38,6 +38,18 @@ ConnectionLabel::ConnectionLabel(QGraphicsItem *parent)
     setZValue(5);
 }
 
+const GraphicsObjectBase* ConnectionLabel::deleteTarget() const
+{
+    // The label is a visual child of its ConnectionLine parent; removing the
+    // connection is the only meaningful "delete label" semantics. If the label
+    // is somehow orphaned, fall back to the default (self) so NormalMode will
+    // at least call createDeleteCommand() — which returns nullptr on base,
+    // i.e., a silent no-op rather than a crash.
+    if (auto* parent = dynamic_cast<const GraphicsObjectBase*>(parentItem()))
+        return parent;
+    return this;
+}
+
 void ConnectionLabel::setText(const QString &text)
 {
     if (m_text != text)

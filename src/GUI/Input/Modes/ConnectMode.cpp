@@ -3,11 +3,11 @@
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../Controllers/SceneVisibilityController.h"
 #include "../../Items/GlobalTerminalItem.h"
+#include "../../Items/GraphicsObjectBase.h"
 #include "../../Items/TerminalItem.h"
 #include "../../MainWindow.h"
 #include "../ClickContext.h"
 #include "../Commands/CommandBus.h"
-#include "../Commands/CreateConnectionCommand.h"
 #include "../InteractionController.h"
 #include "../Modes/NormalMode.h"
 
@@ -84,28 +84,55 @@ Handled ConnectMode::onPress(const PressEvent& e, const ClickContext& ctx)
         return Handled::Yes;
     }
 
-    // Resolve source + target terminal ids; GlobalTerminalItem proxies to
-    // its linked TerminalItem so cross-region global-link clicks work too.
-    auto extractId = [](QGraphicsObject* obj) -> QString {
-        if (auto* t = qobject_cast<TerminalItem*>(obj))       return t->getTerminalId();
-        if (auto* g = qobject_cast<GlobalTerminalItem*>(obj)) {
-            if (auto* t = g->getLinkedTerminalItem()) return t->getTerminalId();
-        }
-        return {};
-    };
-    const QString srcId = extractId(m_firstItem.data());
-    const QString tgtId = extractId(candidate);
-    if (srcId.isEmpty() || tgtId.isEmpty()) {
+    // Polymorphic dispatch: each endpoint type knows what kind of "connect"
+    // command it produces (region Connection for TerminalItem, GlobalLink
+    // for GlobalTerminalItem). Mismatched pairs or unbound endpoints yield
+    // nullptr and we reject. No per-type cast ladder in the mode.
+    auto* first  = qobject_cast<GraphicsObjectBase*>(m_firstItem.data());
+    auto* second = dynamic_cast<GraphicsObjectBase*>(candidate);
+    if (!first || !second) {
         qCWarning(lcGuiInputMode)
-            << "ConnectMode: could not resolve terminal ids; aborting";
+            << "ConnectMode: endpoints are not GraphicsObjectBase; aborting";
         ctx.controller->setMode<NormalMode>();
         return Handled::Yes;
     }
 
-    ctx.commandBus->submit(std::make_unique<CreateConnectionCommand>(
-        ctx.document.data(), srcId, tgtId, m_connectionType));
-    qCInfo(lcGuiInputMode) << "ConnectMode: submitted CreateConnectionCommand"
-                           << srcId << "->" << tgtId;
+    auto cmd = first->createConnectCommandTo(second, m_connectionType,
+                                             ctx.document.data());
+    if (!cmd) {
+        qCWarning(lcGuiInputMode)
+            << "ConnectMode: endpoint types do not support a connect command"
+            << "between them; aborting";
+        QApplication::beep();
+        return Handled::Reject;
+    }
+
+    qCInfo(lcGuiInputMode) << "ConnectMode: submitting connect command"
+                           << cmd->text();
+    // Surface the mutator's verdict to the user. CommandBus::submit
+    // returns false when the command self-obsoleted during redo — the
+    // standard signal that the domain layer rejected the operation
+    // (e.g., GlobalLink attempted on a same-region pair, Connection
+    // attempted on a cross-region pair). We do NOT re-implement the
+    // domain check in the view: one source of truth lives in the
+    // ScenarioMutator.
+    const bool submitted = ctx.commandBus->submit(std::move(cmd));
+    if (!submitted) {
+        qCWarning(lcGuiInputMode)
+            << "ConnectMode: command rejected by the domain layer";
+        QApplication::beep();
+        if (ctx.mainWindow) {
+            if (auto* sb = ctx.mainWindow->statusBar()) {
+                sb->showMessage(
+                    QStringLiteral("Cannot connect these terminals — "
+                                   "the scenario rejected the operation."),
+                    3000);
+            }
+        }
+        // Reset chain — the first pick stands so the user can retry
+        // with a different second endpoint without re-picking the first.
+        return Handled::Reject;
+    }
 
     if (ctx.mainWindow && ctx.mainWindow->sceneVisibility()) {
         ctx.mainWindow->sceneVisibility()->updateSceneVisibility();

@@ -2,6 +2,7 @@
 
 #include "DeleteBackgroundPhotoCommand.h"
 #include "DeleteConnectionCommand.h"
+#include "DeleteGlobalLinkCommand.h"
 #include "DeleteTerminalCommand.h"
 
 namespace CargoNetSim::GUI::Input {
@@ -19,6 +20,16 @@ std::unique_ptr<QUndoCommand> DeleteItemCommand::forConnection(
     Backend::TransportationTypes::TransportationMode    mode)
 {
     return std::make_unique<DeleteConnectionCommand>(
+        doc, std::move(fromId), std::move(toId), mode);
+}
+
+std::unique_ptr<QUndoCommand> DeleteItemCommand::forGlobalLink(
+    Backend::Scenario::ScenarioDocument*                doc,
+    QString                                             fromId,
+    QString                                             toId,
+    Backend::TransportationTypes::TransportationMode    mode)
+{
+    return std::make_unique<DeleteGlobalLinkCommand>(
         doc, std::move(fromId), std::move(toId), mode);
 }
 

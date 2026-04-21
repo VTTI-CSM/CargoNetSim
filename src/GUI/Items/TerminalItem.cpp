@@ -8,6 +8,7 @@
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Input/ClickContext.h"
 #include "GUI/Input/Commands/CommandBus.h"
+#include "GUI/Input/Commands/CreateConnectionCommand.h"
 #include "GUI/Input/Commands/DeleteItemCommand.h"
 #include "GUI/Input/Commands/SetTerminalRoleCommand.h"
 #include "GUI/Input/Commands/SetTerminalTypeCommand.h"
@@ -229,6 +230,24 @@ std::unique_ptr<QUndoCommand> TerminalItem::createDeleteCommand(
     const QString id = getTerminalId();
     if (id.isEmpty()) return nullptr;
     return Input::DeleteItemCommand::forTerminal(doc, id);
+}
+
+std::unique_ptr<QUndoCommand> TerminalItem::createConnectCommandTo(
+    const GraphicsObjectBase*                        other,
+    Backend::TransportationTypes::TransportationMode mode,
+    Backend::Scenario::ScenarioDocument*             doc) const
+{
+    // Region Connection lives between two TerminalItems. Any other pairing
+    // (e.g., TerminalItem ↔ GlobalTerminalItem) is rejected by nullptr —
+    // scenes are segregated so this shouldn't occur in practice, but the
+    // guard makes the contract explicit.
+    auto* otherTerminal = dynamic_cast<const TerminalItem*>(other);
+    if (!otherTerminal || !doc) return nullptr;
+    const QString fromId = getTerminalId();
+    const QString toId   = otherTerminal->getTerminalId();
+    if (fromId.isEmpty() || toId.isEmpty()) return nullptr;
+    return std::make_unique<Input::CreateConnectionCommand>(
+        doc, fromId, toId, mode);
 }
 
 Backend::Scenario::InterfaceConversion::InterfaceMap

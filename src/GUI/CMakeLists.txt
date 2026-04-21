@@ -176,6 +176,8 @@ set(GUI_SOURCES
     Input/Commands/CommandBus.cpp
     Input/Commands/CreateConnectionCommand.h
     Input/Commands/CreateConnectionCommand.cpp
+    Input/Commands/CreateGlobalLinkCommand.h
+    Input/Commands/CreateGlobalLinkCommand.cpp
     Input/Commands/CreateTerminalAtMapPointCommand.h
     Input/Commands/CreateTerminalAtMapPointCommand.cpp
     Input/Commands/CreateTerminalAtPointCommand.h
@@ -190,6 +192,8 @@ set(GUI_SOURCES
     Input/Commands/UpdateRegionGlobalPositionCommand.cpp
     Input/Commands/DeleteConnectionCommand.h
     Input/Commands/DeleteConnectionCommand.cpp
+    Input/Commands/DeleteGlobalLinkCommand.h
+    Input/Commands/DeleteGlobalLinkCommand.cpp
     Input/Commands/DeleteItemCommand.h
     Input/Commands/DeleteItemCommand.cpp
     Input/Commands/DeleteTerminalCommand.h

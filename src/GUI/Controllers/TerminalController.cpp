@@ -192,6 +192,29 @@ void TerminalController::updateGlobalMapItem(
 }
 
 // ----------------------------------------------------------------
+// removeGlobalMirror
+// ----------------------------------------------------------------
+
+void TerminalController::removeGlobalMirror(
+    const QString &terminalId)
+{
+    qCDebug(lcGuiView)
+        << "TerminalController::removeGlobalMirror:"
+        << "terminalId=" << terminalId;
+
+    if (terminalId.isEmpty() || !m_globalMapView) return;
+    auto *scene = m_globalMapView->getScene();
+    if (!scene) return;
+
+    // Lookup by terminal id through the scene's own registry.
+    // GlobalTerminalItem::domainKey() is the bound terminal id, so the
+    // scene-registry key and the terminalId argument match directly.
+    // This avoids dereferencing TerminalItem::getGlobalTerminalItem(),
+    // which may already be dangling by the time terminalRemoved fires.
+    scene->removeItemWithId<GlobalTerminalItem>(terminalId);
+}
+
+// ----------------------------------------------------------------
 // updateTerminalGlobalPosition (private)
 // ----------------------------------------------------------------
 

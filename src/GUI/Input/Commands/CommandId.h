@@ -28,6 +28,8 @@ constexpr int DeleteBackgroundPhoto         = 1014;
 constexpr int UpdateBackgroundPhotoPosition = 1015;
 constexpr int ApplyBackgroundPhotoEdit      = 1016;
 constexpr int UpdateRegionGlobalPosition    = 1017;
+constexpr int CreateGlobalLink              = 1018;
+constexpr int DeleteGlobalLink              = 1019;
 
 } // namespace CommandId
 

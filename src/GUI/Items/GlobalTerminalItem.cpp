@@ -1,6 +1,7 @@
 #include "GlobalTerminalItem.h"
 #include "Backend/Commons/LogCategories.h"
 #include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/CreateGlobalLinkCommand.h"
 #include "TerminalItem.h"
 
 #include "Backend/Scenario/RegionSpec.h"
@@ -75,6 +76,23 @@ QString GlobalTerminalItem::getTerminalId() const
 {
     return linkedTerminalItem ? linkedTerminalItem->getTerminalId()
                               : QString();
+}
+
+std::unique_ptr<QUndoCommand> GlobalTerminalItem::createConnectCommandTo(
+    const GraphicsObjectBase*                        other,
+    Backend::TransportationTypes::TransportationMode mode,
+    Backend::Scenario::ScenarioDocument*             doc) const
+{
+    // GlobalLink lives between two GlobalTerminalItems. A TerminalItem
+    // partner is rejected — region Connections are a different entity,
+    // produced by TerminalItem::createConnectCommandTo.
+    auto* otherGlobal = dynamic_cast<const GlobalTerminalItem*>(other);
+    if (!otherGlobal || !doc) return nullptr;
+    const QString fromId = getTerminalId();
+    const QString toId   = otherGlobal->getTerminalId();
+    if (fromId.isEmpty() || toId.isEmpty()) return nullptr;
+    return std::make_unique<Input::CreateGlobalLinkCommand>(
+        doc, fromId, toId, mode);
 }
 
 Backend::Scenario::InterfaceConversion::InterfaceMap

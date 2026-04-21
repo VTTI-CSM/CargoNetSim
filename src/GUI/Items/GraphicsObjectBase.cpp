@@ -59,6 +59,16 @@ std::unique_ptr<QUndoCommand> GraphicsObjectBase::createDeleteCommand(
     return nullptr;
 }
 
+std::unique_ptr<QUndoCommand> GraphicsObjectBase::createConnectCommandTo(
+    const GraphicsObjectBase*                         /*other*/,
+    Backend::TransportationTypes::TransportationMode  /*mode*/,
+    Backend::Scenario::ScenarioDocument*              /*doc*/) const
+{
+    // Default: item has no user-connectable semantics. TerminalItem and
+    // GlobalTerminalItem override to emit the appropriate command.
+    return nullptr;
+}
+
 void GraphicsObjectBase::flash(bool          evenIfHidden,
                                const QColor &color)
 {

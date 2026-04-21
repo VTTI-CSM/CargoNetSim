@@ -28,6 +28,13 @@ public:
         QString                                             toId,
         Backend::TransportationTypes::TransportationMode    mode);
 
+    /// Factory for cross-region GlobalLink deletion.
+    static std::unique_ptr<QUndoCommand> forGlobalLink(
+        Backend::Scenario::ScenarioDocument*                doc,
+        QString                                             fromId,
+        QString                                             toId,
+        Backend::TransportationTypes::TransportationMode    mode);
+
     /// Factory for background-photo deletion (GUI-only, not in ScenarioDocument).
     static std::unique_ptr<QUndoCommand> forBackgroundPhoto(
         BackgroundPhotoItem* item);

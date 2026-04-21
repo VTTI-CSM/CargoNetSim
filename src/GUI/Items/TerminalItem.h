@@ -278,6 +278,14 @@ public:
     std::unique_ptr<QUndoCommand> createDeleteCommand(
         Backend::Scenario::ScenarioDocument* doc) const override;
 
+    /// Emit a CreateConnection command between this terminal and @p other,
+    /// which must also be a TerminalItem (region Connections are
+    /// TerminalItem↔TerminalItem). Returns nullptr for any mismatch.
+    std::unique_ptr<QUndoCommand> createConnectCommandTo(
+        const GraphicsObjectBase*                        other,
+        Backend::TransportationTypes::TransportationMode mode,
+        Backend::Scenario::ScenarioDocument*             doc) const override;
+
 protected:
     /// Scene-registration hook: terminal id when bound, else empty so the
     /// base's sceneRegistryKey() falls back to the auto-UUID.

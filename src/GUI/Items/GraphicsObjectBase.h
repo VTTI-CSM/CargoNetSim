@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GUI/Items/AnimationObject.h"
+#include "Backend/Commons/TransportationMode.h"
 #include <QColor>
 #include <QGraphicsObject>
 #include <QGraphicsRectItem>
@@ -66,6 +67,26 @@ public:
     /// null for items whose deletion does not touch the ScenarioDocument.
     virtual std::unique_ptr<QUndoCommand> createDeleteCommand(
         Backend::Scenario::ScenarioDocument* doc) const;
+
+    /// Which item's deletion this one logically triggers. Default is `this`.
+    /// Child-decoration items (e.g., ConnectionLabel) override to return their
+    /// owning parent so "delete the label" means "delete the parent line".
+    /// NormalMode uses this to collapse selections to unique targets before
+    /// requesting commands — a selection containing both a label and its
+    /// parent produces one command, not two.
+    virtual const GraphicsObjectBase* deleteTarget() const { return this; }
+
+    /// Produce a QUndoCommand that creates a "connect" relationship from
+    /// this item to @p other via @p mode. Each concrete item type owns what
+    /// "connect" means for it: a region TerminalItem emits a region
+    /// Connection command; a GlobalTerminalItem emits a cross-region
+    /// GlobalLink command. Returns nullptr for unsupported pairs (mismatched
+    /// item kinds, unbound endpoints, missing doc, etc.) so ConnectMode
+    /// needs no per-type dispatch.
+    virtual std::unique_ptr<QUndoCommand> createConnectCommandTo(
+        const GraphicsObjectBase*                        other,
+        Backend::TransportationTypes::TransportationMode mode,
+        Backend::Scenario::ScenarioDocument*             doc) const;
 
 protected:
     /// Hook for derived classes that view a document entity. Return the

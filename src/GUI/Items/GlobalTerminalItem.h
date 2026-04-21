@@ -78,6 +78,15 @@ public:
     /// Implementation in .cpp (needs TerminalItem's full definition).
     QString getTerminalId() const;
 
+    /// Emit a CreateGlobalLink command between this item and @p other,
+    /// which must also be a GlobalTerminalItem. GlobalLinks live in the
+    /// global scene and span regions; TerminalItem pairings are rejected
+    /// with nullptr because region Connections are a different entity.
+    std::unique_ptr<QUndoCommand> createConnectCommandTo(
+        const GraphicsObjectBase*                        other,
+        Backend::TransportationTypes::TransportationMode mode,
+        Backend::Scenario::ScenarioDocument*             doc) const override;
+
     /// Delegates to the linked TerminalItem's typed interface accessor.
     /// Empty map when no terminal is linked. Callers get enums, not
     /// strings — consistent with TerminalItem::availableInterfaces.

@@ -366,9 +366,17 @@ void MainWindow::subscribeDocumentObservers()
                     m_terminalCtrl->updateGlobalMapItem(item);
             });
     connect(doc, &ScenarioDocument::terminalRemoved, this,
-            [regionScene](const QString &id) {
+            [this, regionScene](const QString &id) {
                 if (regionScene)
                     regionScene->removeItemWithId<TerminalItem>(id);
+                // Mirror cleanup delegated to TerminalController so the
+                // "a GlobalTerminalItem exists iff its TerminalItem
+                // exists AND Show-on-Global-Map is true" invariant has
+                // a single owner. Connection lines touching the removed
+                // mirror are handled by the globalLinkRemoved observer
+                // — doc->removeTerminal cascades those emissions first.
+                if (m_terminalCtrl)
+                    m_terminalCtrl->removeGlobalMirror(id);
             });
 
     // Terminal data changed -> refresh the TerminalItem binding
@@ -591,12 +599,11 @@ void MainWindow::subscribeDocumentObservers()
                 mp->setLinkedTerminal(nullptr);
             });
 
-    // Connection lifecycle (region-local). The signal passes the
-    // connection by value; we look up the stored mutable pointer in the
-    // document (factory wants a non-owning pointer into doc->connections
-    // so ConnectionLine::connectionModel() can track it).
+    // Connection lifecycle (region-local). The signal passes the connection
+    // by value; the factory binds the line by key (from/to/mode) against
+    // the doc, so it doesn't need a live pointer into doc->connections.
     connect(doc, &ScenarioDocument::connectionAdded, this,
-            [this, regionScene](const Connection &c) {
+            [this, doc, regionScene](const Connection &c) {
                 if (!regionScene) return;
                 for (auto &stored : m_runtime->document().connections)
                 {
@@ -605,7 +612,7 @@ void MainWindow::subscribeDocumentObservers()
                      && stored.mode           == c.mode)
                     {
                         GUI::Scenario::ConnectionLineFactory::fromConnection(
-                            &stored, regionScene, this);
+                            doc, &stored, regionScene, this);
                         return;
                     }
                 }
@@ -623,7 +630,7 @@ void MainWindow::subscribeDocumentObservers()
 
     // GlobalLink lifecycle (cross-region, rendered in globalMapScene).
     connect(doc, &ScenarioDocument::globalLinkAdded, this,
-            [this](const GlobalLink &g) {
+            [this, doc](const GlobalLink &g) {
                 if (!globalMapScene_) return;
                 for (auto &stored : m_runtime->document().globalLinks)
                 {
@@ -632,7 +639,7 @@ void MainWindow::subscribeDocumentObservers()
                      && stored.mode           == g.mode)
                     {
                         GUI::Scenario::ConnectionLineFactory::fromGlobalLink(
-                            &stored, globalMapScene_, this);
+                            doc, &stored, globalMapScene_, this);
                         return;
                     }
                 }

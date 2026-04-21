@@ -53,6 +53,10 @@ public:
     fromDict(const QMap<QString, QVariant> &data,
              QGraphicsItem *parent = nullptr);
 
+    // A label's delete target is its parent ConnectionLine — selecting a
+    // label and pressing Delete removes the connection as a whole.
+    const GraphicsObjectBase* deleteTarget() const override;
+
     // Input interface overrides
     Input::Handled
          onLeftClick(const Input::ClickContext &) override;

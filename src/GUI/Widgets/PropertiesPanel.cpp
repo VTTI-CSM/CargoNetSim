@@ -1708,18 +1708,22 @@ void PropertiesPanel::saveConnectionProperties(
     Backend::TransportationTypes::TransportationMode mode{};
     bool hasBacking = false;
 
-    if (connection->connectionModel())
+    // Each connectionModel()/globalLinkModel() call is now an on-demand
+    // lookup against the doc's list (post-Task: stable-key binding). Call
+    // once, reuse the result — and if the entity has been removed since,
+    // fall through to "no backing" cleanly.
+    if (auto *cm = connection->connectionModel())
     {
-        fromId     = connection->connectionModel()->fromTerminalId;
-        toId       = connection->connectionModel()->toTerminalId;
-        mode       = connection->connectionModel()->mode;
+        fromId     = cm->fromTerminalId;
+        toId       = cm->toTerminalId;
+        mode       = cm->mode;
         hasBacking = true;
     }
-    else if (connection->globalLinkModel())
+    else if (auto *gm = connection->globalLinkModel())
     {
-        fromId     = connection->globalLinkModel()->fromTerminalId;
-        toId       = connection->globalLinkModel()->toTerminalId;
-        mode       = connection->globalLinkModel()->mode;
+        fromId     = gm->fromTerminalId;
+        toId       = gm->toTerminalId;
+        mode       = gm->mode;
         hasBacking = true;
     }
 

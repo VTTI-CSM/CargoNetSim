@@ -8,6 +8,7 @@ namespace Backend {
 namespace Scenario {
 struct Connection;
 struct GlobalLink;
+class  ScenarioDocument;
 } // namespace Scenario
 } // namespace Backend
 
@@ -40,15 +41,22 @@ namespace Scenario {
 class ConnectionLineFactory
 {
 public:
+    /// @param doc Document that owns @p connection. Passed explicitly so
+    ///            ConnectionLine can stable-key bind rather than storing a
+    ///            pointer into the (mutable, reshufflable) connections list.
     static ConnectionLine *
-    fromConnection(Backend::Scenario::Connection *connection,
-                   GraphicsScene                 *regionScene,
-                   MainWindow                    *mainWindow);
+    fromConnection(Backend::Scenario::ScenarioDocument *doc,
+                   Backend::Scenario::Connection       *connection,
+                   GraphicsScene                       *regionScene,
+                   MainWindow                          *mainWindow);
 
+    /// @param doc Document that owns @p link. Same rationale as
+    ///            fromConnection — bind by key, not by pointer.
     static ConnectionLine *
-    fromGlobalLink(Backend::Scenario::GlobalLink *link,
-                   GraphicsScene                 *globalScene,
-                   MainWindow                    *mainWindow);
+    fromGlobalLink(Backend::Scenario::ScenarioDocument *doc,
+                   Backend::Scenario::GlobalLink       *link,
+                   GraphicsScene                       *globalScene,
+                   MainWindow                          *mainWindow);
 
     /// Locate a region-level ConnectionLine in @p scene whose
     /// connectionModel matches (from, to, mode). Returns nullptr if no

@@ -4,6 +4,7 @@
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Scenario/Connection.h"
 #include "Backend/Scenario/GlobalLink.h"
+#include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/GlobalTerminalItem.h"
@@ -46,22 +47,27 @@ private slots:
     void test_from_connection_returns_null_on_null_inputs()
     {
         GraphicsScene scene;
+        ScenarioDocument doc;
         QVERIFY(Scenario::ConnectionLineFactory::fromConnection(
-                    nullptr, &scene, nullptr)
+                    &doc, nullptr, &scene, nullptr)
                 == nullptr);
         Connection c;
         QVERIFY(Scenario::ConnectionLineFactory::fromConnection(
-                    &c, nullptr, nullptr)
+                    &doc, &c, nullptr, nullptr)
+                == nullptr);
+        QVERIFY(Scenario::ConnectionLineFactory::fromConnection(
+                    nullptr, &c, &scene, nullptr)
                 == nullptr);
     }
 
     void test_from_connection_returns_null_when_endpoints_missing()
     {
         GraphicsScene scene;
+        ScenarioDocument doc;
         Connection c;
         c.fromTerminalId = "A"; c.toTerminalId = "B"; c.mode = Mode::Truck;
         QVERIFY(Scenario::ConnectionLineFactory::fromConnection(
-                    &c, &scene, nullptr)
+                    &doc, &c, &scene, nullptr)
                 == nullptr);
     }
 
@@ -74,17 +80,22 @@ private slots:
         scene.addItemWithId(a.item, a.item->sceneRegistryKey());
         scene.addItemWithId(b.item, b.item->sceneRegistryKey());
 
+        // Put the connection inside the doc so the line's stable-key
+        // binding can resolve it back via connectionModel().
+        ScenarioDocument doc;
         Connection c;
         c.fromTerminalId = "A";
         c.toTerminalId   = "B";
         c.mode           = Mode::Truck;
         c.region         = "R";
+        doc.connections.append(c);
 
         auto *line = Scenario::ConnectionLineFactory::fromConnection(
-            &c, &scene, nullptr);
+            &doc, &doc.connections.first(), &scene, nullptr);
 
         QVERIFY(line != nullptr);
-        QCOMPARE(line->connectionModel(), &c);
+        QVERIFY(line->isConnectionBinding());
+        QCOMPARE(line->connectionModel(), &doc.connections.first());
         QCOMPARE(line->globalLinkModel(),
                  static_cast<GlobalLink *>(nullptr));
         QVERIFY(scene.items().contains(line));
@@ -93,10 +104,11 @@ private slots:
     void test_from_global_link_returns_null_without_matching_global_terminal()
     {
         GraphicsScene scene;
+        ScenarioDocument doc;
         GlobalLink g;
         g.fromTerminalId = "A"; g.toTerminalId = "B"; g.mode = Mode::Ship;
         QVERIFY(Scenario::ConnectionLineFactory::fromGlobalLink(
-                    &g, &scene, nullptr)
+                    &doc, &g, &scene, nullptr)
                 == nullptr);
     }
 
@@ -114,16 +126,19 @@ private slots:
         scene.addItemWithId(ga, ga->sceneRegistryKey());
         scene.addItemWithId(gb, gb->sceneRegistryKey());
 
+        ScenarioDocument doc;
         GlobalLink g;
         g.fromTerminalId = "A";  // same string as the registry key
         g.toTerminalId   = "B";
         g.mode           = Mode::Ship;
+        doc.globalLinks.append(g);
 
         auto *line = Scenario::ConnectionLineFactory::fromGlobalLink(
-            &g, &scene, nullptr);
+            &doc, &doc.globalLinks.first(), &scene, nullptr);
 
         QVERIFY(line != nullptr);
-        QCOMPARE(line->globalLinkModel(), &g);
+        QVERIFY(line->isGlobalLinkBinding());
+        QCOMPARE(line->globalLinkModel(), &doc.globalLinks.first());
         QCOMPARE(line->connectionModel(),
                  static_cast<Connection *>(nullptr));
     }

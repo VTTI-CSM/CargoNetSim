@@ -285,6 +285,23 @@ bool ScenarioMutator::createGlobalLink(
     if (!doc->terminals.contains(fromId) || !doc->terminals.contains(toId))
         return false;
 
+    // A GlobalLink spans regions by definition — a same-region pair is
+    // expressed as a region-local Connection, not a GlobalLink. Symmetric
+    // to createConnection's cross-region rejection: each entity has its
+    // own domain and the mutator enforces the boundary at a single point.
+    const QString fromRegion = doc->terminals[fromId].region;
+    const QString toRegion   = doc->terminals[toId].region;
+    if (fromRegion == toRegion)
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioMutator::createGlobalLink:"
+            << "rejected same-region pair"
+            << fromId << "(region=" << fromRegion << ") ->"
+            << toId   << "(region=" << toRegion   << ")"
+            << "- use createConnection for intra-region links.";
+        return false;
+    }
+
     GlobalLink g;
     g.fromTerminalId = fromId;
     g.toTerminalId   = toId;
@@ -496,6 +513,29 @@ bool ScenarioMutator::restoreConnection(
                        << "from=" << snapshot.fromTerminalId
                        << "to="   << snapshot.toTerminalId;
     return doc->addConnection(snapshot);
+}
+
+bool ScenarioMutator::restoreGlobalLink(
+    Backend::Scenario::ScenarioDocument   *doc,
+    const Backend::Scenario::GlobalLink   &snapshot)
+{
+    if (!doc) return false;
+    for (const auto &g : doc->globalLinks)
+    {
+        if (g.fromTerminalId == snapshot.fromTerminalId
+         && g.toTerminalId   == snapshot.toTerminalId
+         && g.mode           == snapshot.mode)
+        {
+            qCWarning(lcGuiScene)
+                << "ScenarioMutator::restoreGlobalLink:"
+                << "duplicate (from,to,mode); skipping";
+            return false;
+        }
+    }
+    qCInfo(lcGuiScene) << "ScenarioMutator::restoreGlobalLink:"
+                       << "from=" << snapshot.fromTerminalId
+                       << "to="   << snapshot.toTerminalId;
+    return doc->addGlobalLink(snapshot);
 }
 
 bool ScenarioMutator::restoreLinkage(

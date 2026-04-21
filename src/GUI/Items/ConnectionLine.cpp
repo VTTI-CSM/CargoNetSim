@@ -17,6 +17,7 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Scenario/Connection.h"
 #include "Backend/Scenario/GlobalLink.h"
+#include "Backend/Scenario/ScenarioDocument.h"
 #include "GUI/Input/ClickContext.h"
 #include "GUI/Input/Commands/DeleteItemCommand.h"
 
@@ -107,13 +108,86 @@ ConnectionLine::ConnectionLine(
     updatePosition();
 }
 
+void ConnectionLine::bindToConnection(
+    Backend::Scenario::ScenarioDocument              *doc,
+    const QString                                    &fromTerminalId,
+    const QString                                    &toTerminalId,
+    Backend::TransportationTypes::TransportationMode  mode)
+{
+    m_doc            = doc;
+    m_fromId         = fromTerminalId;
+    m_toId           = toTerminalId;
+    m_connectionType = mode;
+    m_binding        = doc ? BindingKind::Connection : BindingKind::Unbound;
+}
+
+void ConnectionLine::bindToGlobalLink(
+    Backend::Scenario::ScenarioDocument              *doc,
+    const QString                                    &fromTerminalId,
+    const QString                                    &toTerminalId,
+    Backend::TransportationTypes::TransportationMode  mode)
+{
+    m_doc            = doc;
+    m_fromId         = fromTerminalId;
+    m_toId           = toTerminalId;
+    m_connectionType = mode;
+    m_binding        = doc ? BindingKind::GlobalLink : BindingKind::Unbound;
+}
+
+void ConnectionLine::unbindModel()
+{
+    m_doc.clear();
+    m_fromId.clear();
+    m_toId.clear();
+    m_binding = BindingKind::Unbound;
+}
+
+Backend::Scenario::Connection *ConnectionLine::connectionModel() const
+{
+    if (m_binding != BindingKind::Connection || !m_doc) return nullptr;
+    for (auto &c : m_doc->connections)
+    {
+        if (c.fromTerminalId == m_fromId
+         && c.toTerminalId   == m_toId
+         && c.mode           == m_connectionType)
+            return &c;
+    }
+    return nullptr;
+}
+
+Backend::Scenario::GlobalLink *ConnectionLine::globalLinkModel() const
+{
+    if (m_binding != BindingKind::GlobalLink || !m_doc) return nullptr;
+    for (auto &g : m_doc->globalLinks)
+    {
+        if (g.fromTerminalId == m_fromId
+         && g.toTerminalId   == m_toId
+         && g.mode           == m_connectionType)
+            return &g;
+    }
+    return nullptr;
+}
+
 std::unique_ptr<QUndoCommand> ConnectionLine::createDeleteCommand(
     Backend::Scenario::ScenarioDocument* doc) const
 {
-    if (!doc || !m_connection) return nullptr;
-    return Input::DeleteItemCommand::forConnection(
-        doc, m_connection->fromTerminalId, m_connection->toTerminalId,
-        m_connection->mode);
+    // Built straight from the stored identity triple — no model pointer
+    // dereference, no per-type dispatch in the caller. The binding kind
+    // determines which command class is produced.
+    if (!doc) return nullptr;
+    if (m_fromId.isEmpty() || m_toId.isEmpty()) return nullptr;
+    switch (m_binding)
+    {
+    case BindingKind::Connection:
+        return Input::DeleteItemCommand::forConnection(
+            doc, m_fromId, m_toId, m_connectionType);
+    case BindingKind::GlobalLink:
+        return Input::DeleteItemCommand::forGlobalLink(
+            doc, m_fromId, m_toId, m_connectionType);
+    case BindingKind::Unbound:
+        break;
+    }
+    return nullptr;
 }
 
 ConnectionLine::~ConnectionLine()
@@ -854,20 +928,21 @@ void ConnectionLine::refreshFromModel()
         << "ConnectionLine::refreshFromModel:"
         << "id=" << m_id;
 
-    if (m_connection)
+    // Each lookup re-resolves the stable triple against the current doc
+    // state, so a removal elsewhere (which would have invalidated an old
+    // raw pointer) simply surfaces here as a nullptr and a no-op.
+    if (auto *c = connectionModel())
     {
-        m_properties = m_connection->properties;
+        m_properties = c->properties;
         m_properties["Connection type"] =
-            Backend::transportationModeToString(
-                m_connection->mode);
-        m_properties["Region"] = m_connection->region;
+            Backend::transportationModeToString(c->mode);
+        m_properties["Region"] = c->region;
     }
-    else if (m_global)
+    else if (auto *g = globalLinkModel())
     {
-        m_properties = m_global->properties;
+        m_properties = g->properties;
         m_properties["Connection type"] =
-            Backend::transportationModeToString(
-                m_global->mode);
+            Backend::transportationModeToString(g->mode);
     }
 
     update();

@@ -34,11 +34,12 @@ void addAndBindLine(ConnectionLine *line, GraphicsScene *scene,
 } // namespace
 
 ConnectionLine *ConnectionLineFactory::fromConnection(
-    Backend::Scenario::Connection *connection,
-    GraphicsScene                 *regionScene,
-    MainWindow                    *mainWindow)
+    Backend::Scenario::ScenarioDocument *doc,
+    Backend::Scenario::Connection       *connection,
+    GraphicsScene                       *regionScene,
+    MainWindow                          *mainWindow)
 {
-    if (!connection || !regionScene) return nullptr;
+    if (!doc || !connection || !regionScene) return nullptr;
 
     qCInfo(lcGuiScene)
         << "ConnectionLineFactory::fromConnection:"
@@ -61,7 +62,8 @@ ConnectionLine *ConnectionLineFactory::fromConnection(
 
     auto *line = new ConnectionLine(startItem, endItem, connection->mode,
                                     {}, startItem->getRegion());
-    line->setConnectionModel(connection);
+    line->bindToConnection(doc, connection->fromTerminalId,
+                           connection->toTerminalId, connection->mode);
     addAndBindLine(line, regionScene, mainWindow);
     return line;
 }
@@ -78,14 +80,17 @@ ConnectionLine *ConnectionLineFactory::findRegionConnection(
 
     if (!scene) return nullptr;
     const auto all = scene->getItemsByType<ConnectionLine>();
+    // Match on the line's own stored binding triple, not on connectionModel()
+    // — the latter returns nullptr once the connection has been removed from
+    // the doc, but the scene still has the line (observers remove the line
+    // from the scene by key AFTER mutation, so this lookup must succeed even
+    // during that transient window).
     for (auto *line : all)
     {
-        if (!line) continue;
-        auto *cm = line->connectionModel();
-        if (!cm) continue;
-        if (cm->fromTerminalId == fromTerminalId
-         && cm->toTerminalId   == toTerminalId
-         && cm->mode           == mode)
+        if (!line || !line->isConnectionBinding()) continue;
+        if (line->boundFromTerminalId() == fromTerminalId
+         && line->boundToTerminalId()   == toTerminalId
+         && line->connectionType()      == mode)
             return line;
     }
     return nullptr;
@@ -105,23 +110,22 @@ ConnectionLine *ConnectionLineFactory::findGlobalLink(
     const auto all = scene->getItemsByType<ConnectionLine>();
     for (auto *line : all)
     {
-        if (!line) continue;
-        auto *gm = line->globalLinkModel();
-        if (!gm) continue;
-        if (gm->fromTerminalId == fromTerminalId
-         && gm->toTerminalId   == toTerminalId
-         && gm->mode           == mode)
+        if (!line || !line->isGlobalLinkBinding()) continue;
+        if (line->boundFromTerminalId() == fromTerminalId
+         && line->boundToTerminalId()   == toTerminalId
+         && line->connectionType()      == mode)
             return line;
     }
     return nullptr;
 }
 
 ConnectionLine *ConnectionLineFactory::fromGlobalLink(
-    Backend::Scenario::GlobalLink *link,
-    GraphicsScene                 *globalScene,
-    MainWindow                    *mainWindow)
+    Backend::Scenario::ScenarioDocument *doc,
+    Backend::Scenario::GlobalLink       *link,
+    GraphicsScene                       *globalScene,
+    MainWindow                          *mainWindow)
 {
-    if (!link || !globalScene) return nullptr;
+    if (!doc || !link || !globalScene) return nullptr;
 
     qCInfo(lcGuiScene)
         << "ConnectionLineFactory::fromGlobalLink:"
@@ -157,7 +161,8 @@ ConnectionLine *ConnectionLineFactory::fromGlobalLink(
     qCDebug(lcGuiScene)
         << "ConnectionLineFactory::fromGlobalLink:"
         << "ConnectionLine constructed line=" << line;
-    line->setGlobalLinkModel(link);
+    line->bindToGlobalLink(doc, link->fromTerminalId, link->toTerminalId,
+                           link->mode);
     qCDebug(lcGuiScene)
         << "ConnectionLineFactory::fromGlobalLink:"
         << "calling addAndBindLine";

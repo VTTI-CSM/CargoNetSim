@@ -42,7 +42,12 @@ signals:
 
 private:
     QUndoStack m_stack;
-    bool       m_inSubmit = false;   // re-entrancy guard
+    bool       m_inSubmit    = false; // re-entrancy guard
+    int        m_macroDepth  = 0;     // >0 while inside beginMacro/endMacro;
+                                      // the top-level stack count does not
+                                      // grow per push inside a macro, so the
+                                      // "did count increase?" obsolete-detection
+                                      // heuristic is skipped while active.
 };
 
 } // namespace CargoNetSim::GUI::Input
