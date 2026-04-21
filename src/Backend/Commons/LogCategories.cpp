@@ -67,3 +67,13 @@ Q_LOGGING_CATEGORY(lcGuiHeartbeat,
                    "cargonetsim.gui.heartbeat")
 Q_LOGGING_CATEGORY(lcGuiUtil,
                    "cargonetsim.gui.util")
+
+// GUI -- Input dispatch pipeline
+Q_LOGGING_CATEGORY(lcGuiInput,
+                   "cargonetsim.gui.input")
+Q_LOGGING_CATEGORY(lcGuiInputMode,
+                   "cargonetsim.gui.input.mode")
+Q_LOGGING_CATEGORY(lcGuiInputCmd,
+                   "cargonetsim.gui.input.command")
+Q_LOGGING_CATEGORY(lcGuiInputItem,
+                   "cargonetsim.gui.input.item")

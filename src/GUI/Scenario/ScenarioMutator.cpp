@@ -473,6 +473,74 @@ bool ScenarioMutator::updateFleet(
     return true;
 }
 
+// ---------------- undo-restore helpers ----------------
+
+bool ScenarioMutator::restoreConnection(
+    Backend::Scenario::ScenarioDocument   *doc,
+    const Backend::Scenario::Connection   &snapshot)
+{
+    if (!doc) return false;
+    for (const auto &c : doc->connections)
+    {
+        if (c.fromTerminalId == snapshot.fromTerminalId
+         && c.toTerminalId   == snapshot.toTerminalId
+         && c.mode           == snapshot.mode)
+        {
+            qCWarning(lcGuiScene)
+                << "ScenarioMutator::restoreConnection:"
+                << "duplicate (from,to,mode); skipping";
+            return false;
+        }
+    }
+    qCInfo(lcGuiScene) << "ScenarioMutator::restoreConnection:"
+                       << "from=" << snapshot.fromTerminalId
+                       << "to="   << snapshot.toTerminalId;
+    return doc->addConnection(snapshot);
+}
+
+bool ScenarioMutator::restoreLinkage(
+    Backend::Scenario::ScenarioDocument   *doc,
+    const Backend::Scenario::NodeLinkage  &snapshot)
+{
+    if (!doc) return false;
+    for (const auto &l : doc->linkages)
+    {
+        if (l.terminalId  == snapshot.terminalId
+         && l.networkName == snapshot.networkName
+         && l.nodeId      == snapshot.nodeId)
+        {
+            qCWarning(lcGuiScene)
+                << "ScenarioMutator::restoreLinkage:"
+                << "duplicate (terminal,network,node); skipping";
+            return false;
+        }
+    }
+    qCInfo(lcGuiScene) << "ScenarioMutator::restoreLinkage:"
+                       << "terminal=" << snapshot.terminalId
+                       << "network="  << snapshot.networkName
+                       << "node="     << snapshot.nodeId;
+    return doc->addLinkage(snapshot);
+}
+
+bool ScenarioMutator::restoreTerminal(
+    Backend::Scenario::ScenarioDocument        *doc,
+    const Backend::Scenario::TerminalPlacement &snapshot)
+{
+    if (!doc) return false;
+    if (snapshot.id.isEmpty()) return false;
+    if (doc->terminals.contains(snapshot.id))
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioMutator::restoreTerminal:"
+            << "duplicate id; skipping" << snapshot.id;
+        return false;
+    }
+    qCInfo(lcGuiScene) << "ScenarioMutator::restoreTerminal:"
+                       << "id=" << snapshot.id
+                       << "type=" << snapshot.type;
+    return doc->addTerminal(snapshot);
+}
+
 } // namespace Scenario
 } // namespace GUI
 } // namespace CargoNetSim

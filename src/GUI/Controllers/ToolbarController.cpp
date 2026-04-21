@@ -3,7 +3,10 @@
 
 #include <QAction>
 #include <QHBoxLayout>
+#include <QIcon>
+#include <QKeySequence>
 #include <QStyle>
+#include <QUndoStack>
 #include <QVBoxLayout>
 #include <QWidgetAction>
 
@@ -113,6 +116,39 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     homeLayout->addWidget(mainWindow->projectGroup_);
 
     qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Project group created";
+
+    // Create Edit group (Plan 4 Task 4.12 — Undo/Redo wired to
+    // the scenario CommandBus so ribbon mirrors QUndoStack state).
+    QGroupBox   *editGroup   = new QGroupBox("Edit");
+    QHBoxLayout *editLayout  = new QHBoxLayout(editGroup);
+    editLayout->setSpacing(4);
+    editLayout->setContentsMargins(8, 12, 8, 8);
+
+    QUndoStack *undoStack = mainWindow->commandBus()->undoStack();
+
+    QAction *undoAction = undoStack->createUndoAction(mainWindow, "Undo");
+    undoAction->setShortcut(QKeySequence::Undo);
+    undoAction->setIcon(QIcon::fromTheme("edit-undo"));
+
+    QAction *redoAction = undoStack->createRedoAction(mainWindow, "Redo");
+    redoAction->setShortcut(QKeySequence::Redo);
+    redoAction->setIcon(QIcon::fromTheme("edit-redo"));
+
+    QToolButton *undoButton = new QToolButton();
+    undoButton->setToolButtonStyle(
+        Qt::ToolButtonStyle::ToolButtonTextUnderIcon);
+    undoButton->setDefaultAction(undoAction);
+    editLayout->addWidget(undoButton);
+
+    QToolButton *redoButton = new QToolButton();
+    redoButton->setToolButtonStyle(
+        Qt::ToolButtonStyle::ToolButtonTextUnderIcon);
+    redoButton->setDefaultAction(redoAction);
+    editLayout->addWidget(redoButton);
+
+    homeLayout->addWidget(editGroup);
+
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Edit group created";
 
     // Create Tools group
     mainWindow->toolsGroup_ = new QGroupBox("Basic Tools");

@@ -1,6 +1,9 @@
 // src/GUI/Widgets/DestinationListEditor.cpp
 #include "DestinationListEditor.h"
 #include "GraphicsScene.h"
+#include "../Input/InteractionController.h"
+#include "../Input/Modes/NormalMode.h"
+#include "../Input/Modes/PickDestinationMode.h"
 #include "Backend/Commons/LogCategories.h"
 
 #include <QDoubleSpinBox>
@@ -150,9 +153,9 @@ void DestinationListEditor::addRow()
     pickBtn->setToolTip(tr("Click terminal on canvas"));
     connect(pickBtn, &QPushButton::clicked, this,
         [this, row, pickBtn]() {
-            if (!m_scene) return;
+            if (!m_controller) return;
             m_activePickRow = row;
-            m_scene->setIsInPickDestinationMode(true);
+            m_controller->setMode<Input::PickDestinationMode>();
             pickBtn->setText("Picking...");
         });
     m_table->setCellWidget(row, kColTerminal, pickBtn);
@@ -207,14 +210,14 @@ void DestinationListEditor::refreshSumLabel()
     m_sumLabel->setPalette(p);
 }
 
-void DestinationListEditor::setScene(GraphicsScene *scene)
+void DestinationListEditor::setController(Input::InteractionController *ctrl)
 {
     if (m_pickConnection)
         disconnect(m_pickConnection);
-    m_scene = scene;
-    if (!m_scene) return;
+    m_controller = ctrl;
+    if (!m_controller) return;
     m_pickConnection = connect(
-        m_scene, &GraphicsScene::destinationPicked,
+        m_controller, &Input::InteractionController::destinationPicked,
         this,
         [this](const QString &destId,
                const QString &destName) {

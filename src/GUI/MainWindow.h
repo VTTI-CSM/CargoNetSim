@@ -30,6 +30,8 @@
 #include "Widgets/CustomMainWindow.h"
 #include "Widgets/NetworkManagerDialog.h"
 #include "Widgets/RegionManagerWidget.h"
+#include "Input/Commands/CommandBus.h"
+#include "Input/InteractionController.h"
 
 #include <memory>
 
@@ -205,6 +207,24 @@ public:
     FleetController *fleetCtrl() const
     { return m_fleetCtrl; }
 
+    Input::CommandBus*            commandBus()             const { return m_commandBus; }
+    Input::InteractionController* regionInputController()  const { return m_regionInputController; }
+    Input::InteractionController* globalInputController()  const { return m_globalInputController; }
+
+    /// Convenience — returns whichever controller is bound to the active tab.
+    /// Used by toolbar toggle code that just wants "the currently visible tab".
+    /// Index convention matches getCurrentScene(): 0 = region, 1 = global map.
+    /// Note: tabWidget_->currentWidget() returns the tab CONTAINER widget
+    /// (mainViewTab / globalMapTab), not the view inside it — index comparison
+    /// is the reliable path.
+    Input::InteractionController* inputController() const
+    {
+        if (!tabWidget_) return m_regionInputController;
+        return tabWidget_->currentIndex() == 1    // 1 = global map tab
+             ? m_globalInputController
+             : m_regionInputController;
+    }
+
     /**
      * @brief Gets the currently active scene
      * @return Pointer to the current GraphicsScene
@@ -224,18 +244,6 @@ public:
      * otherwise
      */
     bool isRegionViewActive() const;
-
-    /**
-     * @brief Handles linking terminals to nodes
-     * @param item The item being linked (terminal or node)
-     */
-    void handleTerminalNodeLinking(QGraphicsItem *item);
-
-    /**
-     * @brief Handles unlinking terminals from nodes
-     * @param item The item being unlinked
-     */
-    void handleTerminalNodeUnlinking(QGraphicsItem *item);
 
     /**
      * @brief Shows or hides the shortest paths table
@@ -529,8 +537,6 @@ protected:
         connectionTypes_;
     Backend::TransportationTypes::TransportationMode
         currentConnectionType_;
-    TerminalItem *
-        selectedTerminal_; // For linking terminals to nodes
 
     // State management
     QMap<QWidget *, QList<int>>     toolsButtonsVisibility_;
@@ -550,6 +556,10 @@ protected:
     RegionController           *m_regionCtrl       = nullptr;
     SettingsController         *m_settingsCtrl     = nullptr;
     FleetController            *m_fleetCtrl        = nullptr;
+
+    Input::CommandBus*            m_commandBus            = nullptr;   // shared by both controllers
+    Input::InteractionController* m_regionInputController = nullptr;
+    Input::InteractionController* m_globalInputController = nullptr;
 
     // Toolbar organization
     ScrollableToolBar *toolbar_;

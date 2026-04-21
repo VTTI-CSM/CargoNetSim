@@ -185,17 +185,6 @@ public:
                                 bool        checked);
 
     /**
-     * @brief Sets the global position of a terminal
-     * @param mainWindow Pointer to the main window
-     * @param terminal The terminal to set the position for
-     * @return True if the position was set successfully,
-     * false otherwise
-     */
-    static bool
-    setTerminalGlobalPosition(MainWindow   *mainWindow,
-                              TerminalItem *terminal);
-
-    /**
      * @brief Toggles visibility of a dock widget
      * @param checked Whether the dock widget should be
      * visible

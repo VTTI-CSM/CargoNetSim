@@ -1,6 +1,8 @@
 #pragma once
 #include "Backend/Commons/TransportationMode.h"
 #include "GraphicsObjectBase.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 
 #include <QGraphicsItem>
 #include <QGraphicsObject>
@@ -25,7 +27,9 @@ class TerminalItem;
 class GlobalTerminalItem;
 class ConnectionLabel;
 
-class ConnectionLine : public GraphicsObjectBase
+class ConnectionLine : public GraphicsObjectBase,
+                       public Input::IClickable,
+                       public Input::IHoverable
 {
     Q_OBJECT
 
@@ -179,8 +183,12 @@ public:
                                &allConnectionsById);
     static int getNewConnectionID();
 
+    // Input interface implementations
+    Input::Handled onLeftClick(const Input::ClickContext&) override;
+    void onHoverEnter(const Input::ClickContext&) override;
+    void onHoverLeave(const Input::ClickContext&) override;
+
 signals:
-    void clicked(ConnectionLine *line);
     void startPositionChanged(const QPointF &newPos);
     void endPositionChanged(const QPointF &newPos);
     void propertyChanged(const QString  &key,
@@ -197,12 +205,6 @@ protected:
     void         paint(QPainter                       *painter,
                        const QStyleOptionGraphicsItem *option,
                        QWidget *widget = nullptr) override;
-    void         mousePressEvent(
-                QGraphicsSceneMouseEvent *event) override;
-    void hoverEnterEvent(
-        QGraphicsSceneHoverEvent *event) override;
-    void hoverLeaveEvent(
-        QGraphicsSceneHoverEvent *event) override;
 
 private:
     // Utility methods

@@ -1,11 +1,16 @@
 #pragma once
 
 #include "Backend/Scenario/TerminalPlacement.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IContextMenuProvider.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 #include "GraphicsObjectBase.h"
 
 #include <QColor>
+#include <QCursor>
 #include <QGraphicsObject>
 #include <QMap>
+#include <QMenu>
 #include <QPointF>
 #include <QString>
 #include <QVariant>
@@ -15,11 +20,14 @@ namespace CargoNetSim
 namespace Backend {
 namespace Scenario {
 struct NodeLinkage;
+class  ScenarioDocument;
 } // namespace Scenario
 } // namespace Backend
 
 namespace GUI
 {
+
+namespace Input { class CommandBus; }
 
 class TerminalItem;
 
@@ -30,7 +38,10 @@ class TerminalItem;
  * that can be linked to a terminal. It can have different
  * shapes and belongs to a specific network region.
  */
-class MapPoint : public GraphicsObjectBase
+class MapPoint : public GraphicsObjectBase,
+                 public Input::IClickable,
+                 public Input::IContextMenuProvider,
+                 public Input::IHoverable
 {
     Q_OBJECT
 
@@ -231,12 +242,14 @@ public:
         const QMap<int, TerminalItem *> &terminalsById =
             QMap<int, TerminalItem *>());
 
-signals:
-    /**
-     * @brief Signal emitted when the point is clicked
-     */
-    void clicked(MapPoint *point);
+    // --- Input interfaces (Plan 3 Task 3.5) ---
+    Input::Handled onLeftClick   (const Input::ClickContext&) override;
+    void           buildContextMenu(QMenu* menu, const Input::ClickContext&) override;
+    void           onHoverEnter  (const Input::ClickContext&) override;
+    void           onHoverLeave  (const Input::ClickContext&) override;
+    QCursor        hoverCursor() const override { return QCursor(Qt::PointingHandCursor); }
 
+signals:
     /**
      * @brief Signal emitted when the point is moved
      */
@@ -271,18 +284,14 @@ protected:
     void   paint(QPainter                       *painter,
                  const QStyleOptionGraphicsItem *option,
                  QWidget *widget = nullptr) override;
-    void   mousePressEvent(
-          QGraphicsSceneMouseEvent *event) override;
-    void contextMenuEvent(
-        QGraphicsSceneContextMenuEvent *event) override;
 
 private:
-    void
-    showContextMenu(QGraphicsSceneContextMenuEvent *event);
     void createTerminalAtPosition(
         const QString &terminalType,
         Backend::Scenario::TerminalPlacement::TerminalRole role =
-            Backend::Scenario::TerminalPlacement::TerminalRole::Transit);
+            Backend::Scenario::TerminalPlacement::TerminalRole::Transit,
+        Backend::Scenario::ScenarioDocument *doc = nullptr,
+        Input::CommandBus                   *bus = nullptr);
 
     static int POINT_ID;
 

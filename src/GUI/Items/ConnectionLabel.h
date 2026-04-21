@@ -1,8 +1,11 @@
 #pragma once
 
 #include "GraphicsObjectBase.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 
 #include <QColor>
+#include <QCursor>
 #include <QGraphicsObject>
 #include <QMap>
 #include <QRectF>
@@ -14,7 +17,9 @@ namespace CargoNetSim
 namespace GUI
 {
 
-class ConnectionLabel : public GraphicsObjectBase
+class ConnectionLabel : public GraphicsObjectBase,
+                        public Input::IClickable,
+                        public Input::IHoverable
 {
     Q_OBJECT
 
@@ -48,8 +53,17 @@ public:
     fromDict(const QMap<QString, QVariant> &data,
              QGraphicsItem *parent = nullptr);
 
+    // Input interface overrides
+    Input::Handled
+         onLeftClick(const Input::ClickContext &) override;
+    void onHoverEnter(const Input::ClickContext &) override;
+    void onHoverLeave(const Input::ClickContext &) override;
+    QCursor hoverCursor() const override
+    {
+        return QCursor(Qt::PointingHandCursor);
+    }
+
 signals:
-    void clicked();
     void textChanged(const QString &newText);
     void colorChanged(const QColor &newColor);
     void selectionChanged(bool isSelected);
@@ -60,12 +74,6 @@ protected:
     void   paint(QPainter                       *painter,
                  const QStyleOptionGraphicsItem *option,
                  QWidget *widget = nullptr) override;
-    void   mousePressEvent(
-          QGraphicsSceneMouseEvent *event) override;
-    void hoverEnterEvent(
-        QGraphicsSceneHoverEvent *event) override;
-    void hoverLeaveEvent(
-        QGraphicsSceneHoverEvent *event) override;
 
 private:
     QString m_text;

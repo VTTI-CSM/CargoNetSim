@@ -1,11 +1,16 @@
 #include "MapLine.h"
 #include "Backend/Commons/LogCategories.h"
+#include "GUI/Input/ClickContext.h"
 #include "GUI/Items/AnimationObject.h"
+#include "GUI/Widgets/GraphicsScene.h"
 
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
+#include <QLoggingCategory>
 #include <QPainter>
+#include <QPainterPath>
+#include <QPainterPathStroker>
 #include <QStyleOptionGraphicsItem>
 
 namespace CargoNetSim
@@ -99,6 +104,26 @@ QRectF MapLine::boundingRect() const
         .adjusted(-2, -2, 2, 2);
 }
 
+QPainterPath MapLine::shape() const
+{
+    // Default shape() returns the bounding rect, which for a diagonal line
+    // covers a large rectangular region that steals clicks from items
+    // rendered beneath the line (e.g. MapPoint nodes, TerminalItems). We
+    // return a narrow stroked path along the line itself so hit-testing
+    // matches what the user sees.
+    QPainterPath line;
+    line.moveTo(startPoint);
+    line.lineTo(endPoint);
+
+    QPainterPathStroker stroker;
+    // Hit tolerance in scene units. The visual pen width comes from paint()
+    // and scales with zoom; we use a fixed tolerance here since shape() is
+    // consulted in item-local (== scene) coordinates for MapLine.
+    stroker.setWidth(8.0);
+    stroker.setCapStyle(Qt::FlatCap);
+    return stroker.createStroke(line);
+}
+
 void MapLine::paint(QPainter                       *painter,
                     const QStyleOptionGraphicsItem *option,
                     QWidget                        *widget)
@@ -135,45 +160,37 @@ void MapLine::paint(QPainter                       *painter,
     painter->drawLine(startPoint, endPoint);
 }
 
-void MapLine::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled
+MapLine::onLeftClick(const Input::ClickContext &ctx)
 {
-    qCDebug(lcGuiScene)
-        << "MapLine::mousePressEvent:"
-        << "button=" << event->button()
-        << "region=" << m_properties.value("region").toString();
+    const QString regionName =
+        m_properties.value("region").toString();
+    const QString networkName =
+        m_properties.value("Network_ID").toString();
 
-    emit clicked(this);
+    qCDebug(lcGuiInputItem)
+        << "MapLine::onLeftClick; region =" << regionName
+        << "network =" << networkName;
 
-    // Select all lines in the same region when this line is
-    // clicked
-    selectNetworkLines();
-
-    QGraphicsObject::mousePressEvent(event);
-}
-
-void MapLine::selectNetworkLines()
-{
-    if (!scene())
+    if (!ctx.scene)
     {
-        qCWarning(lcGuiScene)
-            << "MapLine::selectNetworkLines: no scene";
-        return;
+        return Input::Handled::PassThrough;
     }
 
-    // Loop through all items and select those in the same
-    // region
-    for (QGraphicsItem *item : scene()->items())
+    ctx.scene->clearSelection();
+    for (QGraphicsItem *item : ctx.scene->items())
     {
-        MapLine *line = dynamic_cast<MapLine *>(item);
-        if (line
-            && line->getRegion()
-                   == m_properties.value("region")
-                          .toString())
+        if (auto *m = dynamic_cast<MapLine *>(item))
         {
-            line->setSelected(true);
+            if (m->getRegion() == regionName
+                && m->getReferencedNetworkLinkID()
+                       == networkName)
+            {
+                m->setSelected(true);
+            }
         }
     }
+    return Input::Handled::Yes;
 }
 
 QMap<QString, QVariant> MapLine::toDict() const

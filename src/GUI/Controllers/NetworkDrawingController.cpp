@@ -627,14 +627,9 @@ MapLine *NetworkDrawingController::drawLink(
         line = new MapLine(networkNodeID, sourceScenePoint,
                            destScenePoint, regionName,
                            properties);
-
-        MainWindow *mw = m_mainWindow;
-        QObject::connect(
-            line, &MapLine::clicked,
-            [mw](MapLine *clickedLine) {
-                UtilitiesFunctions::updatePropertiesPanel(
-                    mw, clickedLine);
-            });
+        // Plan 3: MapLine::clicked signal removed — panel listens
+        // to scene->selectionChanged and MapLine's onLeftClick
+        // selects every MapLine sharing the same region+network.
 
         line->setProperty("LinkID", linkUniqueID);
         line->setColor(color);

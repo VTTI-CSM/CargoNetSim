@@ -141,6 +141,61 @@ set(GUI_SOURCES
     Scenario/SceneRepopulator.cpp
     Scenario/ConnectionLineFactory.h
     Scenario/ConnectionLineFactory.cpp
+
+    # Input dispatch pipeline
+    Input/Handled.h
+    Input/InputEvent.h
+    Input/ClickContext.h
+    Input/InteractionController.h
+    Input/InteractionController.cpp
+    Input/Interfaces/IInteractionMode.h
+    Input/Interfaces/IClickable.h
+    Input/Interfaces/IContextMenuProvider.h
+    Input/Interfaces/IHoverable.h
+    Input/Interfaces/IDraggable.h
+    Input/Modes/NormalMode.h
+    Input/Modes/NormalMode.cpp
+    Input/Modes/MeasureMode.h
+    Input/Modes/MeasureMode.cpp
+    Input/Modes/PanMode.h
+    Input/Modes/PanMode.cpp
+    Input/Modes/PickDestinationMode.h
+    Input/Modes/PickDestinationMode.cpp
+    Input/Modes/GlobalPositionMode.h
+    Input/Modes/GlobalPositionMode.cpp
+    Input/Modes/LinkTerminalMode.h
+    Input/Modes/LinkTerminalMode.cpp
+    Input/Modes/UnlinkTerminalMode.h
+    Input/Modes/UnlinkTerminalMode.cpp
+    Input/Modes/ConnectMode.h
+    Input/Modes/ConnectMode.cpp
+    Input/Commands/CommandId.h
+    Input/Commands/CommandBus.h
+    Input/Commands/CommandBus.cpp
+    Input/Commands/CreateConnectionCommand.h
+    Input/Commands/CreateConnectionCommand.cpp
+    Input/Commands/CreateTerminalAtMapPointCommand.h
+    Input/Commands/CreateTerminalAtMapPointCommand.cpp
+    Input/Commands/CreateTerminalAtPointCommand.h
+    Input/Commands/CreateTerminalAtPointCommand.cpp
+    Input/Commands/DeleteConnectionCommand.h
+    Input/Commands/DeleteConnectionCommand.cpp
+    Input/Commands/DeleteItemCommand.h
+    Input/Commands/DeleteItemCommand.cpp
+    Input/Commands/DeleteTerminalCommand.h
+    Input/Commands/DeleteTerminalCommand.cpp
+    Input/Commands/LinkTerminalToMapPointCommand.h
+    Input/Commands/LinkTerminalToMapPointCommand.cpp
+    Input/Commands/SetTerminalRoleCommand.h
+    Input/Commands/SetTerminalRoleCommand.cpp
+    Input/Commands/SetTerminalTypeCommand.h
+    Input/Commands/SetTerminalTypeCommand.cpp
+    Input/Commands/UnlinkTerminalCommand.h
+    Input/Commands/UnlinkTerminalCommand.cpp
+    Input/Commands/UpdateRegionLocalOriginCommand.h
+    Input/Commands/UpdateRegionLocalOriginCommand.cpp
+    Input/Commands/UpdateTerminalPositionCommand.h
+    Input/Commands/UpdateTerminalPositionCommand.cpp
 )
 
 # Create the GUI library

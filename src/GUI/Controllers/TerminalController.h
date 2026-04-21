@@ -53,6 +53,19 @@ public:
         TerminalItem *terminal,
         QPointF       globalGeoPos);
 
+    /**
+     * @brief Convert a global WGS84 point to the given region's local
+     *        lat/lon (x = lon, y = lat).
+     *
+     * The conversion subtracts the region's shared-origin offset
+     * (Shared − local origin) from the global point, mirroring the
+     * inverse of the offset that `sceneToWGS84` applies in the region
+     * view. Returns the input unchanged if the region center cannot be
+     * resolved.
+     */
+    QPointF globalToLocalLatLon(const QString &region,
+                                const QPointF &globalLatLon) const;
+
     bool linkTerminalToClosestNetworkPoint(
         TerminalItem             *terminal,
         const QList<NetworkType> &networkTypes);

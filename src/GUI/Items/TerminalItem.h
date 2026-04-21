@@ -3,9 +3,15 @@
 #include "Backend/Scenario/InterfaceConversion.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include "GraphicsObjectBase.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IContextMenuProvider.h"
+#include "GUI/Input/Interfaces/IDraggable.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 
+#include <QCursor>
 #include <QGraphicsObject>
 #include <QMap>
+#include <QMenu>
 #include <QPixmap>
 #include <QPointF>
 #include <QPointer>
@@ -30,7 +36,11 @@ class GlobalTerminalItem;
  * application. Terminals can be dragged, selected, and
  * connected to form a transportation network.
  */
-class TerminalItem : public GraphicsObjectBase
+class TerminalItem : public GraphicsObjectBase,
+                     public Input::IClickable,
+                     public Input::IContextMenuProvider,
+                     public Input::IHoverable,
+                     public Input::IDraggable
 {
     Q_OBJECT
     Q_PROPERTY(QPointF pos READ pos WRITE setPos)
@@ -271,13 +281,6 @@ public:
 
 signals:
     /**
-     * @brief Emitted when terminal is clicked
-     *
-     * @param item Pointer to this terminal
-     */
-    void clicked(TerminalItem *item);
-
-    /**
      * @brief Emitted when terminal position changes
      *
      * @param newPos New position in scene coordinates
@@ -332,43 +335,14 @@ protected:
                const QStyleOptionGraphicsItem *option,
                QWidget *widget = nullptr) override;
 
-    /**
-     * @brief Handle mouse press events
-     *
-     * @param event Mouse event details
-     */
-    void mousePressEvent(
-        QGraphicsSceneMouseEvent *event) override;
-
-    /**
-     * @brief Handle item changes (position, selection,
-     * etc.)
-     *
-     * @param change Type of change
-     * @param value New value
-     * @return Modified value or original value
-     */
-    QVariant itemChange(GraphicsItemChange change,
-                        const QVariant    &value) override;
-
-    /**
-     * @brief Handle mouse hover enter events
-     *
-     * @param event Hover event details
-     */
-    void hoverEnterEvent(
-        QGraphicsSceneHoverEvent *event) override;
-
-    /**
-     * @brief Handle mouse hover leave events
-     *
-     * @param event Hover event details
-     */
-    void hoverLeaveEvent(
-        QGraphicsSceneHoverEvent *event) override;
-
-    void contextMenuEvent(
-        QGraphicsSceneContextMenuEvent *event) override;
+public:
+    // --- Input interface implementations (Plan 3) ---
+    Input::Handled onLeftClick(const Input::ClickContext&) override;
+    void           buildContextMenu(QMenu* menu, const Input::ClickContext&) override;
+    void           onHoverEnter(const Input::ClickContext&) override;
+    void           onHoverLeave(const Input::ClickContext&) override;
+    QCursor        hoverCursor() const override { return QCursor(Qt::PointingHandCursor); }
+    void           onDragEnd(const QPointF& finalPos, const Input::ClickContext&) override;
 
 private:
     QPixmap m_pixmap; ///< Visual representation
@@ -378,8 +352,6 @@ private:
         m_properties; ///< Terminal properties
     QRectF
         m_boundingRectValue; ///< Cached bounding rectangle
-    QPointF m_dragOffset;    ///< Offset for dragging
-    bool    m_wasSelected;   ///< Previous selection state
     QPointer<GlobalTerminalItem>
         m_globalTerminalItem; ///< Linked global terminal (QPointer auto-nulls on deletion)
 

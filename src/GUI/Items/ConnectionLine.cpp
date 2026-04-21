@@ -9,6 +9,7 @@
 #include <QGraphicsSceneHoverEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
+#include <QLoggingCategory>
 #include <QPainter>
 #include <QPropertyAnimation>
 #include <QStyleOptionGraphicsItem>
@@ -16,6 +17,7 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Scenario/Connection.h"
 #include "Backend/Scenario/GlobalLink.h"
+#include "GUI/Input/ClickContext.h"
 
 namespace CargoNetSim
 {
@@ -195,10 +197,6 @@ void ConnectionLine::createConnections()
             &GlobalTerminalItem::positionChanged, this,
             &ConnectionLine::onEndItemPositionChanged);
     }
-
-    // Connect label's clicked signal to our clicked signal
-    connect(m_label, &ConnectionLabel::clicked,
-            [this]() { emit clicked(this); });
 }
 
 void ConnectionLine::initializeProperties(QString region)
@@ -550,27 +548,22 @@ void ConnectionLine::setSelected(bool selected)
     m_label->update();
 }
 
-void ConnectionLine::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled ConnectionLine::onLeftClick(const Input::ClickContext&)
 {
-    // Prevent selection by ignoring the event
-    event->ignore();
+    qCDebug(lcGuiInputItem) << "ConnectionLine::onLeftClick; id =" << m_id;
+    return Input::Handled::PassThrough;
 }
 
-void ConnectionLine::hoverEnterEvent(
-    QGraphicsSceneHoverEvent *event)
+void ConnectionLine::onHoverEnter(const Input::ClickContext&)
 {
     m_isHovered = true;
     update();
-    QGraphicsObject::hoverEnterEvent(event);
 }
 
-void ConnectionLine::hoverLeaveEvent(
-    QGraphicsSceneHoverEvent *event)
+void ConnectionLine::onHoverLeave(const Input::ClickContext&)
 {
     m_isHovered = false;
     update();
-    QGraphicsObject::hoverLeaveEvent(event);
 }
 
 QMap<QString, QVariant> ConnectionLine::toDict() const

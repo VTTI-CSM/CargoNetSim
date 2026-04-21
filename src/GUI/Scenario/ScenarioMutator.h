@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Scenario/Connection.h"
 #include "Backend/Scenario/LinkageSource.h"
+#include "Backend/Scenario/NodeLinkage.h"
 #include "Backend/Scenario/RegionSpec.h"
 #include "Backend/Scenario/FleetSpec.h"
 #include "Backend/Scenario/SimulationSettings.h"
@@ -239,6 +241,29 @@ public:
     static bool updateFleet(
         Backend::Scenario::ScenarioDocument *doc,
         const Backend::Scenario::FleetSpec  &fleet);
+
+    // ---------------- undo-restore helpers ----------------
+
+    /// Re-insert a previously captured Connection snapshot. Used by undo
+    /// of DeleteConnectionCommand. Returns false if @p doc is null or if
+    /// a connection with the same (fromId, toId, mode) already exists.
+    static bool restoreConnection(
+        Backend::Scenario::ScenarioDocument   *doc,
+        const Backend::Scenario::Connection   &snapshot);
+
+    /// Re-insert a previously captured NodeLinkage snapshot. Used by undo
+    /// of UnlinkTerminalCommand. Returns false if @p doc is null or an
+    /// identical linkage already exists.
+    static bool restoreLinkage(
+        Backend::Scenario::ScenarioDocument   *doc,
+        const Backend::Scenario::NodeLinkage  &snapshot);
+
+    /// Re-insert a previously captured TerminalPlacement snapshot. Used by
+    /// undo of DeleteTerminalCommand. Returns false if @p doc is null, the
+    /// placement id is empty, or a terminal with that id already exists.
+    static bool restoreTerminal(
+        Backend::Scenario::ScenarioDocument        *doc,
+        const Backend::Scenario::TerminalPlacement &snapshot);
 };
 
 } // namespace Scenario

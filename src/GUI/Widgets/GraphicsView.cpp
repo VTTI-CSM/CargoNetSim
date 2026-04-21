@@ -12,13 +12,14 @@
 #include <QWindow>
 #include <cmath>
 
-#include "../Controllers/TerminalController.h"
-#include "../Items/DistanceMeasurementTool.h"
-#include "../Items/TerminalItem.h"
 #include "../MainWindow.h"
-#include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Commons/LogCategories.h"
 #include "GUI/Widgets/GraphicsScene.h"
+
+#include "../Input/Handled.h"
+#include "../Input/InputEvent.h"
+#include "../Input/InteractionController.h"
+#include "../Input/Modes/PanMode.h"
 
 namespace CargoNetSim
 {
@@ -29,11 +30,8 @@ GraphicsView::GraphicsView(QGraphicsScene *scene,
                            QWidget        *parent)
     : QGraphicsView(scene, parent)
     , useProjectedCoords(false)
-    , measureMode(false)
-    , m_measurementTool(nullptr)
     , _zoom(0)
     , _panMode("ctrl_left")
-    , _ctrlLeftDrag(false)
     , _gridSize(50)
     , _gridEnabled(true)
     , _accumulatedScrollX(0)
@@ -721,6 +719,17 @@ void GraphicsView::drawBackground(QPainter     *painter,
 
 void GraphicsView::wheelEvent(QWheelEvent *event)
 {
+    if (m_inputController) {
+        QPoint viewPos = event->position().toPoint();
+        Input::WheelEvent ie{
+            event->angleDelta().y(), event->modifiers(),
+            mapToScene(viewPos), event->globalPosition().toPoint()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
     try
     {
         constexpr double zoomInFactor  = 1.25;
@@ -784,113 +793,57 @@ void GraphicsView::wheelEvent(QWheelEvent *event)
 
 void GraphicsView::mousePressEvent(QMouseEvent *event)
 {
-    // Check for Ctrl + Left Button
-    if (_panMode == "ctrl_left"
-        && event->modifiers() == Qt::ControlModifier
-        && event->button() == Qt::LeftButton)
-    {
+    // Transient pan mode: push it before dispatching the event so the just-
+    // pushed PanMode's onPress is NOT called but the following Move/Release
+    // events reach it (PanMode only implements onMove/onRelease).
+    const bool panTrigger =
+        (_panMode == QStringLiteral("ctrl_left")
+             && event->button() == Qt::LeftButton
+             && (event->modifiers() & Qt::ControlModifier))
+        || (_panMode == QStringLiteral("middle_mouse")
+             && event->button() == Qt::MiddleButton);
 
-        _ctrlLeftDrag  = true;
-        _lastDragPoint = event->pos();
-        viewport()->setCursor(
-            QCursor(Qt::ClosedHandCursor));
+    qCInfo(lcGuiScene)
+        << "GraphicsView::mousePressEvent: btn=" << event->button()
+        << "mods=" << event->modifiers()
+        << "panMode=" << _panMode
+        << "panTrigger=" << panTrigger
+        << "hasController=" << (m_inputController != nullptr);
+
+    if (panTrigger && m_inputController) {
+        qCInfo(lcGuiScene) << "  -> pushing PanMode with initial pos" << event->pos();
+        m_inputController->pushMode<Input::PanMode>(event->pos());
         event->accept();
         return;
     }
-    else if (_panMode == "middle_mouse"
-             && event->button() == Qt::MiddleButton)
-    {
 
-        _ctrlLeftDrag  = true; // Reuse the same drag logic
-        _lastDragPoint = event->pos();
-        viewport()->setCursor(
-            QCursor(Qt::ClosedHandCursor));
-        event->accept();
-        return;
-    }
-
-    if (measureMode && event->button() == Qt::LeftButton)
-    {
-        QPointF scenePos = mapToScene(event->pos());
-
-        if (!m_measurementTool)
-        {
-            // Create new measurement tool for this
-            // measurement
-            m_measurementTool =
-                new DistanceMeasurementTool(this);
-            GraphicsScene *scene =
-                dynamic_cast<GraphicsScene *>(
-                    this->scene());
-            if (scene)
-            {
-                scene->addItemWithId(
-                    m_measurementTool,
-                    m_measurementTool->sceneRegistryKey());
-            }
-            m_measurementTool->setStartPoint(scenePos);
-            m_measurementTool->setEndPoint(
-                scenePos); // Initialize end point
-            m_measurementTool->update();
-            event->accept();
-            return;
-        }
-        else
-        {
-            // Complete the measurement
-            m_measurementTool->setEndPoint(scenePos);
-            m_measurementTool->update();
-
-            // Important: Set measurementTool to None so
-            // next measurement creates a new one
-            m_measurementTool = nullptr;
-            measureMode     = false;
-
-            unsetCursor();
-
-            // Show status message
-            if (QWidget *mainWindow = window())
-            {
-                QStatusBar *statusBar =
-                    mainWindow->findChild<QStatusBar *>();
-                if (statusBar)
-                {
-                    statusBar->showMessage(
-                        "Measurement complete", 2000);
-                }
-            }
-
+    if (m_inputController) {
+        Input::PressEvent ie{
+            event->button(), event->modifiers(),
+            mapToScene(event->pos()), event->globalPosition().toPoint()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
             event->accept();
             return;
         }
     }
-    else
-    {
-        QGraphicsView::mousePressEvent(event);
-    }
+    QGraphicsView::mousePressEvent(event);
 }
 
 void GraphicsView::mouseMoveEvent(QMouseEvent *event)
 {
-    try
-    {
-        // Handle Ctrl + Left Button dragging
-        if (_ctrlLeftDrag)
-        {
-            QPointF delta  = event->pos() - _lastDragPoint;
-            _lastDragPoint = event->pos();
-
-            // Use horizontal and vertical scrollbars for
-            // smooth scrolling
-            horizontalScrollBar()->setValue(
-                horizontalScrollBar()->value() - delta.x());
-            verticalScrollBar()->setValue(
-                verticalScrollBar()->value() - delta.y());
-
+    if (m_inputController) {
+        Input::MoveEvent ie{
+            event->buttons(), event->modifiers(),
+            mapToScene(event->pos()), event->globalPosition().toPoint()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
             event->accept();
             return;
         }
-
+    }
+    try
+    {
         // Update coordinate label
         QPointF scenePos = mapToScene(event->pos());
 
@@ -951,23 +904,6 @@ void GraphicsView::mouseMoveEvent(QMouseEvent *event)
         _coordinateLabel->move(labelPos);
         _coordinateLabel->show();
 
-        // Handle measurement tool updates
-        try
-        {
-            if (measureMode && m_measurementTool
-                && m_measurementTool->hasStartPoint())
-            {
-                m_measurementTool->setEndPoint(
-                    mapToScene(event->pos()));
-                m_measurementTool->update();
-            }
-        }
-        catch (...)
-        {
-            qCWarning(lcGuiScene) << "Exception handling measurement "
-                          "tool update";
-        }
-
         QGraphicsView::mouseMoveEvent(event);
     }
     catch (const std::exception &e)
@@ -1008,115 +944,46 @@ bool GraphicsView::eventFilter(QObject *obj, QEvent *event)
 
 void GraphicsView::mouseReleaseEvent(QMouseEvent *event)
 {
-    // Check pan mode and handle accordingly
-    if ((_panMode == "ctrl_left"
-         && event->button() == Qt::LeftButton)
-        || (_panMode == "middle_mouse"
-            && event->button() == Qt::MiddleButton))
-    {
-
-        if (_ctrlLeftDrag)
-        {
-            _ctrlLeftDrag = false;
-            viewport()->unsetCursor();
-            viewport()->update();
+    if (m_inputController) {
+        Input::ReleaseEvent ie{
+            event->button(), event->modifiers(),
+            mapToScene(event->pos()), event->globalPosition().toPoint()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
             event->accept();
             return;
         }
     }
-    else
-    {
-        QGraphicsView::mouseReleaseEvent(event);
-    }
+    QGraphicsView::mouseReleaseEvent(event);
 }
 
 void GraphicsView::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::MiddleButton)
-    {
-        // Get all TerminalItem objects in the scene
-        QList<TerminalItem *> terminals;
-
-        if (scene())
-        {
-            for (QGraphicsItem *item : scene()->items())
-            {
-                if (TerminalItem *terminal =
-                        dynamic_cast<TerminalItem *>(item))
-                {
-                    terminals.append(terminal);
-                }
-            }
-        }
-
-        if (!terminals.isEmpty())
-        {
-            // Calculate the bounding rect of all terminals
-            QRectF sceneRect =
-                terminals.first()->sceneBoundingRect();
-            for (int i = 1; i < terminals.size(); ++i)
-            {
-                sceneRect = sceneRect.united(
-                    terminals[i]->sceneBoundingRect());
-            }
-
-            // Add some padding around the bounds
-            int padding = 50;
-            sceneRect.adjust(-padding, -padding, padding,
-                             padding);
-
-            // Center the view on this rectangle
-            fitInView(sceneRect, Qt::KeepAspectRatio);
-
+    if (m_inputController) {
+        Input::DoubleClickEvent ie{
+            event->button(), event->modifiers(),
+            mapToScene(event->pos()), event->globalPosition().toPoint()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
             event->accept();
             return;
         }
-        else
-        {
-            // Get current region
-            if (QWidget *mainWindow = window())
-            {
-                QString currentRegion =
-                    CargoNetSim::CargoNetSimController::
-                        getInstance()
-                            .getRegionDataController()
-                            ->getCurrentRegion();
-
-                // Find the region center point
-                QGraphicsItem *centerPoint = nullptr;
-                QMetaObject::invokeMethod(
-                    mainWindow, "getRegionCenter",
-                    Qt::DirectConnection,
-                    Q_RETURN_ARG(QGraphicsItem *,
-                                 centerPoint),
-                    Q_ARG(QString, currentRegion));
-
-                if (centerPoint)
-                {
-                    // Calculate bounding rect with padding
-                    int    padding = 50;
-                    QRectF centerRect =
-                        centerPoint->sceneBoundingRect();
-                    centerRect.adjust(-padding, -padding,
-                                      padding, padding);
-
-                    // Center the view on the region center
-                    // point
-                    fitInView(centerRect,
-                              Qt::KeepAspectRatio);
-
-                    event->accept();
-                    return;
-                }
-            }
-        }
     }
-
     QGraphicsView::mouseDoubleClickEvent(event);
 }
 
 void GraphicsView::dragEnterEvent(QDragEnterEvent *event)
 {
+    if (m_inputController) {
+        Input::DragEnterEvent ie{
+            event->mimeData(),
+            mapToScene(event->position().toPoint())
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
     if (event->mimeData()->hasFormat(
             "application/x-qabstractitemmodeldatalist"))
     {
@@ -1130,6 +997,16 @@ void GraphicsView::dragEnterEvent(QDragEnterEvent *event)
 
 void GraphicsView::dragMoveEvent(QDragMoveEvent *event)
 {
+    if (m_inputController) {
+        Input::DragMoveEvent ie{
+            event->mimeData(),
+            mapToScene(event->position().toPoint())
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
     if (event->mimeData()->hasFormat(
             "application/x-qabstractitemmodeldatalist"))
     {
@@ -1143,97 +1020,17 @@ void GraphicsView::dragMoveEvent(QDragMoveEvent *event)
 
 void GraphicsView::dropEvent(QDropEvent *event)
 {
-    if (event->mimeData()->hasFormat(
-            "application/x-qabstractitemmodeldatalist"))
-    {
-        // Get the drop position in scene coordinates
-        QPointF dropPos =
-            mapToScene(event->position().toPoint());
-
-        // Get the source item from the library
-        QWidget *sourceWidget =
-            qobject_cast<QWidget *>(event->source());
-        QByteArray modelData = event->mimeData()->data(
-            "application/x-qabstractitemmodeldatalist");
-        QDataStream stream(&modelData, QIODevice::ReadOnly);
-
-        int             row = -1, column = -1;
-        QList<QVariant> itemData;
-
-        while (!stream.atEnd())
-        {
-            int mapItems;
-            stream >> row >> column >> mapItems;
-            for (int i = 0; i < mapItems; ++i)
-            {
-                int      key;
-                QVariant value;
-                stream >> key >> value;
-                itemData.append(value);
-            }
-        }
-
-        // Get terminal type from the source item
-        QListWidget *listWidget =
-            qobject_cast<QListWidget *>(sourceWidget);
-        if (!listWidget || row < 0)
-        {
-            event->ignore();
+    if (m_inputController) {
+        Input::DropEvent ie{
+            event->mimeData(),
+            mapToScene(event->position().toPoint())
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
             return;
         }
-
-        QListWidgetItem *sourceItem = listWidget->item(row);
-        QString          terminalType = sourceItem->text();
-
-        // Plan 8: the Origin/Destination uniqueness gate is gone — any
-        // physical terminal kind can be marked as an origin via the
-        // PropertiesPanel "Origin Configuration" group, and a terminal
-        // becomes a destination by being referenced as one. Multiple
-        // origins per scenario are valid.
-
-        // Create terminal using ViewController
-        QObject *sceneParent =
-            scene() ? scene()->parent() : nullptr;
-        if (sceneParent)
-        {
-            // Retreive the current region
-            QString currentRegion =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegion();
-
-            auto *mw = qobject_cast<MainWindow *>(
-                scene()->parent());
-            if (mw && mw->terminalCtrl())
-                mw->terminalCtrl()->createTerminalAtPoint(
-                    currentRegion, terminalType, dropPos);
-
-            // Show confirmation in status bar
-            if (QWidget *mainWindow = window())
-            {
-                QStatusBar *statusBar =
-                    mainWindow->findChild<QStatusBar *>();
-                if (statusBar)
-                {
-                    statusBar->showMessage(
-                        QString("%1 added.")
-                            .arg(terminalType),
-                        2000);
-                }
-            }
-
-            event->accept();
-        }
-        else
-        {
-            event->ignore();
-        }
     }
-    else
-    {
-        event->ignore();
-    }
+    event->ignore();
 }
 
 void GraphicsView::updateScrollBarRanges()
@@ -1383,32 +1180,28 @@ void GraphicsView::fitInView(
 
 void GraphicsView::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Control
-        && _panMode == "ctrl_left")
-    {
-        viewport()->setCursor(QCursor(Qt::OpenHandCursor));
+    if (m_inputController) {
+        Input::KeyPressEvent ie{
+            event->key(), event->modifiers(),
+            event->text(), event->isAutoRepeat()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
     }
-
-    // Let Delete key propagate to MainWindow
-    else if (event->key() == Qt::Key_Delete
-             || event->key() == Qt::Key_Backspace)
-    {
-        event->ignore(); // This allows the event to
-                         // propagate to parent
-        return;
-    }
-
     QGraphicsView::keyPressEvent(event);
 }
 
 void GraphicsView::keyReleaseEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Control
-        && _panMode == "ctrl_left")
-    {
-        viewport()->unsetCursor();
+    if (m_inputController) {
+        Input::KeyReleaseEvent ie{ event->key(), event->modifiers() };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
     }
-
     QGraphicsView::keyReleaseEvent(event);
 }
 

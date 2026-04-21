@@ -42,3 +42,9 @@ docs/*
 .memsearch/*
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+IMPLEMENTATION_PLAN_TIME_STEP_LOOP.md
+AGENTS.md
+implementation.md
+issues.md
+PENDING_FEATURES_SPEC.md
+.codex

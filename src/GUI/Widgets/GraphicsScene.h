@@ -10,6 +10,8 @@ namespace CargoNetSim
 namespace GUI
 {
 
+namespace Input { class InteractionController; }
+
 // Forward declarations
 class TerminalItem;
 class ConnectionLine;
@@ -19,19 +21,16 @@ class DistanceMeasurementTool;
  * @brief Custom graphics scene for the CargoNetSim
  * application
  *
- * Extends QGraphicsScene to handle special interaction
- * modes like connection creation, terminal linking, and
- * measurement tools.
+ * Post Plan-2 refactor: interaction-mode state lives in
+ * Input::InteractionController, not on the scene. The scene
+ * only translates raw Qt events into Input::InputEvent and
+ * forwards them through the controller.
  */
 class GraphicsScene : public QGraphicsScene
 {
     Q_OBJECT
 
 public:
-    /**
-     * @brief Constructs a GraphicsScene
-     * @param parent Parent QObject
-     */
     explicit GraphicsScene(QObject *parent = nullptr);
 
     void addItemWithId(GraphicsObjectBase *item,
@@ -126,91 +125,50 @@ public:
         return true;
     }
 
-    bool isInConnectMode()
+    void setInputController(Input::InteractionController* ctrl)
     {
-        return m_connectMode;
-    }
-    bool isInLinkTerminalMode()
-    {
-        return m_linkTerminalMode;
-    }
-    bool isInUnlinkTerminalMode()
-    {
-        return m_unlinkTerminalMode;
-    }
-    bool isInMeasureMode()
-    {
-        return m_measureMode;
-    }
-    bool isInGlobalPositionMode()
-    {
-        return m_globalPositionMode;
-    }
-    QVariant getConnectedFirstItem()
-    {
-        return m_connectFirstItem;
-    }
-    DistanceMeasurementTool *getMeasurementTool()
-    {
-        return m_measurementTool;
+        m_inputController = ctrl;
     }
 
-    void setIsInConnectMode(bool isInConnectMode)
+    Input::InteractionController* inputController() const
     {
-        m_connectMode = isInConnectMode;
+        return m_inputController;
     }
-    void setIsInLinkTerminalMode(bool isInLinkTerminalMode)
-    {
-        m_linkTerminalMode = isInLinkTerminalMode;
-    }
-    void
-    setIsInUnlinkTerminalMode(bool isInUnlinkTerminalMode)
-    {
-        m_unlinkTerminalMode = isInUnlinkTerminalMode;
-    }
-    void setIsInMeasureMode(bool isInMeasureMode)
-    {
-        m_measureMode = isInMeasureMode;
-    }
-    void
-    setIsInGlobalPositionMode(bool isInGlobalPositionMode)
-    {
-        m_globalPositionMode = isInGlobalPositionMode;
-    }
-    bool isInPickDestinationMode() const
-    {
-        return m_pickDestinationMode;
-    }
-    void setIsInPickDestinationMode(bool enabled);
-    void setConnectedFirstItem(QVariant connectedFirstItem)
-    {
-        m_connectFirstItem = connectedFirstItem;
-    }
-    void setMeasurementTool(
-        DistanceMeasurementTool *measurementTool)
-    {
-        m_measurementTool = measurementTool;
-    }
-
-signals:
-    /**
-     * @brief Emitted when the user picks a destination
-     *        terminal in pick-destination mode
-     * @param terminalId   The terminal's unique ID
-     * @param terminalName The terminal's display name
-     */
-    void destinationPicked(const QString &terminalId,
-                           const QString &terminalName);
 
 protected:
-    /**
-     * @brief Handles mouse press events in the scene
-     * @param event The mouse event
-     */
     void mousePressEvent(
         QGraphicsSceneMouseEvent *event) override;
 
+    void mouseMoveEvent(
+        QGraphicsSceneMouseEvent *event) override;
+
+    void mouseReleaseEvent(
+        QGraphicsSceneMouseEvent *event) override;
+
+    void mouseDoubleClickEvent(
+        QGraphicsSceneMouseEvent *event) override;
+
+    void contextMenuEvent(
+        QGraphicsSceneContextMenuEvent *event) override;
+
+    void wheelEvent(
+        QGraphicsSceneWheelEvent *event) override;
+
     void keyPressEvent(QKeyEvent *event) override;
+
+    void keyReleaseEvent(QKeyEvent *event) override;
+
+    void dragEnterEvent(
+        QGraphicsSceneDragDropEvent *event) override;
+
+    void dragMoveEvent(
+        QGraphicsSceneDragDropEvent *event) override;
+
+    void dragLeaveEvent(
+        QGraphicsSceneDragDropEvent *event) override;
+
+    void dropEvent(
+        QGraphicsSceneDragDropEvent *event) override;
 
 private:
     // Nested map structure: outer key is class name, inner
@@ -218,33 +176,7 @@ private:
     QMap<QString, QMap<QString, QGraphicsItem *>>
         itemsByType;
 
-    // Mode flags
-    bool m_connectMode; ///< Flag indicating if connection
-                        ///< creation mode is active
-    bool m_linkTerminalMode; ///< Flag indicating if
-                             ///< terminal-node linking mode
-                             ///< is active
-    bool m_unlinkTerminalMode; ///< Flag indicating if
-                               ///< terminal-node unlinking
-                               ///< mode is active
-    bool m_measureMode; ///< Flag indicating if distance
-                        ///< measurement mode is active
-    bool m_globalPositionMode; ///< Flag indicating if
-                               ///< setting global position
-                               ///< mode is active
-    bool m_pickDestinationMode; ///< Flag indicating if
-                                ///< pick-destination mode is
-                                ///< active
-
-    // Objects used for connection and measurement modes
-    QVariant
-        m_connectFirstItem; ///< First terminal selected
-                            ///< in connect mode (can be
-                            ///< TerminalItem* or
-                            ///< GlobalTerminalItem*)
-    DistanceMeasurementTool
-        *m_measurementTool; ///< Current measurement tool
-                            ///< being used
+    Input::InteractionController *m_inputController = nullptr;
 };
 
 } // namespace GUI

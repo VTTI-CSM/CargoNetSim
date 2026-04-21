@@ -324,6 +324,69 @@ bool TerminalController::updateTerminalPositionByGlobalPosition(
 }
 
 // ----------------------------------------------------------------
+// globalToLocalLatLon
+// ----------------------------------------------------------------
+
+QPointF TerminalController::globalToLocalLatLon(
+    const QString &region,
+    const QPointF &globalLatLon) const
+{
+    auto *regionData =
+        CargoNetSim::CargoNetSimController::getInstance()
+            .getRegionDataController()
+            ->getRegionData(region);
+    if (!regionData)
+    {
+        qCWarning(lcGuiView)
+            << "TerminalController::globalToLocalLatLon:"
+            << "no region data for" << region
+            << "— returning input unchanged";
+        return globalLatLon;
+    }
+
+    auto *regionCenterPoint =
+        regionData->getVariableAs<RegionCenterPoint *>(
+            "regionCenterPoint", nullptr);
+    if (!regionCenterPoint)
+    {
+        qCWarning(lcGuiView)
+            << "TerminalController::globalToLocalLatLon:"
+            << "no regionCenterPoint for" << region
+            << "— returning input unchanged";
+        return globalLatLon;
+    }
+
+    const auto props = regionCenterPoint->getProperties();
+    const double localLat =
+        props.contains("Latitude")
+            ? props.value("Latitude").toDouble()
+            : 0.0;
+    const double localLon =
+        props.contains("Longitude")
+            ? props.value("Longitude").toDouble()
+            : 0.0;
+    const double sharedLat =
+        props.contains("Shared Latitude")
+            ? props.value("Shared Latitude").toDouble()
+            : 0.0;
+    const double sharedLon =
+        props.contains("Shared Longitude")
+            ? props.value("Shared Longitude").toDouble()
+            : 0.0;
+
+    // Offset between shared (global) origin and local origin is the
+    // region-to-world translation; subtracting it converts a global
+    // WGS84 point to the region-local lat/lon the document stores.
+    const double newLocalLat =
+        globalLatLon.y() - (sharedLat - localLat);
+    const double newLocalLon =
+        globalLatLon.x() - (sharedLon - localLon);
+
+    // QPointF convention: x = lon, y = lat.
+    return QPointF(newLocalLon, newLocalLat);
+}
+
+// ----------------------------------------------------------------
 // createTerminalAtPoint
 // ----------------------------------------------------------------
 

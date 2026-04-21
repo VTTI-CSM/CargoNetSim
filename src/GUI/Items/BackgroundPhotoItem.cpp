@@ -1,5 +1,6 @@
 #include "BackgroundPhotoItem.h"
 #include "Backend/Commons/LogCategories.h"
+#include "GUI/Input/ClickContext.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
@@ -10,6 +11,7 @@
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
+#include <QLoggingCategory>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 
@@ -262,79 +264,58 @@ void BackgroundPhotoItem::paint(
     }
 }
 
-void BackgroundPhotoItem::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled BackgroundPhotoItem::onLeftClick(
+    const Input::ClickContext &ctx)
 {
-    qCDebug(lcGuiScene)
-        << "BackgroundPhotoItem::mousePressEvent:"
-        << "button=" << event->button()
-        << "locked=" << m_properties["Locked"].toBool()
-        << "scenePos=" << event->scenePos();
-
-    if (!m_properties["Locked"].toBool())
-    {
-        // Store drag offset for position adjustment
-        m_dragOffset = event->pos();
-
-        // Emit clicked signal
-        emit clicked(this);
-
-        // Call parent implementation to handle selection
-        QGraphicsObject::mousePressEvent(event);
-    }
-    else
-    {
-        // Still emit clicked signal when locked, but don't
-        // allow movement
-        emit clicked(this);
-        event->accept();
-    }
+    Q_UNUSED(ctx);
+    qCDebug(lcGuiInputItem)
+        << "BackgroundPhotoItem::onLeftClick; locked ="
+        << m_properties.value(QStringLiteral("Locked"))
+               .toBool();
+    return Input::Handled::PassThrough;
 }
 
-QVariant
-BackgroundPhotoItem::itemChange(GraphicsItemChange change,
-                                const QVariant    &value)
+bool BackgroundPhotoItem::canDrag(
+    const Input::ClickContext &ctx) const
 {
-    qCDebug(lcGuiScene)
-        << "BackgroundPhotoItem::itemChange:"
-        << "change=" << change;
+    Q_UNUSED(ctx);
+    return !m_properties.value(QStringLiteral("Locked"))
+                .toBool();
+}
 
-    if (change == ItemPositionChange && scene())
+QPointF BackgroundPhotoItem::onDragUpdate(
+    const QPointF             &requested,
+    const Input::ClickContext &ctx)
+{
+    Q_UNUSED(ctx);
+    if (m_properties.value(QStringLiteral("Locked"))
+            .toBool())
     {
-        // If locked, prevent movement
-        if (m_properties["Locked"].toBool())
-        {
-            return pos();
-        }
-
-        // If dragging, adjust position based on drag offset
-        if (m_dragOffset != QPointF())
-        {
-            QPointF newPos = value.toPointF();
-
-            // If mouse grabber is this item, adjust by
-            // cursor position
-            if (scene()->mouseGrabberItem() == this)
-            {
-                QGraphicsView *view =
-                    scene()->views().first();
-                QPointF mousePos = view->mapToScene(
-                    view->mapFromGlobal(QCursor::pos()));
-                return mousePos - m_dragOffset;
-            }
-        }
-
-        return value;
+        qCDebug(lcGuiInputItem)
+            << "BackgroundPhotoItem: drag blocked (locked)";
+        return pos();
     }
-    else if (change == ItemPositionHasChanged && scene())
+    return requested;
+}
+
+void BackgroundPhotoItem::onDragEnd(
+    const QPointF             &finalPos,
+    const Input::ClickContext &ctx)
+{
+    Q_UNUSED(ctx);
+    qCDebug(lcGuiInputItem)
+        << "BackgroundPhotoItem::onDragEnd; pos ="
+        << finalPos;
+
+    // Port side effect previously in itemChange(
+    // ItemPositionHasChanged): refresh WGS84 coordinate
+    // properties now that the drag has committed.
+    if (scene())
     {
-        // Update coordinates and notify about position
-        // change
         updateCoordinates();
-        emit positionChanged(pos());
     }
 
-    return QGraphicsObject::itemChange(change, value);
+    emit positionChanged(finalPos);
 }
 
 void BackgroundPhotoItem::updateProperties(

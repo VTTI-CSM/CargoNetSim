@@ -18,6 +18,9 @@
 #include "DestinationListEditor.h"
 #include "GraphicsScene.h"
 #include "GraphicsView.h"
+#include "../Input/InteractionController.h"
+#include "../Input/Modes/NormalMode.h"
+#include "../Input/Modes/PickDestinationMode.h"
 
 #include <QApplication>
 #include <QDebug>
@@ -187,22 +190,22 @@ void PropertiesPanel::displayProperties(QGraphicsItem *item)
 
 void PropertiesPanel::clearLayout()
 {
-    if (m_pickConnection || m_pickScene)
+    if (m_pickConnection || m_pickController)
     {
         qCWarning(lcGuiUtil)
             << "PropertiesPanel::clearLayout: CANCELLING PICK MODE"
             << "m_pickConnection=" << (bool)m_pickConnection
-            << "m_pickScene=" << (void *)m_pickScene
-            << "pickModeActive=" << (m_pickScene && m_pickScene->isInPickDestinationMode());
+            << "m_pickController=" << (void *)m_pickController;
     }
     if (m_pickConnection)
     {
         disconnect(m_pickConnection);
         m_pickConnection = {};
     }
-    if (m_pickScene && m_pickScene->isInPickDestinationMode())
-        m_pickScene->setIsInPickDestinationMode(false);
-    m_pickScene = nullptr;
+    if (m_pickController) {
+        m_pickController->setMode<Input::NormalMode>();
+    }
+    m_pickController = nullptr;
 
     // Clear all widgets except save button from layout
     for (int i = layout->count() - 1; i >= 0; --i)
@@ -927,33 +930,35 @@ void PropertiesPanel::addOriginConfigurationSection(
                     .toString());
     }
 
-    auto *scene = mainWindow->getCurrentScene();
+    auto *ctrl = mainWindow ? mainWindow->inputController() : nullptr;
     qCDebug(lcGuiUtil)
         << "addOriginConfigurationSection: pickButton"
-        << "scene=" << (void *)scene;
+        << "controller=" << (void *)ctrl;
     connect(pickButton, &QPushButton::clicked, this,
-        [this, scene, pickButton]() {
+        [this, ctrl, pickButton]() {
             qCDebug(lcGuiUtil)
-                << "pickButton: clicked, scene="
-                << (void *)scene;
-            if (!scene)
+                << "pickButton: clicked, controller="
+                << (void *)ctrl;
+            if (!ctrl)
             {
                 qCWarning(lcGuiUtil)
-                    << "pickButton: scene is null!";
+                    << "pickButton: controller is null!";
                 return;
             }
-            if (scene->isInPickDestinationMode())
+            const bool active =
+                (m_pickController == ctrl);
+            if (active)
             {
                 qCDebug(lcGuiUtil)
                     << "pickButton: cancelling pick";
-                scene->setIsInPickDestinationMode(false);
-                m_pickScene = nullptr;
+                ctrl->setMode<Input::NormalMode>();
+                m_pickController = nullptr;
                 return;
             }
             qCDebug(lcGuiUtil)
                 << "pickButton: entering pick mode";
-            scene->setIsInPickDestinationMode(true);
-            m_pickScene = scene;
+            ctrl->setMode<Input::PickDestinationMode>();
+            m_pickController = ctrl;
             pickButton->setText("Picking...");
         });
 
@@ -963,7 +968,7 @@ void PropertiesPanel::addOriginConfigurationSection(
     if (m_pickConnection)
         disconnect(m_pickConnection);
     m_pickConnection = connect(
-        scene, &GraphicsScene::destinationPicked, this,
+        ctrl, &Input::InteractionController::destinationPicked, this,
         [this, doc, id](const QString &destId,
                         const QString &destName) {
             Q_UNUSED(destName);
@@ -990,7 +995,7 @@ void PropertiesPanel::addOriginConfigurationSection(
 
     // ---- Multi: DestinationListEditor --------------------------------
     auto *listEditor = new DestinationListEditor();
-    listEditor->setScene(mainWindow->getCurrentScene());
+    listEditor->setController(mainWindow ? mainWindow->inputController() : nullptr);
     listEditor->setOriginTerminalId(id);
     listEditor->setRoutes(doc->destinationsFor(id));
     connect(listEditor, &DestinationListEditor::changed,
@@ -1990,6 +1995,58 @@ void PropertiesPanel::clearIfShowing(QGraphicsItem *item)
         clearLayout();
         currentItem = nullptr;
     }
+}
+
+void PropertiesPanel::setScenes(GraphicsScene *regionScene,
+                                GraphicsScene *globalScene)
+{
+    m_regionScene = regionScene;
+    m_globalScene = globalScene;
+    // Default active scene is the region scene; MainWindow overrides
+    // on tab-switch via setActiveScene.
+    m_activeScene = regionScene;
+}
+
+void PropertiesPanel::setActiveScene(GraphicsScene *activeScene)
+{
+    m_activeScene = activeScene;
+    refreshFromSelection();
+}
+
+void PropertiesPanel::refreshFromSelection()
+{
+    auto pickSelection = [](GraphicsScene *s) -> QList<QGraphicsItem *> {
+        return s ? s->selectedItems() : QList<QGraphicsItem *>{};
+    };
+
+    QList<QGraphicsItem *> sel = pickSelection(m_activeScene);
+    if (sel.isEmpty()) {
+        GraphicsScene *other = (m_activeScene == m_regionScene)
+                                   ? m_globalScene.data()
+                                   : m_regionScene.data();
+        sel = pickSelection(other);
+    }
+
+    if (sel.isEmpty()) {
+        // No selection anywhere: on the region tab, fall back to the
+        // map-level properties (coordinate system, etc.). On the global
+        // tab the dock is hidden by MainWindow, so just clear.
+        if (m_activeScene == m_regionScene) {
+            qCDebug(lcGuiUtil)
+                << "PropertiesPanel::refreshFromSelection: no selection — "
+                   "showing map properties";
+            displayMapProperties();
+        } else {
+            qCDebug(lcGuiUtil)
+                << "PropertiesPanel::refreshFromSelection: no selection "
+                   "(global tab) — clearing";
+            clearLayout();
+            currentItem = nullptr;
+        }
+        return;
+    }
+
+    displayProperties(sel.first());
 }
 
 } // namespace GUI

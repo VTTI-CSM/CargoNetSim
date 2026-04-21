@@ -18,6 +18,9 @@
 #include "GUI/Scenario/RegionCenterPointFactory.h"
 #include "GUI/Scenario/SceneRepopulator.h"
 #include "GUI/Scenario/TerminalItemFactory.h"
+#include "GUI/Input/InteractionController.h"
+#include "GUI/Input/Modes/ConnectMode.h"
+#include "GUI/Input/Modes/NormalMode.h"
 
 #include <QApplication>
 #include <QBuffer>
@@ -110,9 +113,13 @@ MainWindow::MainWindow()
 
     qCInfo(lcGui) << "MainWindow::MainWindow: begin";
 
-    selectedTerminal_ = nullptr;
     tableWasVisible_  = false;
     previousTabIndex_ = 0;
+
+    // Shared CommandBus must exist before InteractionControllers
+    // are wired below. Created before scenes/views because Task 1.13
+    // keeps the bus lifetime >= any controller that references it.
+    m_commandBus = new Input::CommandBus(this);
 
     // SettingsController must be created BEFORE initializeUI()
     // because settingsWidget_ is created in initializeUI()
@@ -170,6 +177,35 @@ MainWindow::MainWindow()
                    " empty scenario at startup";
     }
 
+    // Construct the two InteractionControllers now that scenes,
+    // views and the initial runtime all exist. Each scene/view
+    // pair is bound to its own controller; both share the single
+    // CommandBus created above.
+    {
+        auto* initialDoc = (m_runtime ? &m_runtime->document() : nullptr);
+
+        m_regionInputController = new Input::InteractionController(
+            /* mainWindow */ this,
+            /* scene      */ regionScene_,
+            /* view       */ regionView_,
+            /* document   */ initialDoc,
+            /* commandBus */ m_commandBus,
+            /* parent     */ this);
+
+        m_globalInputController = new Input::InteractionController(
+            /* mainWindow */ this,
+            /* scene      */ globalMapScene_,
+            /* view       */ globalMapView_,
+            /* document   */ initialDoc,
+            /* commandBus */ m_commandBus,
+            /* parent     */ this);
+
+        regionScene_   ->setInputController(m_regionInputController);
+        regionView_    ->setInputController(m_regionInputController);
+        globalMapScene_->setInputController(m_globalInputController);
+        globalMapView_ ->setInputController(m_globalInputController);
+    }
+
     connect(m_networkDrawing,
             &NetworkDrawingController::coordinatesNeedUpdate,
             this, &MainWindow::updateAllCoordinates);
@@ -181,6 +217,32 @@ MainWindow::MainWindow()
             &ConnectionController::terminalUnlinked,
             propertiesPanel_,
             &PropertiesPanel::clearIfShowing);
+
+    // Plan 3 — PropertiesPanel reacts to selection changes on either
+    // scene instead of per-item `clicked` signals. The panel holds
+    // QPointers to both scenes plus the "active" one (tab-driven).
+    propertiesPanel_->setScenes(regionScene_, globalMapScene_);
+    connect(regionScene_, &QGraphicsScene::selectionChanged,
+            propertiesPanel_, &PropertiesPanel::refreshFromSelection);
+    connect(globalMapScene_, &QGraphicsScene::selectionChanged,
+            propertiesPanel_, &PropertiesPanel::refreshFromSelection);
+    connect(tabWidget_, &QTabWidget::currentChanged, propertiesPanel_,
+            [this](int index) {
+                // Index 0 = region tab, 1 = global map tab (matches
+                // getCurrentScene(); currentWidget() returns the tab
+                // container, not the view, so index comparison is used).
+                const bool onGlobalTab = (index == 1);
+                GraphicsScene *active =
+                    onGlobalTab ? globalMapScene_ : regionScene_;
+                propertiesPanel_->setActiveScene(active);
+                // Properties dock is only meaningful on the region tab.
+                if (propertiesDock_) {
+                    propertiesDock_->setVisible(!onGlobalTab);
+                }
+            });
+    propertiesPanel_->setActiveScene(
+        tabWidget_->currentIndex() == 1 ? globalMapScene_
+                                        : regionScene_);
 
     qCDebug(lcGui)
         << "MainWindow::MainWindow: initializing"
@@ -215,6 +277,18 @@ void MainWindow::setRuntime(
     auto *raw = m_runtime.get();
     if (m_terminalCtrl)   m_terminalCtrl->setRuntime(raw);
     if (m_connectionCtrl) m_connectionCtrl->setRuntime(raw);
+
+    // Propagate the new ScenarioDocument to both input controllers
+    // and clear the (shared) undo stack exactly once.
+    {
+        auto *newDoc = (m_runtime ? &m_runtime->document() : nullptr);
+        if (m_regionInputController) m_regionInputController->setDocument(newDoc);
+        if (m_globalInputController) m_globalInputController->setDocument(newDoc);
+        if (m_commandBus) {
+            m_commandBus->undoStack()->clear();
+            qCInfo(lcGuiInput) << "MainWindow::setRuntime: cleared shared undo stack";
+        }
+    }
 
     subscribeDocumentObservers();
 
@@ -764,10 +838,6 @@ void MainWindow::setupRegionMapScene()
     regionScene_ = new GraphicsScene(this);
     regionView_  = new GraphicsView(regionScene_);
     regionView_->setScene(regionScene_);
-
-    // Add connection methods
-    regionScene_->setIsInConnectMode(false);
-    regionScene_->setConnectedFirstItem(QVariant());
 }
 
 void MainWindow::setupGlobalMapScene()
@@ -779,10 +849,6 @@ void MainWindow::setupGlobalMapScene()
     // Force geodetic coordinates for global map
     globalMapView_->setUsingProjectedCoords(false);
     globalMapView_->setScene(globalMapScene_);
-
-    // Add connection methods
-    globalMapScene_->setIsInConnectMode(false);
-    globalMapScene_->setConnectedFirstItem(QVariant());
 }
 
 void MainWindow::setupDocks()
@@ -793,7 +859,7 @@ void MainWindow::setupDocks()
     propertiesPanel_ = new PropertiesPanel(this);
     propertiesDock_->setWidget(propertiesPanel_);
     addDockWidget(Qt::RightDockWidgetArea, propertiesDock_);
-    propertiesDock_->hide(); // Start with properties hidden
+    propertiesDock_->show();
 
     // Settings dock
     settingsDock_ =
@@ -1186,6 +1252,13 @@ void MainWindow::setConnectionType(
     for (QAction *action : connectionMenu_->actions())
         action->setChecked(action->text() == currentLabel);
 
+    // Live-update ConnectMode if currently active.
+    if (auto* ctrl = inputController()) {
+        if (auto* cm = dynamic_cast<Input::ConnectMode*>(ctrl->currentMode())) {
+            cm->setConnectionType(connectionType);
+        }
+    }
+
     showStatusBarMessage(
         QString("Connection type set to: %1").arg(currentLabel),
         2000);
@@ -1235,11 +1308,12 @@ void MainWindow::handleTabChange(int index)
         index == tabWidget_->indexOf(tabWidget_->widget(2));
     bool isMainView = !(isGlobalMap || isLoggingTab);
 
-    // Common state reset
-    regionScene_->setIsInConnectMode(false);
-    globalMapScene_->setIsInConnectMode(false);
+    // Common state reset — drop both controllers back to NormalMode.
+    if (m_regionInputController)
+        m_regionInputController->setMode<Input::NormalMode>();
+    if (m_globalInputController)
+        m_globalInputController->setMode<Input::NormalMode>();
 
-    // Reset measurement mode when changing tabs
     measureButton_->setChecked(false);
     BasicButtonController::resetOtherButtons(this);
 
@@ -1610,76 +1684,6 @@ void MainWindow::togglePanMode()
         2000);
 }
 
-void MainWindow::handleTerminalNodeLinking(
-    QGraphicsItem *item)
-{
-    if (!regionScene_->isInLinkTerminalMode())
-    {
-        return;
-    }
-
-    TerminalItem *terminalItem =
-        dynamic_cast<TerminalItem *>(item);
-    if (terminalItem)
-    {
-        selectedTerminal_ = terminalItem;
-        showStatusBarMessage(
-            "Terminal selected. Now select a node to link "
-            "it to...",
-            2000);
-        return;
-    }
-
-    MapPoint *mapPoint = dynamic_cast<MapPoint *>(item);
-    if (mapPoint && selectedTerminal_)
-    {
-        UtilitiesFunctions::linkMapPointToTerminal(
-            this, mapPoint, selectedTerminal_);
-
-        // Exit linking mode
-        linkTerminalButton_->setChecked(false);
-        regionScene_->setIsInLinkTerminalMode(false);
-        selectedTerminal_ = nullptr;
-    }
-    else if (!selectedTerminal_)
-    {
-        showStatusBarError("Please select a terminal first",
-                           2000);
-    }
-}
-
-void MainWindow::handleTerminalNodeUnlinking(
-    QGraphicsItem *item)
-{
-    if (!regionScene_->isInUnlinkTerminalMode())
-    {
-        return;
-    }
-
-    MapPoint *mapPoint = dynamic_cast<MapPoint *>(item);
-    if (mapPoint)
-    {
-        mapPoint->setLinkedTerminal(
-            nullptr); // Unlink the terminal from the node
-
-        // Update the properties panel if this item is
-        // currently selected
-        if (propertiesPanel_->getCurrentItem() == mapPoint)
-        {
-            propertiesPanel_->displayProperties(mapPoint);
-        }
-
-        // Exit unlinking mode
-        unlinkTerminalButton_->setChecked(false);
-        regionScene_->setIsInUnlinkTerminalMode(false);
-        selectedTerminal_                = nullptr;
-        showStatusBarMessage(
-            "Terminal unlinked successfully", 2000);
-
-        // Force a redraw of the MapPoint
-        mapPoint->update();
-    }
-}
 
 void MainWindow::toggleShortestPathsTable(bool show)
 {
@@ -2105,15 +2109,12 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         unlinkTerminalButton_->setChecked(false);
         measureButton_->setChecked(false);
 
-        // Reset all scene modes
-        regionScene_->setIsInConnectMode(false);
-        regionScene_->setIsInLinkTerminalMode(false);
-        regionScene_->setIsInUnlinkTerminalMode(false);
-        regionScene_->setIsInMeasureMode(false);
-        regionScene_->setConnectedFirstItem(QVariant());
-        selectedTerminal_ = nullptr;
+        // Drop both controllers back to NormalMode; mode exit cleans tool state.
+        if (m_regionInputController)
+            m_regionInputController->setMode<Input::NormalMode>();
+        if (m_globalInputController)
+            m_globalInputController->setMode<Input::NormalMode>();
 
-        // Reset cursor
         unsetCursor();
 
         event->accept();
@@ -2419,12 +2420,9 @@ void MainWindow::addBackgroundPhoto()
             BackgroundPhotoItem *background =
                 new BackgroundPhotoItem(pixmap,
                                         currentRegion);
-            QObject::connect(
-                background, &BackgroundPhotoItem::clicked,
-                [this](BackgroundPhotoItem *item) {
-                    UtilitiesFunctions::
-                        updatePropertiesPanel(this, item);
-                });
+            // Click-to-panel removed (Plan 3) — handled by
+            // scene->selectionChanged. Only keep the position
+            // mirroring while the panel is already showing the item.
             QObject::connect(
                 background,
                 &BackgroundPhotoItem::positionChanged,
@@ -2474,12 +2472,8 @@ void MainWindow::addBackgroundPhoto()
             // global map
             BackgroundPhotoItem *background =
                 new BackgroundPhotoItem(pixmap, "global");
-            QObject::connect(
-                background, &BackgroundPhotoItem::clicked,
-                [this](BackgroundPhotoItem *item) {
-                    UtilitiesFunctions::
-                        updatePropertiesPanel(this, item);
-                });
+            // Click-to-panel removed (Plan 3) — handled by
+            // scene->selectionChanged.
             QObject::connect(
                 background,
                 &BackgroundPhotoItem::positionChanged,

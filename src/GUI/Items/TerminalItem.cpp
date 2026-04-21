@@ -4,20 +4,27 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include "Backend/Scenario/TerminalTypeDefaults.h"
+#include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
+#include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/CommandBus.h"
+#include "GUI/Input/Commands/SetTerminalRoleCommand.h"
+#include "GUI/Input/Commands/SetTerminalTypeCommand.h"
+#include "GUI/Input/Commands/UpdateTerminalPositionCommand.h"
+#include "GUI/Input/InteractionController.h"
 #include "GUI/MainWindow.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Utils/IconCreator.h"
 #include "GUI/Widgets/GraphicsView.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QCursor>
 #include <QGraphicsScene>
-#include <QGraphicsSceneContextMenuEvent>
-#include <QGraphicsSceneMouseEvent>
-#include <QMenu>
 #include <QGraphicsView>
+#include <QLoggingCategory>
+#include <QMenu>
 #include <QPainter>
+#include <QPointer>
 #include <QPropertyAnimation>
 #include <QStyleOptionGraphicsItem>
 
@@ -39,7 +46,6 @@ TerminalItem::TerminalItem(
     , m_region(region)
     , m_terminalType(terminalType)
     , m_properties(properties)
-    , m_wasSelected(false)
     , m_globalTerminalItem(nullptr)
 {
     qCInfo(lcGuiScene)
@@ -380,202 +386,140 @@ void TerminalItem::paint(
     }
 }
 
-void TerminalItem::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+// ---------------------------------------------------------------------------
+// Input interface implementations (Plan 3 — Task 3.8).
+//
+// Replaces Qt event overrides (mousePressEvent, contextMenuEvent,
+// hoverEnter/Leave, itemChange). Dispatch is now mediated by
+// InteractionController via the ClickContext DI struct.
+// ItemPositionChange / ItemPositionHasChanged handling lives in
+// GraphicsObjectBase; we only implement onDragEnd for persistence.
+// ---------------------------------------------------------------------------
+
+Input::Handled
+TerminalItem::onLeftClick(const Input::ClickContext&)
 {
-    qCDebug(lcGuiScene)
-        << "TerminalItem::mousePressEvent:"
-        << "name=" << m_properties.value("Name").toString()
-        << "button=" << event->button()
-        << "scenePos=" << event->scenePos();
-
-    // Store the initial click position relative to the
-    // item's origin
-    m_dragOffset = event->pos();
-
-    // Emit clicked signal
-    emit clicked(this);
-
-    // Call base class to handle selection
-    QGraphicsObject::mousePressEvent(event);
+    qCDebug(lcGuiInputItem)
+        << "TerminalItem::onLeftClick; id ="
+        << (m_placement ? m_placement->id
+                        : QStringLiteral("<none>"));
+    return Input::Handled::PassThrough;
 }
 
-QVariant TerminalItem::itemChange(GraphicsItemChange change,
-                                  const QVariant    &value)
+void TerminalItem::buildContextMenu(QMenu* menu,
+                                    const Input::ClickContext& ctx)
 {
-    qCDebug(lcGuiScene)
-        << "TerminalItem::itemChange:"
-        << "change=" << change;
-
-    if (change == ItemPositionChange && scene())
-    {
-        // If this is a position change and we have a drag
-        // offset, adjust the position
-        if (m_dragOffset != QPointF()
-            && scene()->mouseGrabberItem() == this)
-        {
-            // Get the proposed new position
-            QPointF newPos = value.toPointF();
-
-            // Get current mouse position in scene
-            // coordinates
-            if (scene()->mouseGrabberItem() == this)
-            {
-                QGraphicsView *view =
-                    scene()->views().first();
-                QPointF mousePos = view->mapToScene(
-                    view->mapFromGlobal(QCursor::pos()));
-
-                auto newPos = mousePos - m_dragOffset;
-
-                // Adjust position to keep item under the
-                // mouse at the right offset
-                return newPos;
-            }
-        }
-    }
-    else if (change == ItemPositionHasChanged && scene())
-    {
-        // Emit position changed signal when position has
-        // been changed
-        emit positionChanged(pos());
-
-        // Persist position to backend on drag release
-        if (m_placement && !m_placement->id.isEmpty())
-        {
-            auto *view = scene()->views().isEmpty()
-                ? nullptr
-                : qobject_cast<CargoNetSim::GUI::GraphicsView *>(
-                      scene()->views().first());
-            if (view)
-            {
-                const QPointF latLon =
-                    view->sceneToWGS84(pos());
-                auto *mw = qobject_cast<
-                    CargoNetSim::GUI::MainWindow *>(
-                    view->window());
-                if (mw && mw->runtime())
-                {
-                    CargoNetSim::GUI::Scenario::
-                        ScenarioMutator::
-                            updateTerminalPosition(
-                                &mw->runtime()->document(),
-                                m_placement->id, latLon);
-                    qCDebug(lcGuiScene)
-                        << "TerminalItem:"
-                        << "persisted position"
-                        << m_placement->id
-                        << "lat=" << latLon.y()
-                        << "lon=" << latLon.x();
-                }
-            }
-        }
-    }
-    else if (change == ItemSelectedChange)
-    {
-        bool selected = value.toBool();
-        if (selected != m_wasSelected)
-        {
-            m_wasSelected = selected;
-            emit selectionChanged(selected);
-        }
-    }
-
-    return QGraphicsObject::itemChange(change, value);
-}
-
-void TerminalItem::hoverEnterEvent(
-    QGraphicsSceneHoverEvent *event)
-{
-    qCDebug(lcGuiScene)
-        << "TerminalItem::hoverEnterEvent:"
-        << "name=" << m_properties.value("Name").toString();
-    setCursor(QCursor(Qt::PointingHandCursor));
-    QGraphicsObject::hoverEnterEvent(event);
-}
-
-void TerminalItem::hoverLeaveEvent(
-    QGraphicsSceneHoverEvent *event)
-{
-    qCDebug(lcGuiScene)
-        << "TerminalItem::hoverLeaveEvent:"
-        << "name=" << m_properties.value("Name").toString();
-    unsetCursor();
-    QGraphicsObject::hoverLeaveEvent(event);
-}
-
-void TerminalItem::contextMenuEvent(
-    QGraphicsSceneContextMenuEvent *event)
-{
+    Q_ASSERT(menu);
     if (!m_placement || m_placement->id.isEmpty())
     {
-        event->ignore();
+        qCWarning(lcGuiInputItem)
+            << "TerminalItem::buildContextMenu:"
+            << "null or unbound placement — skipping menu";
         return;
     }
 
-    auto *view = (scene() && !scene()->views().isEmpty())
-                     ? qobject_cast<GraphicsView *>(
-                           scene()->views().first())
-                     : nullptr;
-    auto *mw   = view
-                   ? qobject_cast<MainWindow *>(view->window())
-                   : nullptr;
-    if (!mw || !mw->runtime())
-    {
-        event->ignore();
-        return;
-    }
+    QPointer<TerminalItem> self = this;
+    QPointer<Backend::Scenario::ScenarioDocument> doc = ctx.document;
+    Input::CommandBus* bus = ctx.commandBus;
+    const QString terminalId = m_placement->id;
 
     using Role = Backend::Scenario::TerminalPlacement::TerminalRole;
     const Role currentRole = m_placement->role;
 
-    QMenu   menu;
-    QAction *originAction =
-        menu.addAction(tr("Set as Origin"));
-    QAction *destinationAction =
-        menu.addAction(tr("Set as Destination"));
-    QAction *transitAction =
-        menu.addAction(tr("Set as Transit"));
+    // --- Role actions (flat, matches legacy menu exactly) ---
+    QAction* originAction =
+        menu->addAction(QObject::tr("Set as Origin"));
+    QAction* destinationAction =
+        menu->addAction(QObject::tr("Set as Destination"));
+    QAction* transitAction =
+        menu->addAction(QObject::tr("Set as Transit"));
+
     originAction->setEnabled(currentRole != Role::Origin);
-    destinationAction->setEnabled(
-        currentRole != Role::Destination);
+    destinationAction->setEnabled(currentRole != Role::Destination);
     transitAction->setEnabled(currentRole != Role::Transit);
 
-    menu.addSeparator();
+    QObject::connect(originAction, &QAction::triggered,
+        [self, doc, bus, terminalId]() {
+            if (!self || !doc || !bus) return;
+            bus->submit(std::make_unique<Input::SetTerminalRoleCommand>(
+                doc.data(), terminalId, Role::Origin));
+        });
+    QObject::connect(destinationAction, &QAction::triggered,
+        [self, doc, bus, terminalId]() {
+            if (!self || !doc || !bus) return;
+            bus->submit(std::make_unique<Input::SetTerminalRoleCommand>(
+                doc.data(), terminalId, Role::Destination));
+        });
+    QObject::connect(transitAction, &QAction::triggered,
+        [self, doc, bus, terminalId]() {
+            if (!self || !doc || !bus) return;
+            bus->submit(std::make_unique<Input::SetTerminalRoleCommand>(
+                doc.data(), terminalId, Role::Transit));
+        });
 
-    QMenu        *changeTypeMenu = menu.addMenu(tr("Change Type"));
-    const QString currentType    = m_placement->type;
-    for (const QString &type :
+    menu->addSeparator();
+
+    // --- Change Type submenu (all backend-defined types except current) ---
+    QMenu* changeTypeMenu = menu->addMenu(QObject::tr("Change Type"));
+    const QString currentType = m_placement->type;
+    for (const QString& type :
          Backend::Scenario::TerminalTypeDefaults::allTypes())
     {
         if (type == currentType) continue;
-        changeTypeMenu->addAction(type);
+        QAction* a = changeTypeMenu->addAction(type);
+        QObject::connect(a, &QAction::triggered,
+            [self, doc, bus, terminalId, type]() {
+                if (!self || !doc || !bus) return;
+                bus->submit(std::make_unique<Input::SetTerminalTypeCommand>(
+                    doc.data(), terminalId, type));
+            });
+    }
+}
+
+void TerminalItem::onHoverEnter(const Input::ClickContext&)
+{
+    qCDebug(lcGuiInputItem)
+        << "TerminalItem::onHoverEnter:"
+        << "name=" << m_properties.value("Name").toString();
+    // Cursor handled by hoverCursor(); no extra visual state to toggle.
+}
+
+void TerminalItem::onHoverLeave(const Input::ClickContext&)
+{
+    qCDebug(lcGuiInputItem)
+        << "TerminalItem::onHoverLeave:"
+        << "name=" << m_properties.value("Name").toString();
+}
+
+void TerminalItem::onDragEnd(const QPointF& finalPos,
+                             const Input::ClickContext& ctx)
+{
+    qCInfo(lcGuiInputItem)
+        << "TerminalItem::onDragEnd; id ="
+        << (m_placement ? m_placement->id : QString())
+        << "pos =" << finalPos;
+
+    // Always emit position signal — ConnectionLine curves depend on it
+    // regardless of whether backend persistence is possible.
+    emit positionChanged(finalPos);
+
+    if (!m_placement || m_placement->id.isEmpty() || !ctx.document)
+        return;
+    if (!ctx.view)
+        return;
+
+    const QPointF latLon = ctx.view->sceneToWGS84(finalPos);
+    if (ctx.commandBus) {
+        ctx.commandBus->submit(
+            std::make_unique<Input::UpdateTerminalPositionCommand>(
+                ctx.document.data(), m_placement->id, latLon));
     }
 
-    QAction *selected = menu.exec(event->screenPos());
-    if (!selected) { event->accept(); return; }
-
-    if (selected == originAction)
-        Scenario::ScenarioMutator::setTerminalRole(
-            &mw->runtime()->document(),
-            m_placement->id,
-            Role::Origin);
-    else if (selected == destinationAction)
-        Scenario::ScenarioMutator::setTerminalRole(
-            &mw->runtime()->document(),
-            m_placement->id,
-            Role::Destination);
-    else if (selected == transitAction)
-        Scenario::ScenarioMutator::setTerminalRole(
-            &mw->runtime()->document(),
-            m_placement->id,
-            Role::Transit);
-    else
-        Scenario::ScenarioMutator::setTerminalType(
-            &mw->runtime()->document(),
-            m_placement->id,
-            selected->text());
-    event->accept();
+    qCDebug(lcGuiInputItem)
+        << "TerminalItem::onDragEnd: persisted position"
+        << m_placement->id
+        << "lat=" << latLon.y()
+        << "lon=" << latLon.x();
 }
 
 QMap<QString, QVariant> TerminalItem::toDict() const

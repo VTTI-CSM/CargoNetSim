@@ -10,7 +10,10 @@ class QTableWidget;
 class QPushButton;
 class QLabel;
 
-namespace CargoNetSim { namespace GUI { class GraphicsScene; } }
+namespace CargoNetSim { namespace GUI {
+class GraphicsScene;
+namespace Input { class InteractionController; }
+} }
 
 namespace CargoNetSim {
 namespace GUI {
@@ -41,8 +44,8 @@ public:
     /// setScene() so the widget can enter pick-destination mode.
     explicit DestinationListEditor(QWidget *parent = nullptr);
 
-    /// Wire up to the graphics scene for pick-on-canvas flow.
-    void setScene(GraphicsScene *scene);
+    /// Wire up to the interaction controller for pick-on-canvas flow.
+    void setController(Input::InteractionController *ctrl);
 
     /// Store the origin terminal id so self-picks are rejected.
     void setOriginTerminalId(const QString &id);
@@ -76,7 +79,7 @@ private:
     QPushButton  *m_removeButton;
     QLabel       *m_sumLabel;
 
-    GraphicsScene *m_scene = nullptr;
+    Input::InteractionController *m_controller = nullptr;
     QString        m_originTerminalId;
     int            m_activePickRow = -1;
     QMetaObject::Connection m_pickConnection;

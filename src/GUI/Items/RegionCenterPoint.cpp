@@ -1,6 +1,10 @@
 #include "RegionCenterPoint.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
+#include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/CommandBus.h"
+#include "GUI/Input/Commands/UpdateRegionLocalOriginCommand.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Widgets/GraphicsView.h"
@@ -10,6 +14,7 @@
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
+#include <QLoggingCategory>
 #include <QMap>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
@@ -236,90 +241,96 @@ void RegionCenterPoint::paint(
     }
 }
 
-void RegionCenterPoint::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled RegionCenterPoint::onLeftClick(
+    const Input::ClickContext &)
 {
-    qCDebug(lcGuiScene)
-        << "RegionCenterPoint::mousePressEvent:"
-        << "region=" << properties.value("Region").toString()
-        << "button=" << event->button()
-        << "scenePos=" << event->scenePos();
-
-    dragOffset = event->pos();
-    emit clicked(this);
-    QGraphicsObject::mousePressEvent(event);
+    qCDebug(lcGuiInputItem)
+        << "RegionCenterPoint::onLeftClick;"
+        << "region=" << properties.value("Region").toString();
+    return Input::Handled::PassThrough;
 }
 
-QVariant
-RegionCenterPoint::itemChange(GraphicsItemChange change,
-                              const QVariant    &value)
+void RegionCenterPoint::onHoverEnter(
+    const Input::ClickContext &)
 {
-    qCDebug(lcGuiScene)
-        << "RegionCenterPoint::itemChange:"
-        << "change=" << change;
-
-    if (change == ItemPositionHasChanged && scene())
-    {
-        // Update coordinates when position changes
-        updateCoordinatesFromPosition();
-
-        // Emit position changed signal
-        emit positionChanged(pos());
-
-        // Persist coordinates to backend on drag release
-        if (m_regionSpec && !getRegion().isEmpty())
-        {
-            auto *view = scene()->views().isEmpty()
-                ? nullptr
-                : qobject_cast<
-                      CargoNetSim::GUI::GraphicsView *>(
-                      scene()->views().first());
-            if (view)
-            {
-                auto *mw = qobject_cast<
-                    CargoNetSim::GUI::MainWindow *>(
-                    view->window());
-                if (mw && mw->runtime())
-                {
-                    const QPointF latLon =
-                        view->sceneToWGS84(pos());
-                    CargoNetSim::GUI::Scenario::
-                        ScenarioMutator::
-                            updateRegionLocalOrigin(
-                                &mw->runtime()->document(),
-                                getRegion(), latLon);
-                    qCDebug(lcGuiScene)
-                        << "RegionCenterPoint:"
-                        << "persisted coordinates"
-                        << getRegion()
-                        << "lat=" << latLon.y()
-                        << "lon=" << latLon.x();
-                }
-            }
-        }
-    }
-
-    return QGraphicsObject::itemChange(change, value);
-}
-
-void RegionCenterPoint::hoverEnterEvent(
-    QGraphicsSceneHoverEvent *event)
-{
-    qCDebug(lcGuiScene)
-        << "RegionCenterPoint::hoverEnterEvent:"
+    qCDebug(lcGuiInputItem)
+        << "RegionCenterPoint::onHoverEnter;"
         << "region=" << properties.value("Region").toString();
     setCursor(QCursor(Qt::PointingHandCursor));
-    QGraphicsObject::hoverEnterEvent(event);
 }
 
-void RegionCenterPoint::hoverLeaveEvent(
-    QGraphicsSceneHoverEvent *event)
+void RegionCenterPoint::onHoverLeave(
+    const Input::ClickContext &)
 {
-    qCDebug(lcGuiScene)
-        << "RegionCenterPoint::hoverLeaveEvent:"
+    qCDebug(lcGuiInputItem)
+        << "RegionCenterPoint::onHoverLeave;"
         << "region=" << properties.value("Region").toString();
     unsetCursor();
-    QGraphicsObject::hoverLeaveEvent(event);
+}
+
+bool RegionCenterPoint::canDrag(
+    const Input::ClickContext &) const
+{
+    return true;
+}
+
+void RegionCenterPoint::onDragEnd(
+    const QPointF             &finalPos,
+    const Input::ClickContext &ctx)
+{
+    qCDebug(lcGuiInputItem)
+        << "RegionCenterPoint::onDragEnd; pos =" << finalPos
+        << "region=" << properties.value("Region").toString();
+
+    // Port legacy itemChange side effects: refresh coordinate
+    // strings from the new scene position, then notify listeners.
+    updateCoordinatesFromPosition();
+    emit positionChanged(finalPos);
+
+    // Persist coordinates to backend. Prefer ctx.document; fall
+    // back to the view-derived runtime document only if missing.
+    if (!m_regionSpec || getRegion().isEmpty())
+    {
+        return;
+    }
+
+    Backend::Scenario::ScenarioDocument *doc = nullptr;
+    if (ctx.document)
+    {
+        doc = ctx.document.data();
+    }
+    else
+    {
+        qCWarning(lcGuiInputItem)
+            << "RegionCenterPoint: drag end with null document";
+        return;
+    }
+
+    QPointF latLon;
+    if (ctx.view)
+    {
+        latLon = ctx.view->sceneToWGS84(pos());
+    }
+    else
+    {
+        // No view in context — reconstruct from the updated
+        // property strings written by updateCoordinatesFromPosition.
+        latLon = QPointF(
+            properties.value("Longitude").toString().toDouble(),
+            properties.value("Latitude").toString().toDouble());
+    }
+
+    if (ctx.commandBus)
+    {
+        ctx.commandBus->submit(
+            std::make_unique<Input::UpdateRegionLocalOriginCommand>(
+                doc, getRegion(), latLon));
+    }
+
+    qCDebug(lcGuiInputItem)
+        << "RegionCenterPoint: persisted coordinates"
+        << getRegion() << "lat=" << latLon.y()
+        << "lon=" << latLon.x();
 }
 
 QMap<QString, QVariant> RegionCenterPoint::toDict() const

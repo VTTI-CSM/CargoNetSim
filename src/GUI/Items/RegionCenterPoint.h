@@ -1,9 +1,13 @@
 #pragma once
 
 #include "Backend/Scenario/RegionSpec.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IDraggable.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 #include "GraphicsObjectBase.h"
 
 #include <QColor>
+#include <QCursor>
 #include <QGraphicsObject>
 #include <QMap>
 #include <QPointF>
@@ -25,7 +29,10 @@ namespace GUI
  * including geographic coordinates and shared coordinates
  * that are used for global map positioning.
  */
-class RegionCenterPoint : public GraphicsObjectBase
+class RegionCenterPoint : public GraphicsObjectBase,
+                          public Input::IClickable,
+                          public Input::IHoverable,
+                          public Input::IDraggable
 {
     Q_OBJECT
 
@@ -163,12 +170,6 @@ public:
 
 signals:
     /**
-     * @brief Signal emitted when the item is clicked.
-     * @param item Pointer to this RegionCenterPoint
-     */
-    void clicked(RegionCenterPoint *item);
-
-    /**
      * @brief Signal emitted when the position changes.
      * @param newPos New position in scene coordinates
      */
@@ -223,14 +224,23 @@ protected:
     void   paint(QPainter                       *painter,
                  const QStyleOptionGraphicsItem *option,
                  QWidget *widget = nullptr) override;
-    void   mousePressEvent(
-          QGraphicsSceneMouseEvent *event) override;
-    QVariant itemChange(GraphicsItemChange change,
-                        const QVariant    &value) override;
-    void     hoverEnterEvent(
-            QGraphicsSceneHoverEvent *event) override;
-    void hoverLeaveEvent(
-        QGraphicsSceneHoverEvent *event) override;
+
+public:
+    // Input interface overrides
+    Input::Handled
+    onLeftClick(const Input::ClickContext &) override;
+    void
+    onHoverEnter(const Input::ClickContext &) override;
+    void
+    onHoverLeave(const Input::ClickContext &) override;
+    QCursor hoverCursor() const override
+    {
+        return QCursor(Qt::PointingHandCursor);
+    }
+    bool
+    canDrag(const Input::ClickContext &) const override;
+    void onDragEnd(const QPointF            &finalPos,
+                   const Input::ClickContext &) override;
 
 private:
     /**
@@ -241,7 +251,6 @@ private:
 
     QColor                  color;
     QMap<QString, QVariant> properties;
-    QPointF                 dragOffset;
 
     /// Non-owning pointer into ScenarioDocument::regions. View-only;
     /// null → legacy mode.

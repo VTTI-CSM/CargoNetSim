@@ -1,11 +1,12 @@
 #include "ConnectionLabel.h"
 #include "Backend/Commons/LogCategories.h"
+#include "GUI/Input/ClickContext.h"
+#include "GUI/Input/InteractionController.h"
 #include "GUI/Items/ConnectionLine.h"
 
 #include <QCursor>
 #include <QGraphicsScene>
-#include <QGraphicsSceneHoverEvent>
-#include <QGraphicsSceneMouseEvent>
+#include <QLoggingCategory>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 
@@ -122,69 +123,40 @@ void ConnectionLabel::paint(
     // }
 }
 
-void ConnectionLabel::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled ConnectionLabel::onLeftClick(
+    const Input::ClickContext &ctx)
 {
-    qCDebug(lcGuiScene)
-        << "ConnectionLabel::mousePressEvent:"
-        << "button=" << event->button()
-        << "scenePos=" << event->scenePos();
-
-    if (event->button() == Qt::LeftButton)
+    qCDebug(lcGuiInputItem)
+        << "ConnectionLabel::onLeftClick; forwarding to "
+           "parent line";
+    auto *parentLine =
+        dynamic_cast<ConnectionLine *>(parentItem());
+    if (!parentLine)
     {
-        // Set the parent ConnectionLine as selected in the
-        // Qt selection system
-        if (ConnectionLine *parentLine =
-                dynamic_cast<ConnectionLine *>(
-                    parentItem()))
-        {
-            // Clear previous selections in the scene
-            if (scene())
-            {
-                scene()->clearSelection();
-            }
-
-            // Select the parent ConnectionLine in the Qt
-            // selection system
-            parentLine->QGraphicsItem::setSelected(true);
-
-            // Update our internal selection state
-            m_isSelected = true;
-            update();
-
-            // Emit clicked signal
-            emit clicked();
-        }
-        event->accept();
+        qCWarning(lcGuiInputItem)
+            << "ConnectionLabel: null parent ConnectionLine";
+        return Input::Handled::PassThrough;
     }
-    else
+    if (ctx.controller)
     {
-        QGraphicsObject::mousePressEvent(event);
+        ctx.controller->selectItem(parentLine,
+                                   /*exclusive*/ true);
     }
+    return Input::Handled::Yes;
 }
 
-void ConnectionLabel::hoverEnterEvent(
-    QGraphicsSceneHoverEvent *event)
+void ConnectionLabel::onHoverEnter(
+    const Input::ClickContext &)
 {
-    qCDebug(lcGuiScene)
-        << "ConnectionLabel::hoverEnterEvent:"
-        << "text=" << m_text;
     m_isHovered = true;
-    setCursor(QCursor(Qt::PointingHandCursor));
     update();
-    QGraphicsObject::hoverEnterEvent(event);
 }
 
-void ConnectionLabel::hoverLeaveEvent(
-    QGraphicsSceneHoverEvent *event)
+void ConnectionLabel::onHoverLeave(
+    const Input::ClickContext &)
 {
-    qCDebug(lcGuiScene)
-        << "ConnectionLabel::hoverLeaveEvent:"
-        << "text=" << m_text;
     m_isHovered = false;
-    unsetCursor();
     update();
-    QGraphicsObject::hoverLeaveEvent(event);
 }
 
 QMap<QString, QVariant> ConnectionLabel::toDict() const

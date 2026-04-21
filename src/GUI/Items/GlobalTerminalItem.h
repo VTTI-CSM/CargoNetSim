@@ -1,8 +1,13 @@
 #pragma once
 
 #include "Backend/Scenario/InterfaceConversion.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IDraggable.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 #include "GraphicsObjectBase.h"
 #include "TerminalItem.h"
+
+#include <QCursor>
 
 #include <QGraphicsObject>
 #include <QPixmap>
@@ -23,7 +28,10 @@ namespace GUI
  * TerminalItem but scaled down. Links to the original
  * terminal item and represents it on the global map.
  */
-class GlobalTerminalItem : public GraphicsObjectBase
+class GlobalTerminalItem : public GraphicsObjectBase,
+                           public Input::IClickable,
+                           public Input::IHoverable,
+                           public Input::IDraggable
 {
     Q_OBJECT
 
@@ -120,18 +128,32 @@ public:
              const QPixmap                 &pixmap,
              QGraphicsItem *parent = nullptr);
 
+    /**
+     * @brief IClickable left-click hook.
+     *
+     * Logs the click and passes through so the existing
+     * mousePressEvent / scene selection pipeline continues
+     * unchanged. Installed by the input dispatch refactor.
+     */
+    Input::Handled
+    onLeftClick(const Input::ClickContext &ctx) override;
+
+    // IHoverable — replaces old hoverEnter/hoverLeave setCursor logic.
+    QCursor hoverCursor() const override
+    {
+        return QCursor(Qt::PointingHandCursor);
+    }
+
+    // IDraggable — replaces old itemChange ItemPositionHasChanged emit.
+    void onDragEnd(const QPointF           &finalPos,
+                   const Input::ClickContext &ctx) override;
+
 signals:
     /**
      * @brief Signal emitted when item position has changed
      * @param newPos The new position
      */
     void positionChanged(const QPointF &newPos);
-
-    /**
-     * @brief Signal emitted when item is clicked
-     * @param item The item that was clicked
-     */
-    void itemClicked(GlobalTerminalItem *item);
 
     /**
      * @brief Signal emitted when linked terminal item
@@ -161,36 +183,6 @@ protected:
     void paint(QPainter                       *painter,
                const QStyleOptionGraphicsItem *option,
                QWidget *widget = nullptr) override;
-
-    /**
-     * @brief Handles item position changes
-     * @param change The type of change
-     * @param value The new value
-     * @return The adjusted value
-     */
-    QVariant itemChange(GraphicsItemChange change,
-                        const QVariant    &value) override;
-
-    /**
-     * @brief Handles mouse hover enter events
-     * @param event The hover event
-     */
-    void hoverEnterEvent(
-        QGraphicsSceneHoverEvent *event) override;
-
-    /**
-     * @brief Handles mouse hover leave events
-     * @param event The hover event
-     */
-    void hoverLeaveEvent(
-        QGraphicsSceneHoverEvent *event) override;
-
-    /**
-     * @brief Handles mouse press events
-     * @param event The mouse event
-     */
-    void mousePressEvent(
-        QGraphicsSceneMouseEvent *event) override;
 
 private:
     QPixmap

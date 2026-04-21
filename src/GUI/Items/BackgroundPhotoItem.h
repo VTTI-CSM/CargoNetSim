@@ -1,6 +1,8 @@
 #pragma once
 
 #include "GraphicsObjectBase.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IDraggable.h"
 
 #include <QGraphicsObject>
 #include <QMap>
@@ -22,7 +24,9 @@ namespace GUI
  * properties and can be serialized/deserialized for project
  * saving.
  */
-class BackgroundPhotoItem : public GraphicsObjectBase
+class BackgroundPhotoItem : public GraphicsObjectBase,
+                            public Input::IClickable,
+                            public Input::IDraggable
 {
     Q_OBJECT
     Q_PROPERTY(qreal opacity READ opacity WRITE setOpacity)
@@ -134,13 +138,18 @@ public:
     fromDict(const QMap<QString, QVariant> &data,
              QGraphicsItem *parent = nullptr);
 
-signals:
-    /**
-     * @brief Signal emitted when the item is clicked
-     * @param item A pointer to this item
-     */
-    void clicked(BackgroundPhotoItem *item);
+    // Input interface overrides
+    Input::Handled
+    onLeftClick(const Input::ClickContext &ctx) override;
+    bool
+    canDrag(const Input::ClickContext &ctx) const override;
+    QPointF
+    onDragUpdate(const QPointF            &requested,
+                 const Input::ClickContext &ctx) override;
+    void onDragEnd(const QPointF            &finalPos,
+                   const Input::ClickContext &ctx) override;
 
+signals:
     /**
      * @brief Signal emitted when the item's position
      * changes
@@ -179,12 +188,6 @@ signals:
     void propertyChanged(const QString  &key,
                          const QVariant &value);
 
-protected:
-    void mousePressEvent(
-        QGraphicsSceneMouseEvent *event) override;
-    QVariant itemChange(GraphicsItemChange change,
-                        const QVariant    &value) override;
-
 private:
     /**
      * @brief Update coordinate properties when position
@@ -194,8 +197,7 @@ private:
 
     QPixmap m_pixmap; ///< The image to display
     QMap<QString, QVariant>
-         m_properties; ///< Properties map
-    QPointF m_dragOffset;     ///< Offset for dragging
+        m_properties; ///< Properties map
 };
 
 } // namespace GUI

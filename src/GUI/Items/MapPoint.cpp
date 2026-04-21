@@ -1,19 +1,31 @@
 #include "MapPoint.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Scenario/LinkageSource.h"
+#include "Backend/Scenario/NetworkLookup.h"
+#include "Backend/Scenario/NodeLinkage.h"
 #include "GUI/Controllers/UtilityFunctions.h"
 #include "GUI/Controllers/TerminalController.h"
+#include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/CommandBus.h"
+#include "GUI/Input/Commands/CreateTerminalAtMapPointCommand.h"
+#include "GUI/Input/Commands/UnlinkTerminalCommand.h"
+#include "GUI/Input/InteractionController.h"
+#include "Backend/Scenario/ScenarioDocument.h"
 #include "GUI/MainWindow.h"
+#include "GUI/Scenario/ScenarioMutator.h"
+#include "GUI/Widgets/GraphicsView.h"
 #include "TerminalItem.h"
 
 #include <QAction>
 #include <QApplication>
 #include <QCursor>
 #include <QGraphicsScene>
-#include <QGraphicsSceneContextMenuEvent>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
+#include <QLoggingCategory>
 #include <QMenu>
 #include <QPainter>
+#include <QPointer>
 #include <QStyle>
 #include <QStyleOption>
 
@@ -215,115 +227,172 @@ void MapPoint::paint(QPainter *painter,
     }
 }
 
-void MapPoint::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled MapPoint::onLeftClick(const Input::ClickContext&)
 {
-    qCDebug(lcGuiScene)
-        << "MapPoint::mousePressEvent:"
-        << "id=" << m_id
-        << "button=" << event->button()
-        << "scenePos=" << event->scenePos();
-
-    if (event->button() == Qt::RightButton)
-    {
-        // Forward to context menu event handler
-        QGraphicsSceneContextMenuEvent contextEvent(
-            QEvent::GraphicsSceneContextMenu);
-        contextEvent.setScenePos(event->scenePos());
-        contextEvent.setScreenPos(event->screenPos());
-        contextMenuEvent(&contextEvent);
-    }
-    else
-    {
-        // Emit clicked signal
-        emit clicked(this);
-        QGraphicsObject::mousePressEvent(event);
-    }
+    qCDebug(lcGuiInputItem)
+        << "MapPoint::onLeftClick; id=" << m_id
+        << "networkNodeID=" << getReferencedNetworkNodeID()
+        << "region=" << getRegion();
+    return Input::Handled::PassThrough;
 }
 
-void MapPoint::contextMenuEvent(
-    QGraphicsSceneContextMenuEvent *event)
+void MapPoint::onHoverEnter(const Input::ClickContext&)
 {
-    qCDebug(lcGuiScene)
-        << "MapPoint::contextMenuEvent:"
-        << "id=" << m_id;
-    showContextMenu(event);
-    event->accept();
+    qCDebug(lcGuiInputItem) << "MapPoint::onHoverEnter; id=" << m_id;
+    update();
 }
 
-void MapPoint::showContextMenu(
-    QGraphicsSceneContextMenuEvent *event)
+void MapPoint::onHoverLeave(const Input::ClickContext&)
 {
-    qCDebug(lcGuiScene)
-        << "MapPoint::showContextMenu:"
-        << "id=" << m_id
+    qCDebug(lcGuiInputItem) << "MapPoint::onHoverLeave; id=" << m_id;
+    update();
+}
+
+void MapPoint::buildContextMenu(QMenu* menu, const Input::ClickContext& ctx)
+{
+    Q_ASSERT(menu);
+    qCDebug(lcGuiInputItem)
+        << "MapPoint::buildContextMenu; id=" << m_id
         << "hasTerminal=" << (m_terminal != nullptr);
 
-    QMenu menu;
-
-    // Plan 8: Origin/Destination are no longer terminal kinds — origin
-    // role is set on any physical terminal via PropertiesPanel's
-    // "Origin Configuration" group. The right-click menu becomes
-    // navigational: "Configure as Origin…" jumps PropertiesPanel to
-    // the linked terminal so the user can fill in the count + dest.
-
-    QMenu *createTerminalMenu =
-        menu.addMenu("Create Terminal at Node");
-    QAction *originAction =
-        createTerminalMenu->addAction("Origin");
-    QAction *destinationAction =
-        createTerminalMenu->addAction("Destination");
-    createTerminalMenu->addSeparator();
-    QAction *seaTerminalAction =
-        createTerminalMenu->addAction("Sea Terminal");
-    QAction *intermodalTerminalAction =
-        createTerminalMenu->addAction("Intermodal Terminal");
-    QAction *trainDepotAction =
-        createTerminalMenu->addAction("Train Depot");
-    QAction *parkingAction =
-        createTerminalMenu->addAction("Parking");
-    QAction *facilityAction =
-        createTerminalMenu->addAction("Facility");
-
-    QAction *configureOriginAction =
-        menu.addAction("Configure as Origin…");
-    configureOriginAction->setEnabled(m_terminal != nullptr);
-
-    QAction *unlinkAction = menu.addAction("Unlink Terminal");
-    unlinkAction->setEnabled(m_terminal != nullptr);
-
-    QAction *selectedAction = menu.exec(event->screenPos());
+    QPointer<MapPoint>                              self = this;
+    QPointer<MainWindow>                            mw   = ctx.mainWindow;
+    QPointer<Backend::Scenario::ScenarioDocument>   doc  = ctx.document;
 
     using Role = Backend::Scenario::TerminalPlacement::TerminalRole;
 
-    if (selectedAction == originAction)
-        createTerminalAtPosition("Facility", Role::Origin);
-    else if (selectedAction == destinationAction)
-        createTerminalAtPosition("Facility", Role::Destination);
-    else if (selectedAction == seaTerminalAction)
-        createTerminalAtPosition("Sea Port Terminal");
-    else if (selectedAction == intermodalTerminalAction)
-        createTerminalAtPosition("Intermodal Land Terminal");
-    else if (selectedAction == trainDepotAction)
-        createTerminalAtPosition("Train Stop/Depot");
-    else if (selectedAction == parkingAction)
-        createTerminalAtPosition("Truck Parking");
-    else if (selectedAction == facilityAction)
-        createTerminalAtPosition("Facility");
-    else if (selectedAction == configureOriginAction && m_terminal)
-    {
-        if (auto *mw = qobject_cast<MainWindow *>(scene()->parent()))
+    Input::CommandBus *createBus = ctx.commandBus;
+
+    // --- "Create Terminal at Node" submenu ---
+    QMenu *createTerminalMenu =
+        menu->addMenu(QStringLiteral("Create Terminal at Node"));
+
+    QAction *originAction =
+        createTerminalMenu->addAction(QStringLiteral("Origin"));
+    QObject::connect(originAction, &QAction::triggered,
+                     [self, doc, createBus]() {
+        if (!self) return;
+        self->createTerminalAtPosition(QStringLiteral("Facility"),
+                                       Role::Origin,
+                                       doc.data(), createBus);
+    });
+
+    QAction *destinationAction =
+        createTerminalMenu->addAction(QStringLiteral("Destination"));
+    QObject::connect(destinationAction, &QAction::triggered,
+                     [self, doc, createBus]() {
+        if (!self) return;
+        self->createTerminalAtPosition(QStringLiteral("Facility"),
+                                       Role::Destination,
+                                       doc.data(), createBus);
+    });
+
+    createTerminalMenu->addSeparator();
+
+    QAction *seaTerminalAction =
+        createTerminalMenu->addAction(QStringLiteral("Sea Terminal"));
+    QObject::connect(seaTerminalAction, &QAction::triggered,
+                     [self, doc, createBus]() {
+        if (!self) return;
+        self->createTerminalAtPosition(QStringLiteral("Sea Port Terminal"),
+                                       Role::Transit,
+                                       doc.data(), createBus);
+    });
+
+    QAction *intermodalTerminalAction =
+        createTerminalMenu->addAction(QStringLiteral("Intermodal Terminal"));
+    QObject::connect(intermodalTerminalAction, &QAction::triggered,
+                     [self, doc, createBus]() {
+        if (!self) return;
+        self->createTerminalAtPosition(
+            QStringLiteral("Intermodal Land Terminal"),
+            Role::Transit,
+            doc.data(), createBus);
+    });
+
+    QAction *trainDepotAction =
+        createTerminalMenu->addAction(QStringLiteral("Train Depot"));
+    QObject::connect(trainDepotAction, &QAction::triggered,
+                     [self, doc, createBus]() {
+        if (!self) return;
+        self->createTerminalAtPosition(QStringLiteral("Train Stop/Depot"),
+                                       Role::Transit,
+                                       doc.data(), createBus);
+    });
+
+    QAction *parkingAction =
+        createTerminalMenu->addAction(QStringLiteral("Parking"));
+    QObject::connect(parkingAction, &QAction::triggered,
+                     [self, doc, createBus]() {
+        if (!self) return;
+        self->createTerminalAtPosition(QStringLiteral("Truck Parking"),
+                                       Role::Transit,
+                                       doc.data(), createBus);
+    });
+
+    QAction *facilityAction =
+        createTerminalMenu->addAction(QStringLiteral("Facility"));
+    QObject::connect(facilityAction, &QAction::triggered,
+                     [self, doc, createBus]() {
+        if (!self) return;
+        self->createTerminalAtPosition(QStringLiteral("Facility"),
+                                       Role::Transit,
+                                       doc.data(), createBus);
+    });
+
+    // --- "Configure as Origin…" ---
+    QAction *configureOriginAction =
+        menu->addAction(QStringLiteral("Configure as Origin…"));
+    configureOriginAction->setEnabled(m_terminal != nullptr);
+    QObject::connect(configureOriginAction, &QAction::triggered,
+                     [self, mw]() {
+        if (!self || !mw) return;
+        TerminalItem *term = self->getLinkedTerminal();
+        if (!term) return;
+        UtilitiesFunctions::updatePropertiesPanel(mw.data(), term);
+    });
+
+    // --- "Unlink Terminal" ---
+    QAction *unlinkAction =
+        menu->addAction(QStringLiteral("Unlink Terminal"));
+    unlinkAction->setEnabled(m_terminal != nullptr);
+    Input::CommandBus *bus = ctx.commandBus;
+    QObject::connect(unlinkAction, &QAction::triggered,
+                     [self, doc, bus]() {
+        if (!self) return;
+
+        // Prefer the bound NodeLinkage which carries the canonical tuple.
+        Backend::Scenario::NodeLinkage *linkage = self->linkageModel();
+        if (doc && bus && linkage)
         {
-            UtilitiesFunctions::updatePropertiesPanel(mw, m_terminal);
+            bus->submit(std::make_unique<Input::UnlinkTerminalCommand>(
+                doc.data(),
+                linkage->terminalId,
+                linkage->networkName,
+                linkage->nodeId));
         }
-    }
-    else if (selectedAction == unlinkAction)
-        setLinkedTerminal(nullptr);
+        else
+        {
+            // Legacy path: no linkage bound — no canonical (networkName,
+            // nodeId) pair available on MapPoint (only a Network_ID string
+            // whose mapping to networkName lives on the owning Network).
+            // Fall back to the view-only clear so the UI stays consistent.
+            qCWarning(lcGuiInputItem)
+                << "MapPoint::buildContextMenu[Unlink]: no linkage model"
+                << " or command bus bound; performing view-only unlink."
+                << " id=" << self->m_id;
+        }
+
+        // View clear so the point visually detaches regardless of path.
+        self->setLinkedTerminal(nullptr);
+    });
 }
 
 void MapPoint::createTerminalAtPosition(
     const QString &terminalType,
-    Backend::Scenario::TerminalPlacement::TerminalRole role)
+    Backend::Scenario::TerminalPlacement::TerminalRole role,
+    Backend::Scenario::ScenarioDocument *doc,
+    Input::CommandBus                   *bus)
 {
     qCInfo(lcGuiScene)
         << "MapPoint::createTerminalAtPosition:"
@@ -342,11 +411,48 @@ void MapPoint::createTerminalAtPosition(
         return;
     }
 
+    const QString region =
+        m_properties.value("region", "Default Region").toString();
+    const QString networkName =
+        Backend::Scenario::NetworkLookup::networkNameOf(m_referenceNetwork);
+    const int     nodeId      = getReferencedNetworkNodeID().toInt();
+
+    // Preferred path: submit the composite command so creation + linkage
+    // are both persisted in the document and reversible via undo.
+    if (doc && bus && !networkName.isEmpty())
+    {
+        // Resolve the local lat/lon the same way TerminalController does
+        // when creating terminals at a scene point.
+        QPointF latLon;
+        if (auto *view = mainWindow->regionView())
+        {
+            latLon = view->sceneToWGS84(pos());
+        }
+
+        bus->submit(std::make_unique<Input::CreateTerminalAtMapPointCommand>(
+            doc, networkName, nodeId, terminalType, region, latLon, role));
+        qCInfo(lcGuiScene)
+            << "MapPoint::createTerminalAtPosition: submitted"
+            << "CreateTerminalAtMapPointCommand"
+            << "network=" << networkName
+            << "node="    << nodeId
+            << "type="    << terminalType
+            << "region="  << region
+            << "latLon="  << latLon;
+        return;
+    }
+
+    // Fallback: legacy view-only path when the input context could not
+    // supply the document/bus or the network name is not resolvable.
+    qCWarning(lcGuiScene)
+        << "MapPoint::createTerminalAtPosition: legacy view-only path"
+        << "(doc=" << (doc ? "ok" : "null")
+        << ", bus=" << (bus ? "ok" : "null")
+        << ", networkName=" << networkName << ")";
+
     TerminalItem *newTerminal =
         mainWindow->terminalCtrl()->createTerminalAtPoint(
-            m_properties.value("region", "Default Region")
-                .toString(),
-            terminalType, pos(), role);
+            region, terminalType, pos(), role);
 
     // Link the newly created terminal to this map point
     if (newTerminal)

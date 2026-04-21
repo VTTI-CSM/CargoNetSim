@@ -14,34 +14,14 @@
 #include <QObject>
 #include <QPointF>
 
+// Post Plan-3 refactor: items no longer expose per-type `clicked` signals
+// — selection routes through InteractionController and PropertiesPanel
+// listens to `scene->selectionChanged` instead. This file now wires only
+// notification-level signals (position changes, coordinate edits, etc.).
+
 namespace CargoNetSim {
 namespace GUI {
 namespace Scenario {
-
-namespace {
-
-template <typename ItemT>
-void connectClickedToPanel(ItemT *item, MainWindow *mainWindow)
-{
-    QObject::connect(
-        item, &ItemT::clicked,
-        [mainWindow](ItemT *it) {
-            UtilitiesFunctions::updatePropertiesPanel(mainWindow, it);
-        });
-}
-
-template <typename ItemT>
-int connectClickAsTerminalOrNode(ItemT *item, MainWindow *mainWindow)
-{
-    connectClickedToPanel(item, mainWindow);
-    QObject::connect(item, &ItemT::clicked, mainWindow,
-                     &MainWindow::handleTerminalNodeLinking);
-    QObject::connect(item, &ItemT::clicked, mainWindow,
-                     &MainWindow::handleTerminalNodeUnlinking);
-    return 3;
-}
-
-} // namespace
 
 int ItemEventBinder::bindTerminalItem(TerminalItem *item,
                                       MainWindow   *mainWindow)
@@ -52,16 +32,12 @@ int ItemEventBinder::bindTerminalItem(TerminalItem *item,
         << "ItemEventBinder::bindTerminalItem:"
         << "terminalId=" << item->getTerminalId();
 
-    int connected = connectClickAsTerminalOrNode(item, mainWindow);
-
     QObject::connect(
         item, &TerminalItem::positionChanged,
         [mainWindow, item]() {
             mainWindow->terminalCtrl()->updateGlobalMapItem(item);
         });
-    ++connected;
-
-    return connected;
+    return 1;
 }
 
 int ItemEventBinder::bindMapPoint(MapPoint *item, MainWindow *mainWindow)
@@ -72,7 +48,8 @@ int ItemEventBinder::bindMapPoint(MapPoint *item, MainWindow *mainWindow)
         << "ItemEventBinder::bindMapPoint:"
         << "pointId=" << item->getID();
 
-    return connectClickAsTerminalOrNode(item, mainWindow);
+    // Nothing to wire — click-to-panel handled via scene selection now.
+    return 0;
 }
 
 int ItemEventBinder::bindConnectionLine(ConnectionLine *line,
@@ -84,8 +61,8 @@ int ItemEventBinder::bindConnectionLine(ConnectionLine *line,
         << "ItemEventBinder::bindConnectionLine:"
         << "lineId=" << line->getID();
 
-    connectClickedToPanel(line, mainWindow);
-    return 1;
+    // Click-to-panel removed — handled via scene selection.
+    return 0;
 }
 
 int ItemEventBinder::bindGlobalTerminalItem(GlobalTerminalItem *item,
@@ -97,7 +74,6 @@ int ItemEventBinder::bindGlobalTerminalItem(GlobalTerminalItem *item,
         << "ItemEventBinder::bindGlobalTerminalItem:"
         << "terminalId=" << item->getTerminalId();
 
-    // No MainWindow-slot connections today; pattern uniformity only.
     return 0;
 }
 
@@ -110,14 +86,8 @@ int ItemEventBinder::bindRegionCenterPoint(RegionCenterPoint *item,
         << "ItemEventBinder::bindRegionCenterPoint:"
         << "region=" << item->getRegion();
 
-    // Click → PropertiesPanel: same helper every other item uses.
-    connectClickedToPanel(item, mainWindow);
-
     // Drag / edit → refresh the region's global-map mirror and keep the
-    // panel's coordinate fields in sync with the live position. Legacy
-    // path used to inline these three lambdas in
-    // `RegionController::createRegionCenter`; centralising here so both
-    // factory and legacy callers wire the same handlers.
+    // panel's coordinate fields in sync with the live position.
     const QString regionName = item->getRegion();
     QObject::connect(
         item, &RegionCenterPoint::coordinatesChanged, mainWindow,
@@ -134,7 +104,7 @@ int ItemEventBinder::bindRegionCenterPoint(RegionCenterPoint *item,
                 mainWindow, regionName);
         });
 
-    return 3;
+    return 2;
 }
 
 } // namespace Scenario

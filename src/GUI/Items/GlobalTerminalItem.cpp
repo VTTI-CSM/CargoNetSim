@@ -1,5 +1,6 @@
 #include "GlobalTerminalItem.h"
 #include "Backend/Commons/LogCategories.h"
+#include "GUI/Input/ClickContext.h"
 #include "TerminalItem.h"
 
 #include "Backend/Scenario/RegionSpec.h"
@@ -11,6 +12,7 @@
 #include <QCursor>
 #include <QGraphicsSceneHoverEvent>
 #include <QGraphicsSceneMouseEvent>
+#include <QLoggingCategory>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 
@@ -216,60 +218,12 @@ void GlobalTerminalItem::paint(
     }
 }
 
-QVariant
-GlobalTerminalItem::itemChange(GraphicsItemChange change,
-                               const QVariant    &value)
+void GlobalTerminalItem::onDragEnd(const QPointF           &finalPos,
+                                   const Input::ClickContext &)
 {
-    qCDebug(lcGuiScene)
-        << "GlobalTerminalItem::itemChange:"
-        << "change=" << change;
-
-    // Emit position changed signal when position has
-    // changed
-    if (change == ItemPositionHasChanged)
-    {
-        emit positionChanged(pos());
-    }
-
-    return QGraphicsObject::itemChange(change, value);
-}
-
-void GlobalTerminalItem::hoverEnterEvent(
-    QGraphicsSceneHoverEvent *event)
-{
-    qCDebug(lcGuiScene)
-        << "GlobalTerminalItem::hoverEnterEvent:"
-        << "tooltip=" << toolTip();
-    // Change cursor to hand pointer on hover
-    setCursor(QCursor(Qt::PointingHandCursor));
-    QGraphicsObject::hoverEnterEvent(event);
-}
-
-void GlobalTerminalItem::hoverLeaveEvent(
-    QGraphicsSceneHoverEvent *event)
-{
-    qCDebug(lcGuiScene)
-        << "GlobalTerminalItem::hoverLeaveEvent:"
-        << "tooltip=" << toolTip();
-    // Reset cursor when leaving
-    unsetCursor();
-    QGraphicsObject::hoverLeaveEvent(event);
-}
-
-void GlobalTerminalItem::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
-{
-    qCDebug(lcGuiScene)
-        << "GlobalTerminalItem::mousePressEvent:"
-        << "button=" << event->button()
-        << "scenePos=" << event->scenePos();
-
-    // Emit clicked signal
-    emit itemClicked(this);
-
-    // Call base class implementation to handle selection
-    // etc.
-    QGraphicsObject::mousePressEvent(event);
+    qCDebug(lcGuiInputItem)
+        << "GlobalTerminalItem::onDragEnd:" << finalPos;
+    emit positionChanged(finalPos);
 }
 
 QMap<QString, QVariant> GlobalTerminalItem::toDict() const
@@ -342,6 +296,15 @@ GlobalTerminalItem *GlobalTerminalItem::fromDict(
     // "linked_terminal_id" stored in the data
 
     return instance;
+}
+
+Input::Handled GlobalTerminalItem::onLeftClick(
+    const Input::ClickContext &)
+{
+    qCDebug(lcGuiInputItem)
+        << "GlobalTerminalItem::onLeftClick; linked ="
+        << linkedTerminalItem.data();
+    return Input::Handled::PassThrough;
 }
 
 } // namespace GUI

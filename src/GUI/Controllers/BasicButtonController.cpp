@@ -21,6 +21,13 @@
 #include "../Widgets/ShipManagerDialog.h"
 #include "../Widgets/TrainManagerDialog.h"
 #include "../Serializers/ProjectSerializer.h"
+#include "../Input/InteractionController.h"
+#include "../Input/Modes/ConnectMode.h"
+#include "../Input/Modes/GlobalPositionMode.h"
+#include "../Input/Modes/LinkTerminalMode.h"
+#include "../Input/Modes/MeasureMode.h"
+#include "../Input/Modes/NormalMode.h"
+#include "../Input/Modes/UnlinkTerminalMode.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Scenario/RegionSpec.h"
@@ -38,44 +45,20 @@ namespace GUI
 void BasicButtonController::resetOtherButtons(
     MainWindow *mainWindow, QToolButton *activeButton)
 {
-    try
-    {
-        QList<QToolButton *> toggleButtons = {
-            mainWindow->connectButton_,
-            mainWindow->linkTerminalButton_,
-            mainWindow->unlinkTerminalButton_,
-            mainWindow->measureButton_};
+    if (!mainWindow) return;
 
-        const int count = toggleButtons.size();
-        qCDebug(lcGuiButton) << "BasicButtonController::resetOtherButtons: resetting" << count << "buttons";
+    QList<QToolButton *> toggleButtons = {
+        mainWindow->connectButton_,
+        mainWindow->linkTerminalButton_,
+        mainWindow->unlinkTerminalButton_,
+        mainWindow->measureButton_};
 
-        for (QToolButton *button : toggleButtons)
-        {
-            if (button != activeButton)
-            {
-                button->setChecked(false);
-            }
+    qCDebug(lcGuiButton) << "BasicButtonController::resetOtherButtons: resetting"
+                         << toggleButtons.size() << "buttons";
+    for (QToolButton *button : toggleButtons) {
+        if (button && button != activeButton) {
+            button->setChecked(false);
         }
-
-        // Reset associated modes in the scene
-        mainWindow->regionScene_->setIsInConnectMode(false);
-        mainWindow->regionScene_->setIsInLinkTerminalMode(
-            false);
-        mainWindow->regionScene_->setIsInUnlinkTerminalMode(
-            false);
-        mainWindow->regionScene_->setIsInMeasureMode(false);
-        mainWindow->regionScene_->setConnectedFirstItem(
-            QVariant());
-        mainWindow->selectedTerminal_ = nullptr;
-    }
-    catch (const std::exception &e)
-    {
-        qCCritical(lcGuiButton) << "Error in resetOtherButtons:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to reset buttons: %1")
-                .arg(e.what()));
     }
 }
 
@@ -123,145 +106,46 @@ void BasicButtonController::toggleGrid(
 void BasicButtonController::toggleConnectMode(
     MainWindow *mainWindow, bool checked)
 {
-    qCDebug(lcGuiButton) << "BasicButtonController::toggleConnectMode:"
-                         << "checked=" << checked;
-    try
-    {
-        if (checked)
-        {
-            resetOtherButtons(mainWindow,
-                              mainWindow->connectButton_);
-
-            GraphicsScene *currentScene =
-                mainWindow->tabWidget_->currentIndex() == 0
-                    ? mainWindow->regionScene_
-                    : mainWindow->globalMapScene_;
-
-            currentScene->setIsInConnectMode(true);
-            currentScene->setConnectedFirstItem(QVariant());
-            mainWindow->statusBar()->showMessage(
-                "Click on two terminals to connect them...",
-                3000);
-        }
-        else
-        {
-            mainWindow->regionScene_->setIsInConnectMode(
-                false);
-            mainWindow->regionScene_->setConnectedFirstItem(
-                QVariant());
-            mainWindow->globalMapScene_->setIsInConnectMode(
-                false);
-            mainWindow->globalMapScene_
-                ->setConnectedFirstItem(QVariant());
-            mainWindow->connectButton_->setChecked(false);
-            mainWindow->statusBar()->showMessage(
-                "Connect mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->inputController()) {
+        qCWarning(lcGuiButton) << "toggleConnectMode: null mainWindow or controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCCritical(lcGuiButton) << "Error in toggleConnectMode:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to toggle connect mode: %1")
-                .arg(e.what()));
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->connectButton_);
+        mainWindow->inputController()->setMode<Input::ConnectMode>(
+            mainWindow->getConnectionType());
+    } else {
+        mainWindow->inputController()->setMode<Input::NormalMode>();
     }
 }
 
 void BasicButtonController::toggleLinkTerminalMode(
     MainWindow *mainWindow, bool checked)
 {
-    qCDebug(lcGuiButton) << "BasicButtonController::toggleLinkTerminalMode:"
-                         << "checked=" << checked;
-    try
-    {
-        if (checked)
-        {
-            resetOtherButtons(
-                mainWindow,
-                mainWindow->linkTerminalButton_);
-
-            // Disable other modes when entering link mode
-            mainWindow->regionScene_->setIsInConnectMode(
-                false);
-            mainWindow->regionScene_
-                ->setIsInLinkTerminalMode(true);
-            mainWindow->selectedTerminal_ = nullptr;
-            mainWindow->statusBar()->showMessage(
-                "Select a terminal, then select a node to "
-                "link them...",
-                3000);
-        }
-        else
-        {
-            mainWindow->regionScene_
-                ->setIsInLinkTerminalMode(false);
-            mainWindow->selectedTerminal_ = nullptr;
-            mainWindow->linkTerminalButton_->setChecked(
-                false);
-            mainWindow->statusBar()->showMessage(
-                "Link terminal mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->regionInputController()) {
+        qCWarning(lcGuiButton) << "toggleLinkTerminalMode: null mainWindow or region controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCCritical(lcGuiButton) << "Error in toggleLinkTerminalMode:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString(
-                "Failed to toggle link terminal mode: %1")
-                .arg(e.what()));
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->linkTerminalButton_);
+        mainWindow->regionInputController()->setMode<Input::LinkTerminalMode>();
+    } else {
+        mainWindow->regionInputController()->setMode<Input::NormalMode>();
     }
 }
 
 void BasicButtonController::toggleUnlinkTerminalMode(
     MainWindow *mainWindow, bool checked)
 {
-    qCDebug(lcGuiButton) << "BasicButtonController::toggleUnlinkTerminalMode:"
-                         << "checked=" << checked;
-    try
-    {
-        if (checked)
-        {
-            resetOtherButtons(
-                mainWindow,
-                mainWindow->unlinkTerminalButton_);
-
-            // Disable other modes when entering unlink mode
-            mainWindow->regionScene_->setIsInConnectMode(
-                false);
-            mainWindow->regionScene_
-                ->setIsInLinkTerminalMode(false);
-            mainWindow->regionScene_
-                ->setIsInUnlinkTerminalMode(true);
-            mainWindow->selectedTerminal_ = nullptr;
-            mainWindow->statusBar()->showMessage(
-                "Select a terminal, then select a node to "
-                "unlink them...",
-                3000);
-        }
-        else
-        {
-            mainWindow->regionScene_
-                ->setIsInUnlinkTerminalMode(false);
-            mainWindow->selectedTerminal_ = nullptr;
-            mainWindow->unlinkTerminalButton_->setChecked(
-                false);
-            mainWindow->statusBar()->showMessage(
-                "Unlink terminal mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->regionInputController()) {
+        qCWarning(lcGuiButton) << "toggleUnlinkTerminalMode: null mainWindow or region controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCCritical(lcGuiButton) << "Error in toggleUnlinkTerminalMode:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString(
-                "Failed to toggle unlink terminal mode: %1")
-                .arg(e.what()));
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->unlinkTerminalButton_);
+        mainWindow->regionInputController()->setMode<Input::UnlinkTerminalMode>();
+    } else {
+        mainWindow->regionInputController()->setMode<Input::NormalMode>();
     }
 }
 
@@ -270,128 +154,15 @@ void BasicButtonController::toggleMeasureMode(
 {
     qCDebug(lcGuiButton) << "BasicButtonController::toggleMeasureMode:"
                          << "checked=" << checked;
-    try
-    {
-        if (checked)
-        {
-            resetOtherButtons(mainWindow,
-                              mainWindow->measureButton_);
-        }
-
-        GraphicsView *currentView =
-            mainWindow->tabWidget_->currentIndex() == 0
-                ? mainWindow->regionView_
-                : mainWindow->globalMapView_;
-
-        GraphicsScene *currentScene =
-            dynamic_cast<GraphicsScene *>(
-                currentView->scene());
-
-        if (!currentScene)
-        {
-            qCWarning(lcGuiButton) << "BasicButtonController::toggleMeasureMode:"
-                                   << "currentScene is null";
-            return;
-        }
-
-        currentView->setMeasureMode(checked);
-        currentScene->setIsInMeasureMode(checked);
-        currentScene->setMeasurementTool(
-            nullptr); // Reset measurement tool
-
-        if (!checked)
-        {
-            if (currentView->getMeasurementTool())
-            {
-                if (currentView->getMeasurementTool()
-                        ->scene())
-                {
-                    GraphicsScene *scene =
-                        currentView->getScene();
-                    if (scene)
-                    {
-                        scene->removeItemWithId<
-                            DistanceMeasurementTool>(
-                            currentView
-                                ->getMeasurementTool()
-                                ->sceneRegistryKey());
-                    }
-                }
-                currentView->setMeasurementTool(nullptr);
-            }
-            currentView
-                ->unsetCursor(); // Restore default cursor
-            mainWindow->measureButton_->setChecked(false);
-        }
-        else
-        {
-            currentView->setCursor(
-                QCursor(Qt::CrossCursor));
-        }
-
-        if (checked)
-        {
-            mainWindow->statusBar()->showMessage(
-                "Click to set start point, click again to "
-                "measure distance",
-                3000);
-        }
-        else
-        {
-            mainWindow->statusBar()->showMessage(
-                "Measurement mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->inputController()) {
+        qCWarning(lcGuiButton) << "toggleMeasureMode: null mainWindow or controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCCritical(lcGuiButton) << "Error in toggleMeasureMode:"
-                    << e.what();
-
-        // Reset measure mode to safe state
-        mainWindow->measureButton_->setChecked(false);
-
-        GraphicsView *currentView =
-            mainWindow->tabWidget_->currentIndex() == 0
-                ? mainWindow->regionView_
-                : mainWindow->globalMapView_;
-
-        if (currentView)
-        {
-            currentView->setMeasureMode(false);
-
-            GraphicsScene *currentScene =
-                dynamic_cast<GraphicsScene *>(
-                    currentView->scene());
-
-            if (currentScene)
-            {
-                currentScene->setIsInMeasureMode(false);
-            }
-
-            if (currentView->getMeasurementTool()
-                && currentView->getMeasurementTool()
-                       ->scene())
-            {
-                GraphicsScene *scene =
-                    currentView->getScene();
-                if (scene)
-                {
-                    scene->removeItemWithId<
-                        DistanceMeasurementTool>(
-                        currentView->getMeasurementTool()
-                            ->sceneRegistryKey());
-                }
-
-                currentView->setMeasurementTool(nullptr);
-            }
-
-            currentView->unsetCursor();
-        }
-
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Error in measure mode: %1")
-                .arg(e.what()));
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->measureButton_);
+        mainWindow->inputController()->setMode<Input::MeasureMode>();
+    } else {
+        mainWindow->inputController()->setMode<Input::NormalMode>();
     }
 }
 
@@ -939,114 +710,15 @@ void BasicButtonController::saveScenario(
 void BasicButtonController::toggleSetGlobalPositionMode(
     MainWindow *mainWindow, bool checked)
 {
-    try
-    {
-        // Force reset the scene mode to match the button
-        // state
-        mainWindow->globalMapScene_
-            ->setIsInGlobalPositionMode(checked);
-
-        if (checked)
-        {
-            resetOtherButtons(
-                mainWindow,
-                mainWindow->setGlobalPositionButton_);
-            mainWindow->statusBar()->showMessage(
-                "Click on a terminal to set its global "
-                "position...",
-                3000);
-        }
-        else
-        {
-            mainWindow->setGlobalPositionButton_
-                ->setChecked(false);
-            mainWindow->statusBar()->showMessage(
-                "Set global position mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->globalInputController()) {
+        qCWarning(lcGuiButton) << "toggleSetGlobalPositionMode: null mainWindow or controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCCritical(lcGuiButton)
-            << "Error in toggleSetGlobalPositionMode:"
-            << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString(
-                "Failed to toggle global position mode: %1")
-                .arg(e.what()));
-    }
-}
-
-bool BasicButtonController::setTerminalGlobalPosition(
-    MainWindow *mainWindow, TerminalItem *terminal)
-{
-    try
-    {
-        if (!mainWindow || !terminal)
-        {
-            return false;
-        }
-
-        // Get the terminal's current global position
-        GlobalTerminalItem *globalItem =
-            terminal->getGlobalTerminalItem();
-        if (!globalItem)
-        {
-            mainWindow->showStatusBarMessage(
-                "Terminal not found in global map", 2000);
-            return false;
-        }
-
-        // Get the current position
-        QPointF globalProjectedPos = globalItem->pos();
-
-        QPointF globalGeoPos =
-            mainWindow->globalMapView_->sceneToWGS84(
-                globalProjectedPos);
-
-        // Show the dialog
-        SetCoordinatesDialog dialog(
-            terminal->getProperties()["Name"].toString(),
-            globalGeoPos, mainWindow);
-
-        if (dialog.exec() == QDialog::Accepted)
-        {
-            // Get the new coordinates
-            QPointF userGeoPoint = dialog.getCoordinates();
-
-            bool result = mainWindow->terminalCtrl()
-                ->updateTerminalPositionByGlobalPosition(
-                    terminal, userGeoPoint);
-
-            // Set the terminal position
-            if (result)
-            {
-                mainWindow->statusBar()->showMessage(
-                    "Terminal position updated", 2000);
-                return true;
-            }
-            else
-            {
-                mainWindow->statusBar()->showMessage(
-                    "Failed to update terminal position",
-                    2000);
-                return false;
-            }
-        }
-
-        // Dialog was cancelled
-        return false;
-    }
-    catch (const std::exception &e)
-    {
-        qCCritical(lcGuiButton) << "Error in setTerminalGlobalPosition:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to set terminal global "
-                    "position: %1")
-                .arg(e.what()));
-        return false;
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->setGlobalPositionButton_);
+        mainWindow->globalInputController()->setMode<Input::GlobalPositionMode>();
+    } else {
+        mainWindow->globalInputController()->setMode<Input::NormalMode>();
     }
 }
 

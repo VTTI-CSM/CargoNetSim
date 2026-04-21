@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
+#include <QPointer>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QVariant>
@@ -27,6 +28,7 @@ class ConnectionLine;
 class BackgroundPhotoItem;
 class MapPoint;
 class DestinationListEditor;
+namespace Input { class InteractionController; }
 class PropertiesPanel : public QWidget
 {
     Q_OBJECT
@@ -48,9 +50,25 @@ signals:
         QGraphicsItem                 *item,
         const QMap<QString, QVariant> &properties);
     void requestRefresh();
+public:
+    /// Register the two scenes the panel listens to. After Plan 3 the
+    /// panel reacts to `QGraphicsScene::selectionChanged` instead of
+    /// per-item `clicked` signals. Call once during construction.
+    void setScenes(GraphicsScene *regionScene,
+                   GraphicsScene *globalScene);
+
+    /// Called when the user switches tabs so the panel knows which
+    /// scene to prefer on `refreshFromSelection`.
+    void setActiveScene(GraphicsScene *activeScene);
+
 public slots:
     void clearIfShowing(QGraphicsItem *item);
     void saveProperties();
+
+    /// Rebuild the panel from the current selection on the active
+    /// scene (falling back to the other scene if the active one has
+    /// nothing selected). Wired to both scenes' `selectionChanged`.
+    void refreshFromSelection();
 private slots:
     void onCoordSystemChanged(int index);
     void onDwellMethodChanged(const QString &method,
@@ -146,7 +164,11 @@ private:
     QGraphicsItem           *currentItem;
     QMap<QString, QWidget *> editFields;
     QMetaObject::Connection  m_pickConnection;
-    GraphicsScene           *m_pickScene = nullptr;
+    Input::InteractionController *m_pickController = nullptr;
+
+    QPointer<GraphicsScene>  m_regionScene;
+    QPointer<GraphicsScene>  m_globalScene;
+    QPointer<GraphicsScene>  m_activeScene;
 };
 } // namespace GUI
 } // namespace CargoNetSim

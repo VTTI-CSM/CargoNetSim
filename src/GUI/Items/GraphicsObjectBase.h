@@ -4,10 +4,17 @@
 #include <QColor>
 #include <QGraphicsObject>
 #include <QGraphicsRectItem>
+#include <QPointer>
 #include <QPropertyAnimation>
 
 namespace CargoNetSim::GUI
 {
+
+class GraphicsScene;
+namespace Input {
+class InteractionController;
+struct ClickContext;
+}
 
 class GraphicsObjectBase : public QGraphicsObject
 {
@@ -40,6 +47,10 @@ public:
                const QColor &color = QColor(255, 0, 0,
                                             180));
 
+    /// Lookup via the scene's stored pointer; nullptr if item has not been
+    /// added to a GraphicsScene.
+    Input::InteractionController* interactionController() const;
+
 protected:
     /// Hook for derived classes that view a document entity. Return the
     /// model-field identity (e.g., TerminalPlacement::id, RegionSpec::name)
@@ -53,11 +64,35 @@ protected:
     /** Create the overlay */
     virtual void createAnimationVisual(const QColor &color);
     void         onAnimationFinished();
+
+    // Architecture invariant — subclasses MUST respond via
+    // IClickable / IContextMenuProvider / IHoverable / IDraggable,
+    // NEVER by overriding these Qt hooks. The compiler enforces this:
+    // every mouse / hover / context-menu / itemChange entry point is
+    // finalized here and dispatches through the interface registry.
+    void     mousePressEvent      (QGraphicsSceneMouseEvent*)       final;
+    void     mouseMoveEvent       (QGraphicsSceneMouseEvent*)       final;
+    void     mouseReleaseEvent    (QGraphicsSceneMouseEvent*)       final;
+    void     mouseDoubleClickEvent(QGraphicsSceneMouseEvent*)       final;
+    void     contextMenuEvent     (QGraphicsSceneContextMenuEvent*) final;
+    void     hoverEnterEvent      (QGraphicsSceneHoverEvent*)       final;
+    void     hoverMoveEvent       (QGraphicsSceneHoverEvent*)       final;
+    void     hoverLeaveEvent      (QGraphicsSceneHoverEvent*)       final;
+    QVariant itemChange(GraphicsItemChange change,
+                        const QVariant&   value)                    final;
+
     AnimationObject    *m_animObject = nullptr;
     QPropertyAnimation *m_animation  = nullptr;
 
 private:
-    QString m_id;
+    /// Build a minimal ClickContext from scene/view/controller lookups.
+    /// Used by itemChange / mouseReleaseEvent — Qt event synthesis paths
+    /// that don't flow through InteractionController::buildContext().
+    Input::ClickContext buildMinimalContext() const;
+
+    QString                                         m_id;
+    mutable QPointer<Input::InteractionController>  m_cachedController;
+    bool                                            m_draggingSincePress = false;
 };
 
 } // namespace CargoNetSim::GUI
