@@ -214,6 +214,13 @@ private:
     QPixmap m_pixmap; ///< The image to display
     QMap<QString, QVariant>
         m_properties; ///< Properties map
+
+    /// Drag-start snapshot: at `ItemPositionChange` (where onDragUpdate fires)
+    /// pos() still returns the pre-drag value, so we capture it on the first
+    /// onDragUpdate of a sequence. onDragEnd uses it as the old-pos for the
+    /// CommandBus submission, producing a single undoable entry per drag.
+    bool    m_dragInProgress = false;
+    QPointF m_preDragPos;
 };
 
 } // namespace GUI

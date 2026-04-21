@@ -56,6 +56,7 @@
 #include "Widgets/ShortestPathTable.h"
 
 #include "Items/BackgroundPhotoItem.h"
+#include "Scenario/BackgroundPhotoItemFactory.h"
 #include "Items/ConnectionLabel.h"
 #include "Items/ConnectionLine.h"
 #include "Items/GlobalTerminalItem.h"
@@ -2196,113 +2197,41 @@ void MainWindow::addBackgroundPhoto()
         }
 
         // Check which tab is currently active
-        if (tabWidget_->currentWidget()
-            == tabWidget_->widget(0))
-        { // Main view tab
-            // Create a new BackgroundPhotoItem for the main
-            // view
-            QString currentRegion =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegion();
-            BackgroundPhotoItem *background =
-                new BackgroundPhotoItem(pixmap,
-                                        currentRegion);
-            // Click-to-panel removed (Plan 3) — handled by
-            // scene->selectionChanged. Only keep the position
-            // mirroring while the panel is already showing the item.
-            QObject::connect(
-                background,
-                &BackgroundPhotoItem::positionChanged,
-                [background,
-                 this](const QPointF &pos) {
-                    if (propertiesPanel_->getCurrentItem()
-                        == background)
-                    {
-                        propertiesPanel_
-                            ->updatePositionFields(pos);
-                    }
-                });
+        // Build a BackgroundPhotoSpec centered on the active view and delegate
+        // creation/registration/wiring to the factory. Qt convention:
+        // QPointF returned by sceneToWGS84 is (x=longitude, y=latitude).
+        const bool isGlobal =
+            tabWidget_->currentWidget() != tabWidget_->widget(0);
+        GraphicsView  *view  = isGlobal ? globalMapView_  : regionView_;
+        GraphicsScene *scene = isGlobal ? globalMapScene_ : regionScene_;
+        const QString  region =
+            isGlobal
+                ? QStringLiteral("global")
+                : CargoNetSim::CargoNetSimController::
+                      getInstance()
+                          .getRegionDataController()
+                          ->getCurrentRegion();
 
-            // Place the photo at the center of the main
-            // view
-            QPointF viewCenter =
-                regionView_->mapToScene(
-                    regionView_->viewport()
-                        ->rect()
-                        .center());
+        const QPointF viewCenter =
+            view->mapToScene(view->viewport()->rect().center());
+        const QPointF wgs = view->sceneToWGS84(viewCenter);
 
-            double lat, lon;
-            auto   wgsPoint =
-                regionView_->sceneToWGS84(viewCenter);
-            lat = wgsPoint.x();
-            lon = wgsPoint.y();
-            background->getProperties()["Latitude"] =
-                QString::number(lat, 'f', 6);
-            background->getProperties()["Longitude"] =
-                QString::number(lon, 'f', 6);
-            background->setPos(viewCenter);
+        GUI::Scenario::BackgroundPhotoSpec spec;
+        spec.pixmap   = pixmap;
+        spec.region   = region;
+        spec.scenePos = viewCenter;
+        spec.properties = {
+            {QStringLiteral("Type"),
+             QStringLiteral("Background - %1").arg(region)},
+            {QStringLiteral("Region"),    region},
+            {QStringLiteral("Scale"),     1.0},
+            {QStringLiteral("Latitude"),  QString::number(wgs.y(), 'f', 6)},
+            {QStringLiteral("Longitude"), QString::number(wgs.x(), 'f', 6)},
+            {QStringLiteral("Locked"),    false},
+            {QStringLiteral("Opacity"),   1.0},
+        };
 
-            regionScene_->addItemWithId(
-                background, background->sceneRegistryKey());
-
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->setRegionVariable(
-                        currentRegion,
-                        "backgroundPhotoItem",
-                        QVariant::fromValue(background));
-        }
-        else
-        { // Global map tab
-            // Create a new BackgroundPhotoItem for the
-            // global map
-            BackgroundPhotoItem *background =
-                new BackgroundPhotoItem(pixmap, "global");
-            // Click-to-panel removed (Plan 3) — handled by
-            // scene->selectionChanged.
-            QObject::connect(
-                background,
-                &BackgroundPhotoItem::positionChanged,
-                [background, this](const QPointF &pos) {
-                    if (propertiesPanel_->getCurrentItem()
-                        == background)
-                    {
-                        propertiesPanel_
-                            ->updatePositionFields(pos);
-                    }
-                });
-
-            // Place the photo at the center of the global
-            // map view
-            QPointF viewCenter =
-                globalMapView_->mapToScene(
-                    globalMapView_->viewport()
-                        ->rect()
-                        .center());
-
-            double lat, lon;
-            auto   wgsPoint =
-                regionView_->sceneToWGS84(viewCenter);
-            lon = wgsPoint.x();
-            lat = wgsPoint.y();
-            background->getProperties()["Latitude"] =
-                QString::number(lat, 'f', 6);
-            background->getProperties()["Longitude"] =
-                QString::number(lon, 'f', 6);
-            background->setPos(viewCenter);
-
-            globalMapScene_->addItemWithId(
-                background, background->sceneRegistryKey());
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->setGlobalVariable(
-                        "globalBackgroundPhotoItem",
-                        QVariant::fromValue(background));
-        }
+        GUI::Scenario::BackgroundPhotoItemFactory::create(spec, scene, this);
     }
     catch (const std::exception &e)
     {

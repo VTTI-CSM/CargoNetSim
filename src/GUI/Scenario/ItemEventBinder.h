@@ -9,6 +9,7 @@ class MapPoint;
 class ConnectionLine;
 class GlobalTerminalItem;
 class RegionCenterPoint;
+class BackgroundPhotoItem;
 
 namespace Scenario {
 
@@ -37,6 +38,8 @@ public:
                                       MainWindow *mainWindow);
     static int bindRegionCenterPoint(RegionCenterPoint *item,
                                      MainWindow        *mainWindow);
+    static int bindBackgroundPhotoItem(BackgroundPhotoItem *item,
+                                       MainWindow          *mainWindow);
 };
 
 } // namespace Scenario

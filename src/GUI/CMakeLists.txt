@@ -133,6 +133,8 @@ set(GUI_SOURCES
     Scenario/TerminalItemFactory.cpp
     Scenario/MapPointFactory.h
     Scenario/MapPointFactory.cpp
+    Scenario/BackgroundPhotoItemFactory.h
+    Scenario/BackgroundPhotoItemFactory.cpp
     Scenario/RegionCenterPointFactory.h
     Scenario/RegionCenterPointFactory.cpp
     Scenario/ScenarioMutator.h
@@ -178,8 +180,14 @@ set(GUI_SOURCES
     Input/Commands/CreateTerminalAtMapPointCommand.cpp
     Input/Commands/CreateTerminalAtPointCommand.h
     Input/Commands/CreateTerminalAtPointCommand.cpp
+    Input/Commands/ApplyBackgroundPhotoEditCommand.h
+    Input/Commands/ApplyBackgroundPhotoEditCommand.cpp
     Input/Commands/DeleteBackgroundPhotoCommand.h
     Input/Commands/DeleteBackgroundPhotoCommand.cpp
+    Input/Commands/UpdateBackgroundPhotoPositionCommand.h
+    Input/Commands/UpdateBackgroundPhotoPositionCommand.cpp
+    Input/Commands/UpdateRegionGlobalPositionCommand.h
+    Input/Commands/UpdateRegionGlobalPositionCommand.cpp
     Input/Commands/DeleteConnectionCommand.h
     Input/Commands/DeleteConnectionCommand.cpp
     Input/Commands/DeleteItemCommand.h

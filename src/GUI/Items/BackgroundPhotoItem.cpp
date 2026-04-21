@@ -1,7 +1,9 @@
 #include "BackgroundPhotoItem.h"
 #include "Backend/Commons/LogCategories.h"
 #include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/CommandBus.h"
 #include "GUI/Input/Commands/DeleteItemCommand.h"
+#include "GUI/Input/Commands/UpdateBackgroundPhotoPositionCommand.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
@@ -15,6 +17,8 @@
 #include <QLoggingCategory>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
+
+#include <memory>
 
 namespace CargoNetSim
 {
@@ -296,6 +300,14 @@ QPointF BackgroundPhotoItem::onDragUpdate(
             << "BackgroundPhotoItem: drag blocked (locked)";
         return pos();
     }
+    // Snapshot the pre-drag position exactly once per drag sequence. Qt
+    // delivers ItemPositionChange before applying the new pos, so pos()
+    // still reflects the old value on the first update of a gesture.
+    if (!m_dragInProgress)
+    {
+        m_dragInProgress = true;
+        m_preDragPos     = pos();
+    }
     return requested;
 }
 
@@ -303,19 +315,35 @@ void BackgroundPhotoItem::onDragEnd(
     const QPointF             &finalPos,
     const Input::ClickContext &ctx)
 {
-    Q_UNUSED(ctx);
     qCDebug(lcGuiInputItem)
         << "BackgroundPhotoItem::onDragEnd; pos ="
         << finalPos;
 
-    // Port side effect previously in itemChange(
-    // ItemPositionHasChanged): refresh WGS84 coordinate
-    // properties now that the drag has committed.
+    const bool  wasDrag  = m_dragInProgress;
+    const QPointF oldPos = m_preDragPos;
+    m_dragInProgress     = false;
+
+    // Persist the move through CommandBus so scene-pos AND the Latitude /
+    // Longitude property fields stay consistent across undo/redo. The
+    // precomputed geo pair avoids the command depending on any view.
+    if (wasDrag && oldPos != finalPos && ctx.commandBus && ctx.view)
+    {
+        const QPointF oldGeo = ctx.view->sceneToWGS84(oldPos);
+        const QPointF newGeo = ctx.view->sceneToWGS84(finalPos);
+        ctx.commandBus->submit(
+            std::make_unique<Input::UpdateBackgroundPhotoPositionCommand>(
+                this, oldPos, finalPos, oldGeo, newGeo));
+        // The command's redo emits positionChanged after applying state,
+        // so skip the raw emission below to avoid duplicate notifications.
+        return;
+    }
+
+    // Headless / no-command-bus fallback: preserve the legacy side effect
+    // of refreshing the WGS84 property fields directly from the item.
     if (scene())
     {
         updateCoordinates();
     }
-
     emit positionChanged(finalPos);
 }
 

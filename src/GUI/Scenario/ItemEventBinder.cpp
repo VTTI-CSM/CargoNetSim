@@ -3,12 +3,14 @@
 #include "Backend/Commons/LogCategories.h"
 #include "GUI/Controllers/UtilityFunctions.h"
 #include "GUI/Controllers/TerminalController.h"
+#include "GUI/Items/BackgroundPhotoItem.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/GlobalTerminalItem.h"
 #include "GUI/Items/MapPoint.h"
 #include "GUI/Items/RegionCenterPoint.h"
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
+#include "GUI/Widgets/GraphicsView.h"
 #include "GUI/Widgets/PropertiesPanel.h"
 
 #include <QObject>
@@ -105,6 +107,35 @@ int ItemEventBinder::bindRegionCenterPoint(RegionCenterPoint *item,
         });
 
     return 2;
+}
+
+int ItemEventBinder::bindBackgroundPhotoItem(BackgroundPhotoItem *item,
+                                             MainWindow          *mainWindow)
+{
+    if (!item || !mainWindow) return 0;
+
+    qCDebug(lcGuiScene)
+        << "ItemEventBinder::bindBackgroundPhotoItem:"
+        << "region=" << item->getRegion();
+
+    // BackgroundPhoto's panel surfaces Latitude/Longitude, not raw X/Y. On
+    // every position change, refresh those coordinate fields from the view's
+    // scene→WGS84 transform. Guarded to the case where the panel is currently
+    // showing this item — same pattern used for TerminalItem/RegionCenterPoint.
+    QObject::connect(
+        item, &BackgroundPhotoItem::positionChanged, mainWindow,
+        [mainWindow, item](const QPointF &pos) {
+            auto *panel = mainWindow->propertiesPanel();
+            if (!panel || panel->getCurrentItem() != item) return;
+
+            GraphicsView *view =
+                (item->getRegion() == QStringLiteral("global"))
+                    ? mainWindow->globalMapView()
+                    : mainWindow->regionView();
+            if (!view) return;
+            panel->updateCoordinateFields(view->sceneToWGS84(pos));
+        });
+    return 1;
 }
 
 } // namespace Scenario

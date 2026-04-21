@@ -413,6 +413,24 @@ void RegionCenterPoint::refreshFromSpec(
     if (!spec->color.isEmpty())
         color = QColor(spec->color);
 
+    // Unidirectional data flow: localOrigin is the semantic driver of the
+    // item's scene position, so any spec refresh must reposition the dot.
+    // Previously this relied on Qt's drag machinery pre-moving the item,
+    // which meant non-drag mutation paths (panel edits, undo/redo, file
+    // load) left the pixel stuck at its old location. Completing the
+    // observer here makes every doc→view sync path consistent.
+    if (QGraphicsScene *s = scene();
+        s && !s->views().isEmpty())
+    {
+        if (auto *view = dynamic_cast<GraphicsView *>(s->views().first()))
+        {
+            // Qt convention: x=longitude, y=latitude.
+            setPos(view->wgs84ToScene(
+                QPointF(spec->localOrigin.longitude,
+                        spec->localOrigin.latitude)));
+        }
+    }
+
     emit propertiesChanged();
     update();
 }

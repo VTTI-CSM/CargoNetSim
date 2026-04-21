@@ -18,6 +18,10 @@
 #include "DestinationListEditor.h"
 #include "GraphicsScene.h"
 #include "GraphicsView.h"
+#include "../Input/Commands/ApplyBackgroundPhotoEditCommand.h"
+#include "../Input/Commands/CommandBus.h"
+#include "../Input/Commands/UpdateRegionGlobalPositionCommand.h"
+#include "../Input/Commands/UpdateRegionLocalOriginCommand.h"
 #include "../Input/InteractionController.h"
 #include "../Input/Modes/NormalMode.h"
 #include "../Input/Modes/PickDestinationMode.h"
@@ -1511,56 +1515,71 @@ void PropertiesPanel::saveTerminalProperties(
 void PropertiesPanel::saveBackgroundPhotoProperties(
     BackgroundPhotoItem *background)
 {
-    QMap<QString, QVariant> newProperties =
-        background->getProperties();
-
-    // Process all edit fields
+    // Parse and validate the edit fields before snapshotting state — if the
+    // user's input is rejected, nothing mutates and no undo entry is created.
+    QMap<QString, QVariant> newProperties = background->getProperties();
     processEditFields(newProperties);
 
-    // Handle special background photo properties
-    try
-    {
-        // Get new lat/lon values
-        double newLat =
-            newProperties.value("Latitude", "0.0")
-                .toDouble();
-        double newLon =
-            newProperties.value("Longitude", "0.0")
-                .toDouble();
-
-        // Get and validate new scale value
-        double newScale =
-            newProperties.value("Scale", "1.0").toDouble();
-        if (newScale <= 0)
-        {
-            throw std::invalid_argument(
-                "Scale must be greater than 0");
-        }
-
-        // Update position using WGS84 coordinates
-        background->setFromWGS84(QPointF(newLon, newLat));
-
-        // Update scale and trigger redraw
-        background->getProperties()["Scale"] =
-            QString::number(newScale);
-        background->updateScale();
-    }
-    catch (const std::exception &e)
+    const double newLat =
+        newProperties.value(QStringLiteral("Latitude"), "0.0").toDouble();
+    const double newLon =
+        newProperties.value(QStringLiteral("Longitude"), "0.0").toDouble();
+    const double newScale =
+        newProperties.value(QStringLiteral("Scale"), "1.0").toDouble();
+    if (newScale <= 0)
     {
         if (mainWindow)
-        {
             mainWindow->showStatusBarMessage(
-                tr("Invalid coordinate or scale values: %1")
-                    .arg(e.what()),
-                3000);
-            return;
-        }
+                tr("Invalid scale: Scale must be greater than 0"), 3000);
+        return;
+    }
+    newProperties[QStringLiteral("Scale")] =
+        QString::number(newScale);
+
+    // WGS84 → scene conversion goes through the view the item lives in.
+    // "global" routes to the global map view; anything else to the region view.
+    GraphicsView *view = (background->getRegion()
+                          == QStringLiteral("global"))
+                             ? (mainWindow ? mainWindow->globalMapView() : nullptr)
+                             : (mainWindow ? mainWindow->regionView()    : nullptr);
+    if (!view)
+    {
+        qCWarning(lcGuiScene)
+            << "PropertiesPanel::saveBackgroundPhotoProperties:"
+            << "no view for region=" << background->getRegion();
+        return;
+    }
+    const QPointF newScenePos = view->wgs84ToScene(QPointF(newLon, newLat));
+
+    Input::ApplyBackgroundPhotoEditCommand::State before;
+    before.scenePos   = background->pos();
+    before.scale      = static_cast<qreal>(background->getScale());
+    before.opacity    = background->opacity();
+    before.zValue     = background->zValue();
+    before.properties = background->getProperties();
+
+    Input::ApplyBackgroundPhotoEditCommand::State after;
+    after.scenePos   = newScenePos;
+    after.scale      = newScale;
+    after.opacity    = before.opacity;
+    after.zValue     = before.zValue;
+    after.properties = newProperties;
+
+    if (mainWindow && mainWindow->commandBus())
+    {
+        mainWindow->commandBus()->submit(
+            std::make_unique<Input::ApplyBackgroundPhotoEditCommand>(
+                background, std::move(before), std::move(after)));
+    }
+    else
+    {
+        // Headless / early-startup fallback: mutate directly. Keeps tests
+        // green when no CommandBus is wired.
+        background->updateProperties(newProperties);
+        background->setScale(static_cast<float>(newScale));
+        background->setPos(newScenePos);
     }
 
-    // Update the item properties
-    background->updateProperties(newProperties);
-
-    // Emit the properties changed signal
     emit propertiesChanged(background, newProperties);
 }
 
@@ -1575,75 +1594,81 @@ void PropertiesPanel::saveRegionCenterProperties(
     QMap<QString, QVariant> newProperties = oldProperties;
     processEditFields(newProperties);
 
-    // Persist coordinates to backend if changed
+    // Persist coordinates to backend if changed. The commands mutate the
+    // doc; the ScenarioDocument::regionChanged observer (see MainWindow)
+    // then triggers RegionCenterPoint::refreshFromSpec, which reconciles
+    // both the property strings and the scene pos — unidirectional
+    // doc → view flow with one authoritative path.
     if (mainWindow && mainWindow->runtime()
+        && mainWindow->commandBus()
         && !regionCenter->getRegion().isEmpty())
     {
         auto *doc = &mainWindow->runtime()->document();
         const QString region = regionCenter->getRegion();
 
-        const double oldLat =
-            oldProperties.value("Latitude").toDouble();
-        const double oldLon =
-            oldProperties.value("Longitude").toDouble();
-        const double newLat =
-            newProperties.value("Latitude").toDouble();
-        const double newLon =
-            newProperties.value("Longitude").toDouble();
-
-        // Use absolute tolerance — qFuzzyCompare fails
-        // near zero (e.g., 0.0 vs 0.05 returns true).
+        // Use absolute tolerance — qFuzzyCompare fails near zero
+        // (e.g. 0.0 vs 0.05 returns true).
         constexpr double kCoordEps = 1e-6;
-        if (qAbs(oldLat - newLat) > kCoordEps
-            || qAbs(oldLon - newLon) > kCoordEps)
-        {
-            qCDebug(lcGuiUtil)
-                << "saveRegionCenterProperties:"
-                << "local origin changed"
-                << "lat:" << oldLat << "->" << newLat
-                << "lon:" << oldLon << "->" << newLon;
-            GUI::Scenario::ScenarioMutator::
-                updateRegionLocalOrigin(
-                    doc, region,
-                    QPointF(newLon, newLat));
-        }
+
+        const double oldLat = oldProperties.value("Latitude").toDouble();
+        const double oldLon = oldProperties.value("Longitude").toDouble();
+        const double newLat = newProperties.value("Latitude").toDouble();
+        const double newLon = newProperties.value("Longitude").toDouble();
 
         const double oldSLat =
-            oldProperties.value("Shared Latitude")
-                .toDouble();
+            oldProperties.value("Shared Latitude").toDouble();
         const double oldSLon =
-            oldProperties.value("Shared Longitude")
-                .toDouble();
+            oldProperties.value("Shared Longitude").toDouble();
         const double newSLat =
-            newProperties.value("Shared Latitude")
-                .toDouble();
+            newProperties.value("Shared Latitude").toDouble();
         const double newSLon =
-            newProperties.value("Shared Longitude")
-                .toDouble();
+            newProperties.value("Shared Longitude").toDouble();
 
-        if (qAbs(oldSLat - newSLat) > kCoordEps
-            || qAbs(oldSLon - newSLon) > kCoordEps)
+        const bool localChanged =
+            qAbs(oldLat - newLat) > kCoordEps
+            || qAbs(oldLon - newLon) > kCoordEps;
+        const bool globalChanged =
+            qAbs(oldSLat - newSLat) > kCoordEps
+            || qAbs(oldSLon - newSLon) > kCoordEps;
+
+        if (localChanged || globalChanged)
         {
-            qCDebug(lcGuiUtil)
-                << "saveRegionCenterProperties:"
-                << "global position changed"
-                << "lat:" << oldSLat << "->" << newSLat
-                << "lon:" << oldSLon << "->" << newSLon;
-            GUI::Scenario::ScenarioMutator::
-                updateRegionGlobalPosition(
-                    doc, region,
-                    QPointF(newSLon, newSLat));
-        }
+            // Bundle both edits into a single undo entry when they happen
+            // together, so one Ctrl+Z reverts the entire panel Apply.
+            const bool bundle = localChanged && globalChanged;
+            if (bundle)
+                mainWindow->commandBus()->beginMacro(
+                    tr("Edit region %1 coordinates").arg(region));
 
-        // Refresh local item from updated backend state
-        // so propertiesChanged emits fresh data.
-        auto it = doc->regions.find(region);
-        if (it != doc->regions.end())
-            regionCenter->refreshFromSpec(&it.value());
+            if (localChanged)
+            {
+                qCDebug(lcGuiUtil)
+                    << "saveRegionCenterProperties: local origin changed"
+                    << "lat:" << oldLat << "->" << newLat
+                    << "lon:" << oldLon << "->" << newLon;
+                mainWindow->commandBus()->submit(
+                    std::make_unique<
+                        Input::UpdateRegionLocalOriginCommand>(
+                        doc, region, QPointF(newLon, newLat)));
+            }
+            if (globalChanged)
+            {
+                qCDebug(lcGuiUtil)
+                    << "saveRegionCenterProperties: global position changed"
+                    << "lat:" << oldSLat << "->" << newSLat
+                    << "lon:" << oldSLon << "->" << newSLon;
+                mainWindow->commandBus()->submit(
+                    std::make_unique<
+                        Input::UpdateRegionGlobalPositionCommand>(
+                        doc, region, QPointF(newSLon, newSLat)));
+            }
+
+            if (bundle) mainWindow->commandBus()->endMacro();
+        }
     }
     else
     {
-        // Legacy fallback — update item directly
+        // Headless / early-startup fallback: mutate the item directly.
         regionCenter->updateProperties(newProperties);
     }
 

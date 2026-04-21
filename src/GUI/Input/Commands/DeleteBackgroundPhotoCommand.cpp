@@ -1,58 +1,19 @@
 #include "DeleteBackgroundPhotoCommand.h"
 
 #include "../../../Backend/Commons/LogCategories.h"
-#include "../../../Backend/Controllers/CargoNetSimController.h"
-#include "../../../Backend/Controllers/RegionDataController.h"
 #include "../../Items/BackgroundPhotoItem.h"
+#include "../../MainWindow.h"
+#include "../../Scenario/BackgroundPhotoItemFactory.h"
 #include "../../Widgets/GraphicsScene.h"
+#include "../InteractionController.h"
 
 #include <QLoggingCategory>
 #include <QObject>
 
 namespace CargoNetSim::GUI::Input {
 
-namespace {
-
-constexpr const char* kGlobalRegion      = "global";
-constexpr const char* kRegionVariableKey = "backgroundPhotoItem";
-constexpr const char* kGlobalVariableKey = "globalBackgroundPhotoItem";
-
-void publishToController(BackgroundPhotoItem* item,
-                         const QString&       region,
-                         bool                 isGlobal)
-{
-    auto* rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    if (!rdc) return;
-    if (isGlobal) {
-        rdc->setGlobalVariable(
-            QString::fromLatin1(kGlobalVariableKey),
-            QVariant::fromValue(item));
-    } else {
-        rdc->setRegionVariable(
-            region,
-            QString::fromLatin1(kRegionVariableKey),
-            QVariant::fromValue(item));
-    }
-}
-
-void unpublishFromController(const QString& region, bool isGlobal)
-{
-    auto* rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    if (!rdc) return;
-    if (isGlobal) {
-        rdc->removeGlobalVariable(QString::fromLatin1(kGlobalVariableKey));
-    } else {
-        if (auto* data = rdc->getRegionData(region))
-            data->removeVariable(QString::fromLatin1(kRegionVariableKey));
-    }
-}
-
-} // namespace
-
 DeleteBackgroundPhotoCommand::DeleteBackgroundPhotoCommand(
-    BackgroundPhotoItem* item, QUndoCommand* parent)
+    BackgroundPhotoItem *item, QUndoCommand *parent)
     : QUndoCommand(parent)
     , m_liveItem(item)
 {
@@ -61,17 +22,23 @@ DeleteBackgroundPhotoCommand::DeleteBackgroundPhotoCommand(
         return;
     }
 
-    // Capture scene and state up front — item->scene() goes null after redo()
-    // deletes the item, and the snapshot must survive to drive undo().
-    m_scene      = qobject_cast<GraphicsScene*>(item->scene());
-    m_region     = item->getRegion();
-    m_isGlobal   = (m_region == QString::fromLatin1(kGlobalRegion));
-    m_pixmap     = item->pixmap();
-    m_pos        = item->pos();
-    m_scale      = static_cast<qreal>(item->getScale());
-    m_opacity    = item->opacity();
-    m_zValue     = item->zValue();
-    m_properties = item->getProperties();
+    m_scene = qobject_cast<GraphicsScene *>(item->scene());
+    // MainWindow is resolved via the scene's installed InteractionController —
+    // the binder is a no-op when mw is null (same contract as other factories),
+    // so we fall back cleanly if the controller is absent (headless tests).
+    if (auto *ctrl = item->interactionController())
+        m_mainWindow = ctrl->mainWindow();
+
+    m_isGlobal = Scenario::BackgroundPhotoItemFactory::isGlobalRegion(
+        item->getRegion());
+
+    m_spec.pixmap     = item->pixmap();
+    m_spec.region     = item->getRegion();
+    m_spec.scenePos   = item->pos();
+    m_spec.scale      = static_cast<qreal>(item->getScale());
+    m_spec.opacity    = item->opacity();
+    m_spec.zValue     = item->zValue();
+    m_spec.properties = item->getProperties();
 
     setText(QObject::tr("Delete Background Image"));
 }
@@ -79,7 +46,7 @@ DeleteBackgroundPhotoCommand::DeleteBackgroundPhotoCommand(
 void DeleteBackgroundPhotoCommand::redo()
 {
     qCInfo(lcGuiInputCmd)
-        << "DeleteBackgroundPhotoCommand::redo region=" << m_region
+        << "DeleteBackgroundPhotoCommand::redo region=" << m_spec.region
         << "isGlobal=" << m_isGlobal;
 
     if (!m_scene || !m_liveItem) {
@@ -91,15 +58,16 @@ void DeleteBackgroundPhotoCommand::redo()
     }
 
     const QString key = m_liveItem->sceneRegistryKey();
-    unpublishFromController(m_region, m_isGlobal);
+    Scenario::BackgroundPhotoItemFactory::unpublishFromController(
+        m_spec.region, m_isGlobal);
     m_scene->removeItemWithId<BackgroundPhotoItem>(key);
-    m_liveItem.clear(); // removeItemWithId deletes the QGraphicsItem.
+    m_liveItem.clear();
 }
 
 void DeleteBackgroundPhotoCommand::undo()
 {
     qCInfo(lcGuiInputCmd)
-        << "DeleteBackgroundPhotoCommand::undo region=" << m_region;
+        << "DeleteBackgroundPhotoCommand::undo region=" << m_spec.region;
 
     if (!m_scene) {
         qCWarning(lcGuiInputCmd)
@@ -108,16 +76,8 @@ void DeleteBackgroundPhotoCommand::undo()
         return;
     }
 
-    auto* restored = new BackgroundPhotoItem(m_pixmap, m_region);
-    restored->updateProperties(m_properties);
-    restored->setPos(m_pos);
-    restored->setScale(static_cast<float>(m_scale));
-    restored->setOpacity(m_opacity);
-    restored->setZValue(m_zValue);
-
-    m_scene->addItemWithId(restored, restored->sceneRegistryKey());
-    publishToController(restored, m_region, m_isGlobal);
-    m_liveItem = restored;
+    m_liveItem = Scenario::BackgroundPhotoItemFactory::create(
+        m_spec, m_scene.data(), m_mainWindow.data());
 }
 
 } // namespace CargoNetSim::GUI::Input
