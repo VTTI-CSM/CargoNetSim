@@ -56,7 +56,10 @@ Handled MeasureMode::onPress(const PressEvent& e, const ClickContext& ctx)
 
     if (!m_tool) {
         m_tool = new DistanceMeasurementTool(ctx.view);
-        ctx.scene->addItem(m_tool);
+        // Register in the scene's by-type map so canonical lookups
+        // (getItemsByType / removeItemWithId) — used by the ribbon's
+        // Clear Measurements button — can find and dispose of the tool.
+        ctx.scene->addItemWithId(m_tool, m_tool->sceneRegistryKey());
         m_tool->setStartPoint(e.scenePos);
         m_tool->setEndPoint  (e.scenePos);
         m_startPoint = e.scenePos;
