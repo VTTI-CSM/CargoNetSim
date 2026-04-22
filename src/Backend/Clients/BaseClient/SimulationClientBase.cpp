@@ -534,7 +534,15 @@ void SimulationClientBase::processMessage(
         QString normalizedEvent =
             normalizeEventName(eventName);
 
-        // Register event
+        // Let subclasses populate typed caches first so that
+        // any thread waiting in `waitForEvent` observes the
+        // populated state the instant `registerEvent` wakes
+        // it. Reversing this order reintroduces a race where
+        // the waiter reads the cache before the handler has
+        // filled it.
+        onEventReceived(normalizedEvent, message);
+
+        // Register event (wakes waiters)
         registerEvent(normalizedEvent, message);
 
         // Emit signal for the event
@@ -561,6 +569,17 @@ void SimulationClientBase::processMessage(
             emit errorOccurred(errorMsg);
         }
     }
+}
+
+/**
+ * Default: subclasses opt in by overriding. Kept out of the
+ * header so it stays a regular virtual (no inline noise).
+ */
+void SimulationClientBase::onEventReceived(
+    const QString & /*normalizedEvent*/,
+    const QJsonObject & /*message*/)
+{
+    // No-op by default.
 }
 
 /**

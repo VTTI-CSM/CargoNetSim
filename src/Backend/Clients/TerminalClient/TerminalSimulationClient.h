@@ -503,13 +503,15 @@ public:
 
 protected:
     /**
-     * @brief Processes incoming server messages
-     * @param message JSON message from server
+     * @brief Populates terminal-specific caches from an
+     *        incoming event.
      *
-     * Handles server responses and updates local state.
+     * Dispatched by the base class `processMessage` before
+     * waiters are woken, so state (e.g. m_topPaths) is
+     * visible by the time `sendCommandAndWait` returns.
      */
-    void
-    processMessage(const QJsonObject &message) override;
+    void onEventReceived(const QString     &normalizedEvent,
+                         const QJsonObject &message) override;
 
 private:
     /**

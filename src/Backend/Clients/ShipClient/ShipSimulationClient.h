@@ -390,14 +390,15 @@ protected:
      * the Qt event thread via QueuedConnection from
      * RabbitMQHandler.
      *
+     * Populates ship-specific caches from an incoming event.
+     * Invoked by the base class `processMessage` before
+     * waiters are woken (see SimulationClientBase).
+     *
      * Thread safety: Event handlers that modify shared
      * state use appropriate locking mechanisms internally.
-     *
-     * @param message JSON object containing the server
-     * message
      */
-    void
-    processMessage(const QJsonObject &message) override;
+    void onEventReceived(const QString     &normalizedEvent,
+                         const QJsonObject &message) override;
 
 private:
     /**

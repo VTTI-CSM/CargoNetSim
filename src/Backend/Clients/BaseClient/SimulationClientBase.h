@@ -312,6 +312,27 @@ protected:
     virtual void processMessage(const QJsonObject &message);
 
     /**
+     * @brief Hook for subclasses to populate typed caches
+     *        from an incoming event.
+     *
+     * Invoked by `processMessage` on the I/O thread *before*
+     * the event is registered in `m_receivedEvents` and
+     * before any `eventReceived` / `commandResultReceived`
+     * signal is emitted. Subclasses override this to mutate
+     * their per-event caches so that threads blocked in
+     * `sendCommandAndWait` / `waitForEvent` observe the
+     * populated state the moment they wake.
+     *
+     * Default implementation is a no-op.
+     *
+     * @param normalizedEvent  Event name after normalization
+     * @param message          Full message JSON object
+     */
+    virtual void
+    onEventReceived(const QString     &normalizedEvent,
+                    const QJsonObject &message);
+
+    /**
      * @brief Normalize an event name
      * @param eventName Event name to normalize
      * @return Normalized event name

@@ -836,25 +836,10 @@ ShipSimulationClient::getAllShipsStates() const
  *
  * @param message JSON message from the server
  */
-void ShipSimulationClient::processMessage(
+void ShipSimulationClient::onEventReceived(
+    const QString     &normalizedEvent,
     const QJsonObject &message)
 {
-
-    // Delegate for the base class for the initial
-    // processing
-    SimulationClientBase::processMessage(message);
-
-    if (!message.contains("event"))
-    {
-        if (m_logger)
-        {
-            m_logger->log("Received message without event",
-                          static_cast<int>(m_clientType));
-        }
-        return;
-    }
-    QString eventType = message.value("event").toString();
-    QString normalizedEvent = normalizeEventName(eventType);
     if (normalizedEvent == "simulationnetworkloaded")
     {
         onSimulationNetworkLoaded(message);
@@ -938,13 +923,13 @@ void ShipSimulationClient::processMessage(
         if (m_logger)
         {
             m_logger->log("Unrecognized event: "
-                              + eventType,
+                              + normalizedEvent,
                           static_cast<int>(m_clientType));
         }
         else
         {
             qCWarning(lcClientShip)
-                << "Unrecognized event:" << eventType;
+                << "Unrecognized event:" << normalizedEvent;
         }
     }
 }

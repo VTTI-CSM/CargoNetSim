@@ -644,31 +644,10 @@ TrainSimulationClient::getAllTrainsStates() const
     return allStates;
 }
 
-void TrainSimulationClient::processMessage(
+void TrainSimulationClient::onEventReceived(
+    const QString     &event,
     const QJsonObject &message)
 {
-    // Delegate for the base class for the initial
-    // processing
-    SimulationClientBase::processMessage(message);
-
-    // Check if message contains an event
-    if (!message.contains("event"))
-    {
-        if (m_logger)
-        {
-            m_logger->log("Received message without event",
-                          static_cast<int>(m_clientType));
-        }
-        return;
-    }
-
-    // Normalize event name for comparison
-    QString event = message["event"]
-                        .toString()
-                        .toLower()
-                        .trimmed()
-                        .replace(" ", "");
-
     // Dispatch event to appropriate handler
     if (event == "simulationcreated")
     {

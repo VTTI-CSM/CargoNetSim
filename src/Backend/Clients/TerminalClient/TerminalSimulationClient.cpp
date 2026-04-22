@@ -940,23 +940,12 @@ TerminalSimulationClient::ping(const QString &echo)
     return m_pingResponse;
 }
 
-// Process incoming server messages
-void TerminalSimulationClient::processMessage(
+// Populate terminal caches before waiters are woken.
+// Invoked by SimulationClientBase::processMessage.
+void TerminalSimulationClient::onEventReceived(
+    const QString     &normEvent,
     const QJsonObject &message)
 {
-    // Delegate to base class for initial processing
-    SimulationClientBase::processMessage(message);
-
-    // Check for event field presence
-    if (!message.contains("event"))
-    {
-        return;
-    }
-
-    // Normalize event name for consistent handling
-    QString event     = message["event"].toString();
-    QString normEvent = normalizeEventName(event);
-
     // Dispatch event to appropriate handler
     if (normEvent == "terminaladded")
     {
@@ -1032,14 +1021,14 @@ void TerminalSimulationClient::processMessage(
         {
             m_logger->logError(
                 QString("Unknown event received:%1")
-                    .arg(event),
+                    .arg(normEvent),
                 static_cast<int>(m_clientType));
         }
         else
         {
             // Log unknown events for debugging
             qCWarning(lcClientTerminal)
-                << "Unknown event received:" << event;
+                << "Unknown event received:" << normEvent;
         }
     }
 }

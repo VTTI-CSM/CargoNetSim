@@ -303,14 +303,12 @@ protected:
     /**
      * @brief Processes messages from the server
      *
-     * Handles incoming server messages by dispatching them
-     * to appropriate event handlers.
-     *
-     * @param message JSON object containing the server
-     * message
+     * Populates train-specific caches from an incoming event.
+     * Invoked by the base class `processMessage` before
+     * waiters are woken (see SimulationClientBase).
      */
-    void
-    processMessage(const QJsonObject &message) override;
+    void onEventReceived(const QString     &normalizedEvent,
+                         const QJsonObject &message) override;
 
 private:
     /**
