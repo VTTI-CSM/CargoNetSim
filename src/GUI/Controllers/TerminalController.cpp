@@ -215,6 +215,47 @@ void TerminalController::removeGlobalMirror(
 }
 
 // ----------------------------------------------------------------
+// refreshGlobalMirrorsForRegion
+// ----------------------------------------------------------------
+
+void TerminalController::refreshGlobalMirrorsForRegion(
+    const QString &regionName)
+{
+    qCDebug(lcGuiView)
+        << "TerminalController::refreshGlobalMirrorsForRegion:"
+        << "region=" << regionName;
+
+    if (regionName.isEmpty() || !m_regionScene) return;
+
+    // Drive the refresh from the regionScene's TerminalItems (the
+    // primary entities). Each one that is both (a) in this region
+    // and (b) currently mirrored pushes its mirror to recompute via
+    // updateFromLinkedTerminal(), which in turn reads the region's
+    // (now-updated) globalPosition / localOrigin from the bound doc.
+    // Lifecycle is out of scope here — we do not create mirrors for
+    // terminals that weren't previously mirrored (that remains
+    // updateGlobalMapItem's responsibility, triggered by
+    // terminalAdded / terminalChanged).
+    const auto terminals =
+        m_regionScene->getItemsByType<TerminalItem>();
+    int refreshed = 0;
+    for (TerminalItem *t : terminals)
+    {
+        if (!t || t->getRegion() != regionName) continue;
+        if (GlobalTerminalItem *mirror =
+                t->getGlobalTerminalItem())
+        {
+            mirror->updateFromLinkedTerminal();
+            ++refreshed;
+        }
+    }
+    qCDebug(lcGuiView)
+        << "TerminalController::refreshGlobalMirrorsForRegion:"
+        << "region=" << regionName
+        << "mirrors refreshed=" << refreshed;
+}
+
+// ----------------------------------------------------------------
 // updateTerminalGlobalPosition (private)
 // ----------------------------------------------------------------
 

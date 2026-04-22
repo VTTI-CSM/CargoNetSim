@@ -24,6 +24,32 @@ namespace CargoNetSim
 namespace GUI
 {
 
+void RegionCenterPoint::setRegionBinding(
+    Backend::Scenario::ScenarioDocument *doc,
+    const QString                       &regionName)
+{
+    m_doc = doc;
+    // Authoritative region name lives in the property bag so
+    // getRegion() / getRegionName() / lookups via regionSpecModel()
+    // all resolve to the same value.
+    properties["Region"] = regionName;
+}
+
+Backend::Scenario::RegionSpec *
+RegionCenterPoint::regionSpecModel() const
+{
+    // Resolved on demand so the pointer can never outlive its QMap
+    // node (see renameRegion, which does take()+insert() and would
+    // strand any cached address). Returns nullptr when unbound or when
+    // the region name no longer resolves.
+    if (!m_doc) return nullptr;
+    const QString name = getRegionName();
+    if (name.isEmpty()) return nullptr;
+    auto it = m_doc->regions.find(name);
+    if (it == m_doc->regions.end()) return nullptr;
+    return &it.value();
+}
+
 RegionCenterPoint::RegionCenterPoint(
     const QString &region, const QColor &color,
     const QMap<QString, QVariant> &properties,
@@ -289,7 +315,7 @@ void RegionCenterPoint::onDragEnd(
 
     // Persist coordinates to backend. Prefer ctx.document; fall
     // back to the view-derived runtime document only if missing.
-    if (!m_regionSpec || getRegion().isEmpty())
+    if (getRegion().isEmpty())
     {
         return;
     }

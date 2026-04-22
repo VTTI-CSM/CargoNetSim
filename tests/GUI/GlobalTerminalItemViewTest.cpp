@@ -3,6 +3,7 @@
 #include <QTest>
 
 #include "Backend/Scenario/RegionSpec.h"
+#include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include "GUI/Items/GlobalTerminalItem.h"
 #include "GUI/Items/RegionCenterPoint.h"
@@ -17,7 +18,7 @@ struct Harness
 {
     QPixmap            px{16, 16};
     QGraphicsScene     scene;
-    RegionSpec         region;
+    ScenarioDocument   doc;
     TerminalPlacement  placement;
     RegionCenterPoint *rcp = nullptr;
     TerminalItem      *ti  = nullptr;
@@ -25,10 +26,12 @@ struct Harness
     Harness()
     {
         px.fill(Qt::red);
+        RegionSpec region;
         region.name           = "USA";
         region.color          = "#336699";
         region.localOrigin    = {10.0, 20.0};  // lat, lon
         region.globalPosition = {30.0, 40.0};
+        doc.addRegion(region);
 
         placement.id     = "T1";
         placement.type   = "Origin";
@@ -38,7 +41,7 @@ struct Harness
 
         rcp = new RegionCenterPoint(region.name,
                                     QColor(region.color));
-        rcp->setRegionSpecModel(&region);
+        rcp->setRegionBinding(&doc, region.name);
         scene.addItem(rcp);
 
         ti = new TerminalItem(px, {}, "USA", nullptr, "Origin");

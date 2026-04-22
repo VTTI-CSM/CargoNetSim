@@ -63,36 +63,30 @@ public:
     virtual ~RegionCenterPoint() = default;
 
     /**
-     * @brief Bind this center point to a RegionSpec (non-owning).
+     * @brief Bind this center point to its owning document + region name.
      *
-     * View-only binding (Task 12). User-drag coordinate edits that
-     * should mutate the document go through
-     * `ScenarioMutator::updateRegionLocalOrigin` /
-     * `updateRegionGlobalPosition` at the ViewController layer
-     * (Task 16), not from inside `updateCoordinates`. Keeping the
-     * mutation out of the view-level setter avoids cycles with the
-     * Task 21 observer that will repopulate the scene on
-     * regionChanged.
-     *
-     * Passing nullptr unbinds.
+     * View-only binding. The document is retained as a QPointer so it
+     * cannot dangle if the runtime is swapped; the region name is the
+     * lookup key into doc->regions. Rename updates the name via
+     * `setRegion(newName)` — no re-binding required, no raw pointer
+     * held into a relocatable container. Passing `doc == nullptr`
+     * unbinds.
      */
-    void setRegionSpecModel(Backend::Scenario::RegionSpec *spec)
-    {
-        m_regionSpec = spec;
-    }
+    void setRegionBinding(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &regionName);
 
-    /// Non-owning region-spec pointer, or nullptr in legacy mode.
-    Backend::Scenario::RegionSpec *regionSpecModel() const
-    {
-        return m_regionSpec;
-    }
+    /// Non-owning region-spec pointer, obtained by name lookup into
+    /// the bound document each call. Never cached — returns a pointer
+    /// valid only for the current call stack. nullptr when unbound or
+    /// when the region name is missing from the doc.
+    Backend::Scenario::RegionSpec *regionSpecModel() const;
 
-    /// Domain id: the bound RegionSpec::name, or empty when unbound.
-    /// Reads directly from the model pointer, not from the property bag
-    /// (which has a human-visible fallback and is not authoritative).
+    /// Domain name of the bound region, or empty when unbound.
+    /// Reads from the authoritative property bag.
     QString getRegionName() const
     {
-        return m_regionSpec ? m_regionSpec->name : QString();
+        return properties.value("Region").toString();
     }
 
     /**
@@ -222,9 +216,14 @@ signals:
     void propertiesChanged();
 
 protected:
-    /// Scene-registration hook: region name when bound, else empty so the
-    /// base's sceneRegistryKey() falls back to the auto-UUID.
-    QString domainKey() const override { return getRegionName(); }
+    // No domainKey() override on purpose: region names are mutable
+    // (renameRegion), so using them as the registry key would drift
+    // silently after rename — getItemById<RegionCenterPoint>(newName)
+    // would return nullptr while the item sat under the old key.
+    // Inheriting the base's empty-default lets sceneRegistryKey() fall
+    // back to the per-item UUID, matching every other item class in
+    // this codebase. Name-keyed callers use
+    // RegionCenterPointFactory::findByName().
 
     // QGraphicsItem overrides
     QRectF boundingRect() const override;
@@ -259,9 +258,12 @@ private:
     QColor                  color;
     QMap<QString, QVariant> properties;
 
-    /// Non-owning pointer into ScenarioDocument::regions. View-only;
-    /// null → legacy mode.
-    Backend::Scenario::RegionSpec *m_regionSpec = nullptr;
+    /// Document this view is bound to. QPointer so a runtime swap
+    /// (scenario close / reload) turns lookups into safe nullptrs
+    /// rather than dangling reads. The region NAME — not a spec
+    /// pointer — is the lookup key; it lives in properties["Region"]
+    /// so the property bag is the single source of truth.
+    QPointer<Backend::Scenario::ScenarioDocument> m_doc;
 };
 
 } // namespace GUI

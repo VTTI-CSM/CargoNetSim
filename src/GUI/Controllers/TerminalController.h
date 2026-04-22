@@ -59,6 +59,17 @@ public:
     /// lifecycle events, never mutate the mirror directly.
     void removeGlobalMirror(const QString &terminalId);
 
+    /// Reposition every existing GlobalTerminalItem mirror whose bound
+    /// TerminalItem lives in @p regionName. Sibling of
+    /// updateGlobalMapItem: that one reconciles a single terminal on
+    /// `terminalAdded`/`terminalChanged`; this one handles the
+    /// `regionChanged` case where the region's globalPosition or
+    /// localOrigin moved and every mirror in the region has to follow.
+    /// Does NOT create or remove mirrors — lifecycle stays with
+    /// updateGlobalMapItem / removeGlobalMirror. No-ops for regions
+    /// that have no mirrored terminals.
+    void refreshGlobalMirrorsForRegion(const QString &regionName);
+
     TerminalItem *createTerminalAtPoint(
         const QString &region,
         const QString &terminalType,

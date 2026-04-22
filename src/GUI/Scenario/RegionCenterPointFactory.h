@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QString>
+
 namespace CargoNetSim {
 namespace Backend {
 namespace Scenario {
@@ -42,6 +44,16 @@ public:
     fromRegionSpec(Backend::Scenario::RegionSpec *region,
                    GraphicsScene                 *scene,
                    MainWindow                    *mainWindow);
+
+    /// Locate the RegionCenterPoint bound to @p regionName. The scene
+    /// keys items by stable UUID (so rename doesn't break the
+    /// registry); this is the correct entry point for callers that
+    /// only have the region name. Returns nullptr when no matching
+    /// center exists. Matches the sibling pattern
+    /// `ConnectionLineFactory::findRegionConnection` /
+    /// `MapPointFactory::findByNetworkAndNode`.
+    static RegionCenterPoint *
+    findByName(GraphicsScene *scene, const QString &regionName);
 };
 
 } // namespace Scenario

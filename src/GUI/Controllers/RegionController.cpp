@@ -117,15 +117,13 @@ void RegionController::renameRegion(
                 ++itemCount;
             }
         }
-        else if (RegionCenterPoint *regionCenter =
-                     dynamic_cast<RegionCenterPoint *>(item))
-        {
-            if (regionCenter->getRegion() == oldRegionName)
-            {
-                regionCenter->setRegion(newName);
-                ++itemCount;
-            }
-        }
+        // RegionCenterPoint deliberately omitted here: it is
+        // reconciled by the `regionRenamed` observer in
+        // MainWindow::subscribeDocumentObservers, the same way every
+        // other region lifecycle event is handled (add / remove /
+        // change). Touching it again from this iteration would
+        // double-emit regionChanged on the item and add a second
+        // source of truth for the center's region name.
         else if (TerminalItem *terminal =
                      dynamic_cast<TerminalItem *>(item))
         {
@@ -182,11 +180,12 @@ void RegionController::renameRegion(
                 << "step 2 done, document synced";
             // ScenarioDocument emits regionRenamed here; the matching
             // observer in MainWindow::subscribeDocumentObservers
-            // reconciles the RegionCenterPoint's m_regionSpec binding
-            // and the scene-registry key. This keeps the controller
-            // a pure orchestrator and puts view synchronisation on the
-            // same doc-signal → scene-observer path used for every
-            // other region lifecycle event (add / remove / change).
+            // advances the RegionCenterPoint's bound region name.
+            // The scene registry uses stable UUIDs so no re-keying is
+            // needed, and the binding is name-based (no raw RegionSpec
+            // pointer to reconcile). This keeps the controller a pure
+            // orchestrator, on the same doc-signal → scene-observer
+            // path as every other region lifecycle event.
         }
     }
 

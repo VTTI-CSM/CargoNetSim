@@ -368,8 +368,32 @@ void MainWindow::subscribeDocumentObservers()
             });
     connect(doc, &ScenarioDocument::regionRemoved, this,
             [regionScene](const QString &name) {
-                if (regionScene)
-                    regionScene->removeItemWithId<RegionCenterPoint>(name);
+                if (!regionScene) return;
+                // RegionCenterPoint is keyed in the scene by stable UUID
+                // (region names are mutable via renameRegion and would
+                // drift the key). Locate it by name, then remove by its
+                // registry key.
+                auto *cp = GUI::Scenario::RegionCenterPointFactory::
+                    findByName(regionScene, name);
+                if (cp)
+                    regionScene->removeItemWithId<RegionCenterPoint>(
+                        cp->sceneRegistryKey());
+            });
+
+    // Region renamed → update the center point's binding.
+    // ScenarioDocument::renameRegion does take()+insert() on its QMap,
+    // which destroys the old RegionSpec node. The center's binding is
+    // by-name (QPointer<doc> + name), so we only need to advance the
+    // name; no raw pointer to reconcile and no re-key needed because
+    // the scene registry uses UUIDs.
+    connect(doc, &ScenarioDocument::regionRenamed, this,
+            [regionScene](const QString &oldName,
+                          const QString &newName) {
+                if (!regionScene) return;
+                auto *cp = GUI::Scenario::RegionCenterPointFactory::
+                    findByName(regionScene, oldName);
+                if (cp)
+                    cp->setRegion(newName);
             });
 
     // Terminal lifecycle → TerminalItem factory / removal.
@@ -508,20 +532,33 @@ void MainWindow::subscribeDocumentObservers()
             }
         });
 
-    // Region data changed → refresh RegionCenterPoint
+    // Region data changed → refresh the RegionCenterPoint view AND
+    // reposition every GlobalTerminalItem mirror whose linked
+    // TerminalItem belongs to this region. GlobalTerminalItem's scene
+    // position derives from (region.globalPosition + terminal.latLon
+    // − region.localOrigin), so a change to either region coordinate
+    // has to push-refresh every mirror in the region — nothing else
+    // observes region geometry transitively. Mirror lifecycle stays
+    // with TerminalController; the observer's only job is to signal
+    // "this region's geometry has moved".
     connect(doc, &ScenarioDocument::regionChanged, this,
         [this, doc, regionScene](const QString &name) {
             qCDebug(lcGui)
                 << "MainWindow: regionChanged:" << name;
-            auto *center =
-                regionScene
-                    ->getItemById<RegionCenterPoint>(name);
+            // Find by region name, not by registry key: the scene
+            // keys RegionCenterPoints by their stable UUID so the
+            // registry can't drift after rename.
+            auto *center = GUI::Scenario::
+                RegionCenterPointFactory::findByName(
+                    regionScene, name);
             if (center)
             {
                 auto it = doc->regions.find(name);
                 if (it != doc->regions.end())
                     center->refreshFromSpec(&it.value());
             }
+            if (m_terminalCtrl)
+                m_terminalCtrl->refreshGlobalMirrorsForRegion(name);
         });
 
     // Linkage data changed → refresh MapPoint binding

@@ -4,7 +4,10 @@
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Controllers/RegionDataController.h"
 #include "Backend/Scenario/RegionSpec.h"
+#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Items/RegionCenterPoint.h"
+#include "GUI/MainWindow.h"
 #include "GUI/Scenario/ItemEventBinder.h"
 #include "GUI/Widgets/GraphicsScene.h"
 
@@ -71,19 +74,41 @@ RegionCenterPoint *RegionCenterPointFactory::fromRegionSpec(
     auto *cp = new RegionCenterPoint(region->name,
                                      QColor(region->color),
                                      buildProperties(*region));
-    // Bind the view to its spec — Task 12 added m_regionSpec so
-    // center-point views carry a non-owning pointer back to the model.
-    cp->setRegionSpecModel(region);
-    // sceneRegistryKey() resolves to cp->getRegionName() (== region->name)
-    // now that the spec is bound. This matches the `regionRemoved` observer
-    // in MainWindow, which removes by region name — the registration key
-    // symmetry that was silently broken before.
+    // Bind the view to its document + region name. We deliberately do
+    // NOT store a raw RegionSpec* on the view: ScenarioDocument::
+    // renameRegion does regions.take(oldName) + insert(newName,...),
+    // which destroys the QMap node and would strand any cached
+    // spec address. Name-based lookup via `regionSpecModel()` stays
+    // valid across renames. Doc pointer is tracked as QPointer inside
+    // the view so runtime swaps / teardown are safe.
+    Backend::Scenario::ScenarioDocument *doc =
+        (mainWindow && mainWindow->runtime())
+            ? &mainWindow->runtime()->document()
+            : nullptr;
+    cp->setRegionBinding(doc, region->name);
+    // The registry key is the item's stable UUID (GraphicsObjectBase::
+    // getID()) — see RegionCenterPoint's note explaining why region
+    // name is NOT used as the key. Observers that have only a region
+    // name in hand reach the item via `findByName()`.
     scene->addItemWithId(cp, cp->sceneRegistryKey());
     ItemEventBinder::bindRegionCenterPoint(cp, mainWindow);
     publishToControllerLegacyKey(cp, region->name);
     qCDebug(lcGuiScene) << "RegionCenterPointFactory::fromRegionSpec: created center point for"
                         << region->name;
     return cp;
+}
+
+RegionCenterPoint *RegionCenterPointFactory::findByName(
+    GraphicsScene *scene, const QString &regionName)
+{
+    if (!scene || regionName.isEmpty()) return nullptr;
+    for (RegionCenterPoint *cp :
+         scene->getItemsByType<RegionCenterPoint>())
+    {
+        if (cp && cp->getRegionName() == regionName)
+            return cp;
+    }
+    return nullptr;
 }
 
 } // namespace Scenario
