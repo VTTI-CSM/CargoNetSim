@@ -8,6 +8,7 @@
 #include <QVariantMap>
 
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Models/Path.h" // for PathTerminal value type
 #include "PathSimulationResult.h"
 
 // Forward-declared in global namespace so ResultsExtractor's friend decl
@@ -119,7 +120,7 @@ private:
     // Terminal-cost math (Tasks 15-17).
     double calculateTerminalCosts(
         const QList<CargoNetSim::Backend::PathSegment *> &segments,
-        const QList<CargoNetSim::Backend::Terminal *>    &terminals,
+        const QList<CargoNetSim::Backend::PathTerminal>  &terminals,
         const QVariantMap                                &costFunctionWeights,
         int                                               containerCount);
 

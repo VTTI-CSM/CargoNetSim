@@ -27,20 +27,22 @@ namespace {
 using Mode = TransportationTypes::TransportationMode;
 
 /// Presence check over `TerminalSimulationClient::getTerminalStatus`.
-/// The client API returns a newly-allocated `Terminal*` on match
-/// (nullptr otherwise) and the `@note` in its header explicitly tells
-/// the caller to delete it — the naive `if (!client->getTerminalStatus(id))`
-/// form used in the pre-refactor `PathFindingWorker` leaks the pointer
-/// on every successful check. This helper centralises the correct
-/// delete-then-return-bool sequence so no other call site in this
-/// file repeats the mistake.
+///
+/// The returned pointer is **borrowed from the client's cache**
+/// (`m_terminalStatus`) — it is owned by the TerminalSimulationClient,
+/// which parents every Terminal to itself in onTerminalAdded /
+/// onTerminalsAdded and destroys them on onServerReset /
+/// ~TerminalSimulationClient. Do NOT delete it here. An earlier
+/// revision of this helper incorrectly `delete`d the pointer on the
+/// assumption that `getTerminalStatus` allocated a fresh copy — it
+/// does not — and that destroyed the live Terminal while its address
+/// was still stored in the cache, leaving every subsequent map reader
+/// with a dangling pointer (caught by a SIGSEGV inside
+/// `Path::fromJson` during path parsing).
 bool isTerminalKnownToServer(TerminalSimulationClient *client,
                              const QString            &terminalId)
 {
-    Terminal *t = client->getTerminalStatus(terminalId);
-    const bool present = (t != nullptr);
-    delete t;
-    return present;
+    return client->getTerminalStatus(terminalId) != nullptr;
 }
 
 /// Human-readable stable id for a `PathSegment`. The segment id is

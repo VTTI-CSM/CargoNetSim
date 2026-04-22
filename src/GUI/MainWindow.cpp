@@ -1997,9 +1997,9 @@ void MainWindow::flashPathLines(int pathId)
     }
 
     // Get segments and terminals from the path
-    const QList<Backend::PathSegment *> &segments =
+    const QList<Backend::PathSegment *> segments =
         pathData->path->getSegments();
-    const QList<Backend::Terminal *> &terminals =
+    const QList<Backend::PathTerminal> &terminals =
         pathData->path->getTerminalsInPath();
 
     // Process each segment
@@ -2010,16 +2010,8 @@ void MainWindow::flashPathLines(int pathId)
             continue;
 
         // Get terminals for this segment
-        Backend::Terminal *startTerminal = terminals[i];
-        Backend::Terminal *endTerminal   = terminals[i + 1];
-
-        if (!startTerminal || !endTerminal)
-        {
-            qCWarning(lcGui) << "Cannot flash path: Missing "
-                                "terminals for segment"
-                             << i;
-            continue;
-        }
+        const Backend::PathTerminal &startTerminal = terminals[i];
+        const Backend::PathTerminal &endTerminal   = terminals[i + 1];
 
         // Find corresponding terminal items in the scene
         TerminalItem *startTerminalItem = nullptr;
@@ -2031,13 +2023,11 @@ void MainWindow::flashPathLines(int pathId)
             QString terminalName =
                 terminal->getProperty("Name").toString();
 
-            if (terminalName
-                == startTerminal->getDisplayName())
+            if (terminalName == startTerminal.displayName)
             {
                 startTerminalItem = terminal;
             }
-            else if (terminalName
-                     == endTerminal->getDisplayName())
+            else if (terminalName == endTerminal.displayName)
             {
                 endTerminalItem = terminal;
             }

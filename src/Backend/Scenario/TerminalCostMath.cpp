@@ -273,7 +273,7 @@ double singleTerminalCost(
 // the per-segment estimated_cost split above).
 double totalTerminalCosts(
     const QList<CargoNetSim::Backend::PathSegment *> &segments,
-    const QList<CargoNetSim::Backend::Terminal *>    & /*terminals*/,
+    const QList<CargoNetSim::Backend::PathTerminal>  & /*terminals*/,
     const QVariantMap & /*costFunctionWeights*/,
     int /*containerCount*/)
 {

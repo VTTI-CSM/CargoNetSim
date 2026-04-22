@@ -29,6 +29,30 @@ namespace Backend
 {
 
 /**
+ * @struct PathTerminal
+ * @brief Immutable snapshot of a terminal as referenced by a
+ *        Path.
+ *
+ * A Path's terminal list used to hold raw `Terminal *` aliases
+ * into `TerminalSimulationClient::m_terminalStatus`. That cache
+ * is rewritten on every `terminalAdded` / `terminalsAdded` /
+ * `terminalRemoved` / `serverReset` event (old `Terminal`
+ * objects get `delete`d and replaced), so every pre-existing
+ * Path silently held dangling pointers.
+ *
+ * Storing a value snapshot here decouples Path lifetime from
+ * the client's cache. Consumers in the GUI only ever need the
+ * display / canonical names; anything else belongs on the
+ * live Terminal object, not in a captured path result.
+ */
+struct PathTerminal
+{
+    QString id;             ///< Server-side terminal name/id.
+    QString displayName;    ///< Human-readable name for UI.
+    QString canonicalName;  ///< First of Terminal::getNames().
+};
+
+/**
  * @class Path
  * @brief Represents a complete transportation path
  *
@@ -58,7 +82,7 @@ public:
      */
     explicit Path(int id, double totalCost, double edgeCost,
                   double                      termCost,
-                  const QList<Terminal *>    &terminals,
+                  const QList<PathTerminal>  &terminals,
                   const QList<PathSegment *> &segments,
                   QObject *parent = nullptr);
 
@@ -176,11 +200,15 @@ public:
 
     /**
      * @brief Retrieves terminals in the path
-     * @return List of terminal pointer
+     * @return List of terminal value snapshots
      *
-     * Returns information about terminals in the path.
+     * Returns snapshots (id + display / canonical name) of the
+     * terminals this path traverses. These are captured at
+     * parse time so they stay valid for the lifetime of the
+     * Path regardless of what happens to the live Terminal
+     * cache on the simulation client.
      */
-    QList<Terminal *> getTerminalsInPath() const
+    const QList<PathTerminal> &getTerminalsInPath() const
     {
         return m_terminalsInPath;
     }
@@ -265,9 +293,11 @@ private:
     double m_totalTerminalCosts;
 
     /**
-     * @brief List of terminal details in the path
+     * @brief Value-snapshot list of terminals traversed by
+     *        this path. Decoupled from the client's live
+     *        `Terminal *` cache on purpose — see PathTerminal.
      */
-    QList<Terminal *> m_terminalsInPath;
+    QList<PathTerminal> m_terminalsInPath;
 
     /**
      * @brief List of segments composing the path

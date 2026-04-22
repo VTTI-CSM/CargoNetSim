@@ -182,8 +182,14 @@ public:
     /**
      * @brief Gets status of a terminal
      * @param terminalId Terminal identifier
-     * @return Terminal pointer, nullptr if not found
-     * @note Caller must delete the returned pointer
+     * @return Borrowed Terminal pointer from the internal
+     *         cache, or nullptr if not found.
+     * @note The returned pointer is **owned by this client**
+     *       (parented to it, destroyed on server reset or on
+     *       client destruction). Callers must NOT delete it;
+     *       doing so corrupts the cache and crashes any later
+     *       reader (e.g. `Path::fromJson`) that still holds
+     *       the address.
      *
      * Fetches and returns terminal status as an object.
      */

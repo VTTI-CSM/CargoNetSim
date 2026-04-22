@@ -341,9 +341,9 @@ QImage PathReportGenerator::createPathVisualizationImage(
         return QImage();
 
     // Get terminals and segments from the path
-    const QList<Backend::Terminal *> &terminals =
+    const QList<Backend::PathTerminal> &terminals =
         pathData->path->getTerminalsInPath();
-    const QList<Backend::PathSegment *> &segments =
+    const QList<Backend::PathSegment *> segments =
         pathData->path->getSegments();
 
     const int terminalCount = terminals.size();
@@ -379,9 +379,6 @@ QImage PathReportGenerator::createPathVisualizationImage(
 
     for (int i = 0; i < terminals.size(); ++i)
     {
-        if (!terminals[i])
-            continue;
-
         // Draw terminal circle
         QColor terminalColor = QColor(52, 152, 219); // Blue
         painter.setPen(QPen(terminalColor.darker(), 2));
@@ -389,8 +386,7 @@ QImage PathReportGenerator::createPathVisualizationImage(
         painter.drawEllipse(QPointF(xPos, 50), 10, 10);
 
         // Draw terminal name
-        QString terminalName =
-            terminals[i]->getDisplayName();
+        QString terminalName = terminals[i].displayName;
         if (terminalName.isEmpty())
             terminalName = tr("Terminal %1").arg(i + 1);
 
@@ -558,34 +554,20 @@ void PathReportGenerator::addPathSummary(
     // Start terminal
     styleTableCell(table, row, 0, tr("Start Terminal"),
                    false, true);
-    QString startTerminal;
-    try
-    {
-        startTerminal = pathData->path->getTerminalsInPath()
-                            .first()
-                            ->getDisplayName();
-    }
-    catch (const std::exception &)
-    {
-        startTerminal = tr("Unknown");
-    }
+    const auto &pathTerminals =
+        pathData->path->getTerminalsInPath();
+    QString startTerminal = pathTerminals.isEmpty()
+                                ? tr("Unknown")
+                                : pathTerminals.first().displayName;
     styleTableCell(table, row, 1, startTerminal);
     row++;
 
     // End terminal
     styleTableCell(table, row, 0, tr("End Terminal"), false,
                    true);
-    QString endTerminal;
-    try
-    {
-        endTerminal = pathData->path->getTerminalsInPath()
-                          .last()
-                          ->getDisplayName();
-    }
-    catch (const std::exception &)
-    {
-        endTerminal = tr("Unknown");
-    }
+    QString endTerminal = pathTerminals.isEmpty()
+                              ? tr("Unknown")
+                              : pathTerminals.last().displayName;
     styleTableCell(table, row, 1, endTerminal);
 
     // Add table to report
@@ -608,7 +590,7 @@ void PathReportGenerator::addPathTerminals(
     report->addVerticalSpacing(5);
 
     // Get the terminals from the path
-    const QList<Backend::Terminal *> &terminals =
+    const QList<Backend::PathTerminal> &terminals =
         pathData->path->getTerminalsInPath();
 
     if (terminals.isEmpty())
@@ -643,23 +625,13 @@ void PathReportGenerator::addPathTerminals(
         styleTableCell(table, row, 0,
                        QString::number(i + 1), false, true);
 
-        if (terminals[i])
-        {
-            // Terminal name
-            styleTableCell(table, row, 1,
-                           terminals[i]->getDisplayName());
+        // Terminal name
+        styleTableCell(table, row, 1,
+                       terminals[i].displayName);
 
-            // Terminal ID
-            styleTableCell(
-                table, row, 2,
-                terminals[i]->getCanonicalName());
-        }
-        else
-        {
-            // Unknown terminal
-            styleTableCell(table, row, 1, tr("Unknown"));
-            styleTableCell(table, row, 2, tr("N/A"));
-        }
+        // Terminal ID
+        styleTableCell(table, row, 2,
+                       terminals[i].canonicalName);
     }
 
     // Add table to report
@@ -2087,41 +2059,25 @@ void PathReportGenerator::addSummaryComparisonTable(
                     }
                     break;
                 case 5: // Start Terminal
-                    try
-                    {
-                        QString startTerminalName =
-                            path->path->getTerminalsInPath()
-                                .first()
-                                ->getDisplayName();
-                        styleTableCell(table, tableRow,
-                                       tableCol,
-                                       startTerminalName);
-                    }
-                    catch (const std::exception &)
-                    {
-                        styleTableCell(table, tableRow,
-                                       tableCol,
-                                       tr("Unknown"));
-                    }
+                {
+                    const auto &t =
+                        path->path->getTerminalsInPath();
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        t.isEmpty() ? tr("Unknown")
+                                    : t.first().displayName);
                     break;
+                }
                 case 6: // End Terminal
-                    try
-                    {
-                        QString endTerminalName =
-                            path->path->getTerminalsInPath()
-                                .last()
-                                ->getDisplayName();
-                        styleTableCell(table, tableRow,
-                                       tableCol,
-                                       endTerminalName);
-                    }
-                    catch (const std::exception &)
-                    {
-                        styleTableCell(table, tableRow,
-                                       tableCol,
-                                       tr("Unknown"));
-                    }
+                {
+                    const auto &t =
+                        path->path->getTerminalsInPath();
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        t.isEmpty() ? tr("Unknown")
+                                    : t.last().displayName);
                     break;
+                }
                 }
             }
             else
@@ -2221,11 +2177,11 @@ void PathReportGenerator::addTerminalComparisonTable(
                 const auto &terminals =
                     path->path->getTerminalsInPath();
 
-                if (i < terminals.size() && terminals[i])
+                if (i < terminals.size())
                 {
                     styleTableCell(
                         table, tableRow, tableCol,
-                        terminals[i]->getDisplayName());
+                        terminals[i].displayName);
                 }
                 else
                 {
@@ -3386,11 +3342,9 @@ QString PathReportGenerator::getTerminalDisplayNameByID(
         for (const auto &terminal :
              path->getTerminalsInPath())
         {
-            if (terminal
-                && terminal->getCanonicalName()
-                       == terminalID)
+            if (terminal.canonicalName == terminalID)
             {
-                return terminal->getDisplayName();
+                return terminal.displayName;
             }
         }
     }

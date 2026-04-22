@@ -23,7 +23,7 @@ double sumSegments(const QList<PathSegment *> &segs, Getter g)
 // Path constructor
 Path::Path(int id, double totalCost, double edgeCost,
            double                      termCost,
-           const QList<Terminal *>    &terminals,
+           const QList<PathTerminal>  &terminals,
            const QList<PathSegment *> &segments,
            QObject                    *parent)
     : QObject(parent)
@@ -112,29 +112,63 @@ Path::Path(const QJsonObject              &json,
     }
 
     // Extract terminals in path
+    //
+    // Snapshot id + displayName + canonicalName at parse time
+    // so we never hold a pointer into the client's live
+    // `m_terminalStatus` cache. That cache mutates on every
+    // terminal event (add / remove / serverReset) which
+    // previously left every surviving Path with dangling
+    // `Terminal *` and produced the SIGSEGV in
+    // ShortestPathsTable::createPathRow.
     if (json.contains("terminals_in_path")
         && json["terminals_in_path"].isArray())
     {
-        QJsonArray terminalsArray =
+        const QJsonArray terminalsArray =
             json["terminals_in_path"].toArray();
 
         for (const QJsonValue &terminalValue :
              terminalsArray)
         {
-            if (terminalValue.isObject())
+            if (!terminalValue.isObject()) continue;
+
+            const QJsonObject terminalObj =
+                terminalValue.toObject();
+            const QString id =
+                terminalObj["terminal"].toString();
+            if (id.isEmpty()) continue;
+
+            PathTerminal snap;
+            snap.id = id;
+            const Terminal *live =
+                terminalDB.value(id, nullptr);
+            qCInfo(lcModel).nospace()
+                << "[DIAG] Path::fromJson lookup id="
+                << id << " -> ptr="
+                << static_cast<const void *>(live)
+                << " dbSize=" << terminalDB.size();
+            if (live)
             {
-                QJsonObject terminalObj =
-                    terminalValue.toObject();
-                if (terminalDB.contains(
-                        terminalObj["terminal"].toString()))
-                {
-                    m_terminalsInPath.append(
-                        terminalDB.value(
-                            terminalObj["terminal"]
-                                .toString(),
-                            nullptr));
-                }
+                // DIAG: do NOT dereference yet — log first so
+                // we can see the exact pointer before the
+                // crash inside getDisplayName().
+                qCInfo(lcModel).nospace()
+                    << "[DIAG] Path::fromJson about to deref ptr="
+                    << static_cast<const void *>(live)
+                    << " id=" << id;
+                snap.displayName   = live->getDisplayName();
+                snap.canonicalName = live->getCanonicalName();
             }
+            else
+            {
+                // Fallback: use the id for both names so the
+                // UI always has something to render. This path
+                // is reachable if the server returns a
+                // terminal we never added — a bug in the
+                // caller, not a render problem.
+                snap.displayName   = id;
+                snap.canonicalName = id;
+            }
+            m_terminalsInPath.append(snap);
         }
     }
 
@@ -239,11 +273,16 @@ QJsonObject Path::toJson() const
     json["total_edge_costs"]     = m_totalEdgeCosts;
     json["total_terminal_costs"] = m_totalTerminalCosts;
 
-    // Add terminals
+    // Add terminals — mirror the wire format the server uses
+    // for `terminals_in_path` entries (object with a `terminal`
+    // id field). Display / canonical names are derived on the
+    // consumer side from the live Terminal, not serialised here.
     QJsonArray terminalsArray;
-    for (const Terminal *terminal : m_terminalsInPath)
+    for (const PathTerminal &terminal : m_terminalsInPath)
     {
-        terminalsArray.append(terminal->toJson());
+        QJsonObject obj;
+        obj["terminal"] = terminal.id;
+        terminalsArray.append(obj);
     }
     json["terminals_in_path"] = terminalsArray;
 

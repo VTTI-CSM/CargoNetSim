@@ -329,10 +329,10 @@ QWidget *PathComparisonDialog::createTerminalsTab()
             // Add terminal information
             for (int i = 0; i < maxTerminals; ++i)
             {
-                if (i < terminals.size() && terminals[i])
+                if (i < terminals.size())
                 {
                     terminalData
-                        << terminals[i]->getDisplayName();
+                        << terminals[i].displayName;
                 }
                 else
                 {
@@ -1708,14 +1708,9 @@ void PathComparisonDialog::createPathVisualization(
                 // Add terminals and transportation modes
                 for (int i = 0; i < terminals.size(); ++i)
                 {
-                    if (!terminals[i])
-                    {
-                        continue;
-                    }
-
                     // Add terminal name label
                     QString terminalName =
-                        terminals[i]->getDisplayName();
+                        terminals[i].displayName;
                     if (terminalName.isEmpty())
                     {
                         terminalName =
@@ -2085,17 +2080,9 @@ void PathComparisonDialog::onExportButtonClicked()
                 path->path->getTerminalsInPath();
             for (int i = 0; i < terminals.size(); ++i)
             {
-                if (terminals[i])
-                {
-                    out << i + 1 << ","
-                        << terminals[i]->getDisplayName()
-                        << ","
-                        << terminals[i]->getCanonicalName();
-                }
-                else
-                {
-                    out << i + 1 << ",Unknown,N/A";
-                }
+                out << i + 1 << ","
+                    << terminals[i].displayName << ","
+                    << terminals[i].canonicalName;
                 out << "\n";
             }
             out << "\n";
@@ -2130,10 +2117,10 @@ void PathComparisonDialog::onExportButtonClicked()
             {
                 const auto &terminals =
                     path->path->getTerminalsInPath();
-                if (i < terminals.size() && terminals[i])
+                if (i < terminals.size())
                 {
                     out << ","
-                        << terminals[i]->getDisplayName();
+                        << terminals[i].displayName;
                 }
                 else
                 {
@@ -3560,11 +3547,9 @@ QString PathComparisonDialog::getTerminalDisplayNameByID(
         for (const auto &terminal :
              path->getTerminalsInPath())
         {
-            if (terminal
-                && terminal->getCanonicalName()
-                       == terminalID)
+            if (terminal.canonicalName == terminalID)
             {
-                return terminal->getDisplayName();
+                return terminal.displayName;
             }
         }
     }

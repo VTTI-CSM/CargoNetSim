@@ -131,7 +131,7 @@ double ResultsExtractor::calculateSingleTerminalCost(
 
 double ResultsExtractor::calculateTerminalCosts(
     const QList<CargoNetSim::Backend::PathSegment *> &segments,
-    const QList<CargoNetSim::Backend::Terminal *>    &terminals,
+    const QList<CargoNetSim::Backend::PathTerminal>  &terminals,
     const QVariantMap                                &costFunctionWeights,
     int                                               containerCount)
 {

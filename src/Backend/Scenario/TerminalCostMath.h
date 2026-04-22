@@ -5,6 +5,7 @@
 #include <QVariantMap>
 
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Models/Path.h" // for PathTerminal value type
 
 namespace CargoNetSim
 {
@@ -114,7 +115,7 @@ double singleTerminalCost(
  */
 double totalTerminalCosts(
     const QList<CargoNetSim::Backend::PathSegment *> &segments,
-    const QList<CargoNetSim::Backend::Terminal *>    &terminals,
+    const QList<CargoNetSim::Backend::PathTerminal>  &terminals,
     const QVariantMap                                &weights,
     int                                               containerCount);
 

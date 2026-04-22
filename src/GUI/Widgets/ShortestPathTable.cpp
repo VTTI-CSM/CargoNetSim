@@ -664,9 +664,9 @@ ShortestPathsTable::createPathRow(int             pathId,
     contentLayout->addWidget(showButton);
 
     // Get terminals and segments from the path
-    const QList<Backend::Terminal *> &terminals =
+    const QList<Backend::PathTerminal> &terminals =
         pathData->path->getTerminalsInPath();
-    const QList<Backend::PathSegment *> &segments =
+    const QList<Backend::PathSegment *> segments =
         pathData->path->getSegments();
 
     // Validate terminal and segment data
@@ -696,16 +696,8 @@ ShortestPathsTable::createPathRow(int             pathId,
     // Add terminal names and transportation mode indicators
     for (int i = 0; i < terminals.size(); ++i)
     {
-        if (!terminals[i])
-        {
-            qCWarning(lcGuiPathTable)
-                << "Null terminal in path ID" << pathId;
-            continue; // Skip null terminals
-        }
-
-        // Extract terminal name from the JSON object
-        QString terminalName =
-            terminals[i]->getDisplayName();
+        // Extract terminal name from the snapshot
+        QString terminalName = terminals[i].displayName;
         if (terminalName.isEmpty())
         {
             terminalName = tr("Terminal %1")
