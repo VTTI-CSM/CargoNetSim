@@ -36,18 +36,16 @@ public:
 
     QUndoStack* undoStack() { return &m_stack; }
 
-signals:
-    void commandSubmitted(const QUndoCommand* command);
-    void commandFailed   (const QUndoCommand* command, const QString& reason);
-
 private:
     QUndoStack m_stack;
     bool       m_inSubmit    = false; // re-entrancy guard
     int        m_macroDepth  = 0;     // >0 while inside beginMacro/endMacro;
-                                      // the top-level stack count does not
-                                      // grow per push inside a macro, so the
-                                      // "did count increase?" obsolete-detection
-                                      // heuristic is skipped while active.
+                                      // outcome tracking still works per-
+                                      // submit via the wrapper's side channel,
+                                      // but the bool return is trivially true
+                                      // inside a macro because absorbed-into-
+                                      // macro pushes never obsolete the outer
+                                      // macro command.
 };
 
 } // namespace CargoNetSim::GUI::Input
