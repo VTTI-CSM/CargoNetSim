@@ -36,6 +36,10 @@ class ConnectionLine : public GraphicsObjectBase,
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 3 };
+    int type() const override { return Type; }
+
     /// Visual styling per transport mode (line color/width/etc.).
     /// Keyed by the strongly-typed enum so code can't inadvertently
     /// look up the wrong case-form of a string.

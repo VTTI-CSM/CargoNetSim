@@ -37,6 +37,10 @@ class MapLine : public GraphicsObjectBase,
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 6 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructs a new MapLine object
      *

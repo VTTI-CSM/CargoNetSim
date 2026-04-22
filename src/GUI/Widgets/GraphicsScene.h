@@ -102,26 +102,26 @@ public:
             return false;
         }
 
-        // Get the item
+        // Every registered item is a GraphicsObjectBase (enforced by
+        // addItemWithId's signature), which is a QObject. No dynamic_cast
+        // needed — the registry invariant guarantees the conversion.
         QGraphicsItem *item = itemsByType[className][id];
 
-        // Disconnect all signals from this item to prevent
-        // callback errors
-        if (QObject *obj = dynamic_cast<QObject *>(item))
-        {
-            QObject::disconnect(obj);
-        }
-
-        // Remove from type map
+        // Prune the registry FIRST. The destroyed() auto-prune wired in
+        // addItemWithId provides defense against callers that bypass this
+        // path; removing here up front means that auto-prune sees an
+        // empty bucket and no-ops, avoiding redundant work during the
+        // object's teardown.
         itemsByType[className].remove(id);
+        if (itemsByType[className].isEmpty())
+            itemsByType.remove(className);
 
-        // Remove from scene
+        // Disconnect outgoing signals so half-destroyed controllers can't
+        // receive callbacks mid-teardown.
+        QObject::disconnect(static_cast<GraphicsObjectBase *>(item));
+
         QGraphicsScene::removeItem(item);
-
-        // Delete the item
         delete item;
-        item = nullptr;
-
         return true;
     }
 

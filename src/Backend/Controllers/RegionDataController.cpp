@@ -547,9 +547,6 @@ bool RegionDataController::removeRegion(const QString &name)
         return false;
     }
 
-    // Check if we're removing the current region
-    bool isCurrentRegion = (m_currentRegion == name);
-
     // Get region data
     RegionData *data = m_regions.take(name);
 
@@ -560,11 +557,19 @@ bool RegionDataController::removeRegion(const QString &name)
     // Delete the region data object
     delete data;
 
-    // Emit signal that a region was removed
+    // Emit signal that a region was removed. Observers are invoked
+    // synchronously (Qt direct connections) and some — notably
+    // BasicButtonController::updateRegionComboBox — legitimately switch
+    // m_currentRegion to a valid surviving region while running.
     emit regionRemoved(name);
 
-    // If current region was removed, update it and notify
-    if (isCurrentRegion)
+    // Only clear m_currentRegion if it is still the removed region's
+    // name. Previous implementation captured isCurrentRegion BEFORE the
+    // emit and then blindly reset to "", clobbering the valid switch
+    // that observers had just performed — which then propagates to
+    // SceneVisibilityController as currentRegion=="" and hides every
+    // item in the scene.
+    if (m_currentRegion == name)
     {
         m_currentRegion = QString();
         emit currentRegionChanged(m_currentRegion);

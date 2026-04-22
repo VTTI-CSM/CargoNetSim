@@ -24,6 +24,10 @@ class ConnectionLabel : public GraphicsObjectBase,
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 4 };
+    int type() const override { return Type; }
+
     explicit ConnectionLabel(
         QGraphicsItem *parent = nullptr);
     virtual ~ConnectionLabel() = default;

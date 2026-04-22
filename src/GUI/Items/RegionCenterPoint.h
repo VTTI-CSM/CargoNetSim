@@ -11,10 +11,13 @@
 #include <QGraphicsObject>
 #include <QMap>
 #include <QPointF>
+#include <QPointer>
 #include <QVariant>
 
 namespace CargoNetSim
 {
+
+namespace Backend::Scenario { class ScenarioDocument; }
 
 namespace GUI
 {
@@ -37,6 +40,10 @@ class RegionCenterPoint : public GraphicsObjectBase,
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 7 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructs a RegionCenterPoint.
      * @param regionName The name of the region

@@ -58,6 +58,10 @@ class MapPoint : public GraphicsObjectBase,
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 5 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructs a new MapPoint object
      *

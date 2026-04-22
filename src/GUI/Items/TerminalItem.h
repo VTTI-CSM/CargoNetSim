@@ -46,6 +46,13 @@ class TerminalItem : public GraphicsObjectBase,
     Q_PROPERTY(QPointF pos READ pos WRITE setPos)
 
 public:
+    /// Unique graphics-item type id. Required for qgraphicsitem_cast to
+    /// distinguish this class from sibling QGraphicsObject subclasses —
+    /// without it all siblings collide on QGraphicsObject::Type and the
+    /// cast degenerates to an unchecked static_cast.
+    enum { Type = UserType + 1 };
+    int type() const override { return Type; }
+
     /**
      * @brief Construct a new Terminal Item
      *

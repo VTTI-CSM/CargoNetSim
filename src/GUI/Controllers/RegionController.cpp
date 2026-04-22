@@ -180,12 +180,20 @@ void RegionController::renameRegion(
             qCDebug(lcGuiView)
                 << "RegionController::renameRegion:"
                 << "step 2 done, document synced";
+            // ScenarioDocument emits regionRenamed here; the matching
+            // observer in MainWindow::subscribeDocumentObservers
+            // reconciles the RegionCenterPoint's m_regionSpec binding
+            // and the scene-registry key. This keeps the controller
+            // a pure orchestrator and puts view synchronisation on the
+            // same doc-signal → scene-observer path used for every
+            // other region lifecycle event (add / remove / change).
         }
     }
 
     qCDebug(lcGuiView) << "RegionController::renameRegion:"
                        << "step 3: updating visibility";
-    m_sceneVisibility->updateSceneVisibility();
+    if (m_sceneVisibility)
+        m_sceneVisibility->updateSceneVisibility();
     qCDebug(lcGuiView) << "RegionController::renameRegion:"
                        << "complete";
 }
@@ -234,49 +242,76 @@ void RegionController::removeRegion(const QString &name)
     qCDebug(lcGuiView) << "RegionController::removeRegion:" << name;
     if (!m_regionScene) return;
 
-    // Step 1: scene items — copy list first; remove before doc signals fire
-    // to avoid iterator invalidation (same pattern as renameRegion).
-    const auto sceneItems = m_regionScene->items();
-    int removedCount = 0;
-    for (QGraphicsItem *item : sceneItems)
-    {
-        bool owned = false;
-        if (auto *p = dynamic_cast<MapPoint *>(item))
-            owned = (p->getRegion() == name);
-        else if (auto *l = dynamic_cast<MapLine *>(item))
-            owned = (l->getRegion() == name);
-        else if (auto *rc = dynamic_cast<RegionCenterPoint *>(item))
-            owned = (rc->getRegion() == name);
-        else if (auto *t = dynamic_cast<TerminalItem *>(item))
-            owned = (t->getRegion() == name);
-        else if (auto *cl = dynamic_cast<ConnectionLine *>(item))
-            owned = (cl->getRegion() == name);
-        else if (auto *bp = dynamic_cast<BackgroundPhotoItem *>(item))
-            owned = (bp->getRegion() == name);
-
-        if (owned)
-        {
-            m_regionScene->removeItem(item);
-            delete item;
-            ++removedCount;
-        }
-    }
-    qCDebug(lcGuiView) << "RegionController::removeRegion:"
-                       << "scene items removed:" << removedCount;
-
-    // Step 2: RDC
-    CargoNetSim::CargoNetSimController::getInstance()
-        .getRegionDataController()->removeRegion(name);
-
-    // Step 3: doc (cascades terminal/connection/global-link removal)
+    // Step 1 — document cascade. ScenarioDocument::removeRegion iterates
+    // its terminals, calls removeTerminal for each (which itself cascades
+    // linkages → connections → global-links), then removes the region and
+    // emits regionRemoved. Every emission has a MainWindow observer that
+    // cleans the corresponding scene item via removeItemWithId<T>:
+    //   terminalRemoved    → TerminalItem  + global mirror + incident lines
+    //   connectionRemoved  → region ConnectionLine
+    //   globalLinkRemoved  → global ConnectionLine
+    //   linkageRemoved     → MapPoint unbind (point outlives its linkage)
+    //   regionRemoved      → RegionCenterPoint
+    // Running this BEFORE any scene deletion means those observers see a
+    // consistent scene + registry and use the registry-aware removal path.
     if (m_mainWindow && m_mainWindow->runtime())
     {
         if (!GUI::Scenario::ScenarioMutator::removeRegion(
                 &m_mainWindow->runtime()->document(), name))
+        {
             qCWarning(lcGuiView)
                 << "RegionController::removeRegion:"
                 << "ScenarioMutator::removeRegion failed for" << name;
+            return;
+        }
     }
+
+    // Step 2 — scene-only sweep. MapPoint / MapLine / BackgroundPhotoItem
+    // are not tracked by ScenarioDocument, so the cascade above does not
+    // cover them. Snapshot the region-owned items, then delete each
+    // through the registry-aware path (removeItemWithId) so itemsByType
+    // stays consistent — never raw `delete` and never QGraphicsScene::
+    // removeItem directly. Two-pass (collect keys, then remove) avoids
+    // mutating the scene item list while iterating it.
+    QStringList mapPointKeys;
+    QStringList mapLineKeys;
+    QStringList backgroundPhotoKeys;
+    const auto snapshot = m_regionScene->items();
+    for (QGraphicsItem *item : snapshot)
+    {
+        if (auto *p = qgraphicsitem_cast<MapPoint *>(item))
+        {
+            if (p->getRegion() == name)
+                mapPointKeys << p->sceneRegistryKey();
+        }
+        else if (auto *l = qgraphicsitem_cast<MapLine *>(item))
+        {
+            if (l->getRegion() == name)
+                mapLineKeys << l->sceneRegistryKey();
+        }
+        else if (auto *bp =
+                     qgraphicsitem_cast<BackgroundPhotoItem *>(item))
+        {
+            if (bp->getRegion() == name)
+                backgroundPhotoKeys << bp->sceneRegistryKey();
+        }
+    }
+    for (const QString &k : std::as_const(mapPointKeys))
+        m_regionScene->removeItemWithId<MapPoint>(k);
+    for (const QString &k : std::as_const(mapLineKeys))
+        m_regionScene->removeItemWithId<MapLine>(k);
+    for (const QString &k : std::as_const(backgroundPhotoKeys))
+        m_regionScene->removeItemWithId<BackgroundPhotoItem>(k);
+    qCDebug(lcGuiView)
+        << "RegionController::removeRegion: scene-only sweep removed"
+        << "mapPoints=" << mapPointKeys.size()
+        << "mapLines=" << mapLineKeys.size()
+        << "backgroundPhotos=" << backgroundPhotoKeys.size();
+
+    // Step 3 — RegionDataController. Last, so any observer above that
+    // queries RDC during cascade still sees consistent region metadata.
+    CargoNetSim::CargoNetSimController::getInstance()
+        .getRegionDataController()->removeRegion(name);
 
     if (m_sceneVisibility)
         m_sceneVisibility->updateSceneVisibility();

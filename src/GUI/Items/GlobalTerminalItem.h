@@ -48,6 +48,10 @@ class GlobalTerminalItem : public GraphicsObjectBase,
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 2 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructs a GlobalTerminalItem
      * @param pixmap The pixmap to display

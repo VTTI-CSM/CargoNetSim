@@ -32,6 +32,10 @@ class BackgroundPhotoItem : public GraphicsObjectBase,
     Q_PROPERTY(qreal opacity READ opacity WRITE setOpacity)
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 8 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructor for BackgroundPhotoItem
      * @param pixmap The image to display

@@ -32,13 +32,29 @@ void GraphicsScene::addItemWithId(GraphicsObjectBase *item,
 
     item->setParent(this);
 
-    QString className = QString(typeid(*item).name());
-    if (!itemsByType.contains(className))
-    {
-        itemsByType[className] =
-            QMap<QString, QGraphicsItem *>();
-    }
+    const QString className = QString(typeid(*item).name());
     itemsByType[className][id] = item;
+
+    // Self-healing registry invariant. Without this, any code path that
+    // destroys the item without calling removeItemWithId (raw `delete`,
+    // parent destruction, QGraphicsScene::clear(), re-entrant teardown)
+    // leaves a dangling pointer in itemsByType. Later observers — which
+    // lookup by (type, id) and then dereference — would crash on stale
+    // pointers. Connecting destroyed() makes the registry self-pruning:
+    // no matter who or how an item is deleted, its entry is erased
+    // synchronously during ~QObject, before anyone can observe the
+    // dangling state. className/id captured by value so the lambda
+    // remains valid past `item`'s destruction. Qt::DirectConnection
+    // (implicit — same thread) ensures synchronous execution.
+    connect(item, &QObject::destroyed, this,
+            [this, className, id](QObject *) {
+                auto bucket = itemsByType.find(className);
+                if (bucket == itemsByType.end())
+                    return;
+                bucket->remove(id);
+                if (bucket->isEmpty())
+                    itemsByType.erase(bucket);
+            });
 }
 
 void GraphicsScene::clearAll()
