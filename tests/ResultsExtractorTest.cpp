@@ -39,8 +39,7 @@ private slots:
             /*truckManager=*/nullptr,
             /*config=*/nullptr);
         QList<CargoNetSim::Backend::Path *> paths;
-        const int containerCount = 0;
-        auto results = ex.extract(paths, containerCount);
+        auto results = ex.extract(paths);
         QVERIFY(results.isEmpty());
     }
 
@@ -61,9 +60,10 @@ private slots:
         auto *seg = new PathSegment(
             "seg0", "A", "B",
             TransportationTypes::TransportationMode::Train, attrs);
-        QList<Terminal *>    emptyTerms;
+        QList<PathTerminal>  emptyTerms;
         QList<PathSegment *> segs{seg};
         auto *path = new Path(7, 0.0, 0.0, 0.0, emptyTerms, segs);
+        path->setEffectiveContainerCount(10);
 
         auto &ctl =
             CargoNetSim::CargoNetSimController::getInstance();
@@ -71,12 +71,15 @@ private slots:
             /*ship=*/nullptr, /*train=*/nullptr,
             /*truck=*/nullptr, ctl.getConfigController());
 
-        const auto results = ex.extract({path}, 10);
+        const auto results = ex.extract({path});
         QCOMPARE(results.size(), 1);
         QCOMPARE(results[0].pathId,        7);
+        QCOMPARE(results[0].effectiveContainerCount, 10);
         QCOMPARE(results[0].edgeCosts,     0.0);
         QCOMPARE(results[0].terminalCosts, 300.0);
         QCOMPARE(results[0].totalCost,     300.0);
+
+        QVERIFY(!results[0].canonicalPathKey.isEmpty());
 
         delete path;  // owns segments
     }
@@ -271,7 +274,7 @@ private slots:
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             nullptr, nullptr, nullptr, nullptr);
         QList<CargoNetSim::Backend::PathSegment *> segs;
-        QList<CargoNetSim::Backend::Terminal *>    terms;
+        QList<CargoNetSim::Backend::PathTerminal> terms;
         QCOMPARE(ex.calculateTerminalCosts(segs, terms,
                                            QVariantMap{}, 10),
                  0.0);
@@ -303,7 +306,7 @@ private slots:
         auto *s0 = makeSeg("seg0");
         auto *s1 = makeSeg("seg1");
         QList<PathSegment *> segs{s0, s1};
-        QList<Terminal *>    terms;  // unused by current body
+        QList<PathTerminal>  terms;  // unused by current body
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             nullptr, nullptr, nullptr, nullptr);
@@ -427,6 +430,42 @@ private slots:
         QVERIFY(attrs.contains("actual_cost"));
 
         delete segment;
+    }
+
+    void test_extract_uses_per_path_effective_container_count()
+    {
+        using namespace CargoNetSim::Backend;
+
+        auto *segA = new PathSegment(
+            "segA", "O1", "D1",
+            TransportationTypes::TransportationMode::Train);
+        auto *segB = new PathSegment(
+            "segB", "O2", "D2",
+            TransportationTypes::TransportationMode::Train);
+
+        auto *pathA = new Path(1, 0.0, 0.0, 0.0,
+                               QList<PathTerminal>{},
+                               QList<PathSegment *>{segA});
+        auto *pathB = new Path(1, 0.0, 0.0, 0.0,
+                               QList<PathTerminal>{},
+                               QList<PathSegment *>{segB});
+        pathA->setEffectiveContainerCount(8);
+        pathB->setEffectiveContainerCount(0);
+
+        auto &ctl =
+            CargoNetSim::CargoNetSimController::getInstance();
+        CargoNetSim::Backend::Scenario::ResultsExtractor ex(
+            nullptr, nullptr, nullptr, ctl.getConfigController());
+
+        const auto results = ex.extract({pathA, pathB});
+        QCOMPARE(results.size(), 1);
+        QCOMPARE(results[0].pathId, 1);
+        QCOMPARE(results[0].effectiveContainerCount, 8);
+        QCOMPARE(results[0].originId, QStringLiteral("O1"));
+        QCOMPARE(results[0].destinationId, QStringLiteral("D1"));
+
+        delete pathA;
+        delete pathB;
     }
 };
 

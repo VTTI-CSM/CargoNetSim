@@ -15,6 +15,7 @@
 #pragma once
 #include "Backend/Models/Path.h"
 #include "Backend/Scenario/PathMetrics.h"
+#include "Backend/Scenario/ScenarioDocument.h"
 #include <QBrush>
 #include <QCheckBox>
 #include <QHBoxLayout>
@@ -356,6 +357,11 @@ public:
      * state. This operation cannot be undone.
      */
     void clear();
+
+    QList<QJsonObject> buildComparisonSnapshots(
+        const Backend::Scenario::ScenarioDocument &doc) const;
+    void loadComparisonSnapshots(
+        const QList<QJsonObject> &snapshots);
 
 signals:
     /**

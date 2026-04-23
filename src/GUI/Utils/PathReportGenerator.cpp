@@ -37,6 +37,7 @@ PathReportGenerator::PathReportGenerator(
     QObject *parent)
     : QObject(parent)
     , m_pathData(pathData)
+    , m_viewModel(pathData)
 {
     qCDebug(lcGuiUtil) << "PathReportGenerator::PathReportGenerator: pathData count"
                        << pathData.size();
@@ -740,18 +741,8 @@ void PathReportGenerator::addPathSegments(
 
         report->addVerticalSpacing(5);
 
-        // Get segment attributes
-        const QJsonObject &attributes =
-            segments[i]->getAttributes();
-
-        // Extract actual_values values
-        QJsonObject actualValuesObj;
-        if (attributes.contains(PK::Segment::ActualValues)
-            && attributes[PK::Segment::ActualValues].isObject())
-        {
-            actualValuesObj =
-                attributes[PK::Segment::ActualValues].toObject();
-        }
+        const auto values = segments[i]->actualValues();
+        const auto predictedValues = segments[i]->estimatedValues();
 
         // Create table for segment attributes
         KDReports::TableElement attrTable;
@@ -774,13 +765,17 @@ void PathReportGenerator::addPathSegments(
         // Carbon Emissions
         styleTableCell(attrTable, rowIndex, 0,
                        tr("Carbon Emissions"), false, true);
-        styleTableCell(attrTable, rowIndex, 1, tr("N/A"));
+        styleTableCell(
+            attrTable, rowIndex, 1,
+            predictedValues.available
+                ? QString::number(
+                      predictedValues.carbonEmissions, 'f', 3)
+                : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains(PK::Segment::CarbonEmissions)
+            values.available
                 ? QString::number(
-                      actualValuesObj[PK::Segment::CarbonEmissions]
-                          .toDouble(),
+                      values.carbonEmissions,
                       'f', 3)
                 : tr("N/A"));
         rowIndex++;
@@ -791,22 +786,22 @@ void PathReportGenerator::addPathSegments(
         styleTableCell(attrTable, rowIndex, 1, tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains(PK::Segment::Cost)
-                ? QString::number(
-                      actualValuesObj[PK::Segment::Cost].toDouble(),
-                      'f', 2)
-                : tr("N/A"));
+            tr("N/A"));
         rowIndex++;
 
         // Distance
         styleTableCell(attrTable, rowIndex, 0,
                        tr("Distance"), false, true);
-        styleTableCell(attrTable, rowIndex, 1, tr("N/A"));
+        styleTableCell(
+            attrTable, rowIndex, 1,
+            predictedValues.available
+                ? QString::number(
+                      predictedValues.distance / 1000.0, 'f', 2)
+                : tr("N/A"));
         styleTableCell(attrTable, rowIndex, 2,
-                       actualValuesObj.contains(PK::Segment::Distance)
+                       values.available
                            ? QString::number(
-                                 actualValuesObj[PK::Segment::Distance]
-                                     .toDouble(),
+                                 values.distance / 1000.0,
                                  'f', 2)
                            : tr("N/A"));
         rowIndex++;
@@ -815,13 +810,17 @@ void PathReportGenerator::addPathSegments(
         styleTableCell(attrTable, rowIndex, 0,
                        tr("Energy Consumption"), false,
                        true);
-        styleTableCell(attrTable, rowIndex, 1, tr("N/A"));
+        styleTableCell(
+            attrTable, rowIndex, 1,
+            predictedValues.available
+                ? QString::number(
+                      predictedValues.energyConsumption, 'f', 2)
+                : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains(PK::Segment::EnergyConsumption)
+            values.available
                 ? QString::number(
-                      actualValuesObj[PK::Segment::EnergyConsumption]
-                          .toDouble(),
+                      values.energyConsumption,
                       'f', 2)
                 : tr("N/A"));
         rowIndex++;
@@ -829,27 +828,33 @@ void PathReportGenerator::addPathSegments(
         // Risk
         styleTableCell(attrTable, rowIndex, 0, tr("Risk"),
                        false, true);
-        styleTableCell(attrTable, rowIndex, 1, tr("N/A"));
+        styleTableCell(
+            attrTable, rowIndex, 1,
+            predictedValues.available
+                ? QString::number(predictedValues.risk, 'f', 6)
+                : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains(PK::Segment::Risk)
-                ? QString::number(
-                      actualValuesObj[PK::Segment::Risk].toDouble(),
-                      'f', 6)
+            values.available
+                ? QString::number(values.risk, 'f', 6)
                 : tr("N/A"));
         rowIndex++;
 
         // Travel Time
         styleTableCell(attrTable, rowIndex, 0,
                        tr("Travel Time"), false, true);
-        styleTableCell(attrTable, rowIndex, 1, tr("N/A"));
+        styleTableCell(
+            attrTable, rowIndex, 1,
+            predictedValues.available
+                ? QString::number(
+                      predictedValues.travelTime / 3600.0,
+                      'f', 2)
+                : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains(PK::Segment::TravelTime)
-                ? QString::number(
-                      actualValuesObj[PK::Segment::TravelTime]
-                          .toDouble(),
-                      'f', 2)
+            values.available
+                ? QString::number(values.travelTime / 3600.0,
+                                  'f', 2)
                 : tr("N/A"));
 
         // Add table to report
@@ -1157,92 +1162,28 @@ void PathReportGenerator::addPathCosts(
     {
         if (segment)
         {
-            const QJsonObject &attributes =
-                segment->getAttributes();
-
-            // Extract estimated_cost
-            if (attributes.contains("estimated_cost")
-                && attributes["estimated_cost"].isObject())
+            const auto estimatedCostObj = segment->estimatedCosts();
+            if (estimatedCostObj.available)
             {
-                QJsonObject estimatedCostObj =
-                    attributes["estimated_cost"].toObject();
-
-                // Accumulate predicted costs
                 predictedCarbonEmissionsCost +=
-                    estimatedCostObj.contains(
-                        PK::Segment::CarbonEmissions)
-                        ? estimatedCostObj
-                              [PK::Segment::CarbonEmissions]
-                                  .toDouble()
-                        : 0.0;
-                predictedDirectCost +=
-                    estimatedCostObj.contains(PK::Segment::Cost)
-                        ? estimatedCostObj[PK::Segment::Cost]
-                              .toDouble()
-                        : 0.0;
-                predictedDistanceCost +=
-                    estimatedCostObj.contains(PK::Segment::Distance)
-                        ? estimatedCostObj[PK::Segment::Distance]
-                              .toDouble()
-                        : 0.0;
-                predictedEnergyCost +=
-                    estimatedCostObj.contains(
-                        PK::Segment::EnergyConsumption)
-                        ? estimatedCostObj
-                              [PK::Segment::EnergyConsumption]
-                                  .toDouble()
-                        : 0.0;
-                predictedRiskCost +=
-                    estimatedCostObj.contains(PK::Segment::Risk)
-                        ? estimatedCostObj[PK::Segment::Risk]
-                              .toDouble()
-                        : 0.0;
-                predictedTimeCost +=
-                    estimatedCostObj.contains(PK::Segment::TravelTime)
-                        ? estimatedCostObj[PK::Segment::TravelTime]
-                              .toDouble()
-                        : 0.0;
+                    estimatedCostObj.carbonEmissions;
+                predictedDirectCost += estimatedCostObj.directCost;
+                predictedDistanceCost += estimatedCostObj.distance;
+                predictedEnergyCost += estimatedCostObj.energyConsumption;
+                predictedRiskCost += estimatedCostObj.risk;
+                predictedTimeCost += estimatedCostObj.travelTime;
             }
 
-            // Extract actual_cost
-            if (attributes.contains(PK::Segment::ActualCost)
-                && attributes[PK::Segment::ActualCost].isObject())
+            const auto actualCostObj = segment->actualCosts();
+            if (actualCostObj.available)
             {
-                QJsonObject actualCostObj =
-                    attributes[PK::Segment::ActualCost].toObject();
-
-                // Accumulate actual costs
                 actualCarbonEmissionsCost +=
-                    actualCostObj.contains(
-                        PK::Segment::CarbonEmissions)
-                        ? actualCostObj[PK::Segment::CarbonEmissions]
-                              .toDouble()
-                        : 0.0;
-                actualDirectCost +=
-                    actualCostObj.contains(PK::Segment::Cost)
-                        ? actualCostObj[PK::Segment::Cost].toDouble()
-                        : 0.0;
-                actualDistanceCost +=
-                    actualCostObj.contains(PK::Segment::Distance)
-                        ? actualCostObj[PK::Segment::Distance]
-                              .toDouble()
-                        : 0.0;
-                actualEnergyCost +=
-                    actualCostObj.contains(
-                        PK::Segment::EnergyConsumption)
-                        ? actualCostObj[PK::Segment::EnergyConsumption]
-                              .toDouble()
-                        : 0.0;
-                actualRiskCost +=
-                    actualCostObj.contains(PK::Segment::Risk)
-                        ? actualCostObj[PK::Segment::Risk].toDouble()
-                        : 0.0;
-                actualTimeCost +=
-                    actualCostObj.contains(PK::Segment::TravelTime)
-                        ? actualCostObj[PK::Segment::TravelTime]
-                              .toDouble()
-                        : 0.0;
-
+                    actualCostObj.carbonEmissions;
+                actualDirectCost += actualCostObj.directCost;
+                actualDistanceCost += actualCostObj.distance;
+                actualEnergyCost += actualCostObj.energyConsumption;
+                actualRiskCost += actualCostObj.risk;
+                actualTimeCost += actualCostObj.travelTime;
                 hasActualData = true;
             }
         }
@@ -1757,43 +1698,18 @@ void PathReportGenerator::addPathCosts(
                                    segRowIndex, 1,
                                    routeInfo);
 
-                    // Segment costs
-                    const QJsonObject &attributes =
-                        segments[i]->getAttributes();
-
-                    // Extract cost data
-                    double segPredictedCost = 0.0;
-                    double segActualCost    = 0.0;
-
-                    if (attributes.contains(
-                            "estimated_cost")
-                        && attributes["estimated_cost"]
-                               .isObject())
-                    {
-                        QJsonObject estimatedCostObj =
-                            attributes["estimated_cost"]
-                                .toObject();
-                        segPredictedCost =
-                            estimatedCostObj.contains(
-                                PK::Segment::Cost)
-                                ? estimatedCostObj[PK::Segment::Cost]
-                                      .toDouble()
-                                : 0.0;
-                    }
-
-                    if (attributes.contains(PK::Segment::ActualCost)
-                        && attributes[PK::Segment::ActualCost]
-                               .isObject())
-                    {
-                        QJsonObject actualCostObj =
-                            attributes[PK::Segment::ActualCost]
-                                .toObject();
-                        segActualCost =
-                            actualCostObj.contains(PK::Segment::Cost)
-                                ? actualCostObj[PK::Segment::Cost]
-                                      .toDouble()
-                                : 0.0;
-                    }
+                    const auto estimatedCostObj =
+                        segments[i]->estimatedCosts();
+                    const auto actualCostObj =
+                        segments[i]->actualCosts();
+                    const double segPredictedCost =
+                        estimatedCostObj.available
+                            ? estimatedCostObj.directCost
+                            : 0.0;
+                    const double segActualCost =
+                        actualCostObj.available
+                            ? actualCostObj.directCost
+                            : 0.0;
 
                     // Add cost data
                     styleTableCell(
@@ -2722,79 +2638,91 @@ void PathReportGenerator::addSegmentPositionAttributeTable(
                 if (segmentIdx < segments.size()
                     && segments[segmentIdx])
                 {
-                    const QJsonObject &attributes =
-                        segments[segmentIdx]
-                            ->getAttributes();
+                    const auto values =
+                        m_viewModel.segmentValues(path, segmentIdx);
 
                     // Handle different attribute types
                     if (rowIdx % 2 == 0) // Even rows are
                                          // predicted values
                     {
-                        // estimated_values not available
+                        QString valueText = tr("N/A");
+                        switch (rowIdx)
+                        {
+                        case 0:
+                            if (values.predictedAvailable)
+                                valueText = QString::number(
+                                    values.predictedCarbonEmissions,
+                                    'g', 3);
+                            break;
+                        case 2:
+                            valueText = tr("N/A");
+                            break;
+                        case 4:
+                            if (values.predictedAvailable)
+                                valueText = QString::number(
+                                    values.predictedDistanceKm,
+                                    'g', 2);
+                            break;
+                        case 6:
+                            if (values.predictedAvailable)
+                                valueText = QString::number(
+                                    values.predictedEnergyConsumption,
+                                    'g', 2);
+                            break;
+                        case 8:
+                            if (values.predictedAvailable)
+                                valueText = QString::number(
+                                    values.predictedRisk, 'g', 6);
+                            break;
+                        case 10:
+                            if (values.predictedAvailable)
+                                valueText = QString::number(
+                                    values.predictedTravelTimeHours,
+                                    'g', 2);
+                            break;
+                        }
                         styleTableCell(table, tableRow,
-                                       tableCol,
-                                       tr("N/A"));
+                                       tableCol, valueText);
                     }
                     else // Odd rows are actual values
                     {
-                        QJsonObject actualValuesObj;
-                        if (attributes.contains(
-                                PK::Segment::ActualValues)
-                            && attributes[PK::Segment::ActualValues]
-                                   .isObject())
-                        {
-                            actualValuesObj =
-                                attributes[PK::Segment::ActualValues]
-                                    .toObject();
-                        }
-
-                        // Determine which attribute to
-                        // display based on rowIdx
-                        QString key;
-                        QString format    = "f";
-                        int     precision = 2;
-
+                        QString valueText = tr("N/A");
                         switch (rowIdx)
                         {
                         case 1:
-                            key       = PK::Segment::CarbonEmissions;
-                            precision = 3;
+                            if (values.actualAvailable)
+                                valueText = QString::number(
+                                    values.actualCarbonEmissions,
+                                    'g', 3);
                             break;
                         case 3:
-                            key = PK::Segment::Cost;
+                            valueText = tr("N/A");
                             break;
                         case 5:
-                            key = PK::Segment::Distance;
+                            if (values.actualAvailable)
+                                valueText = QString::number(
+                                    values.actualDistanceKm, 'g', 2);
                             break;
                         case 7:
-                            key = PK::Segment::EnergyConsumption;
+                            if (values.actualAvailable)
+                                valueText = QString::number(
+                                    values.actualEnergyConsumption,
+                                    'g', 2);
                             break;
                         case 9:
-                            key       = PK::Segment::Risk;
-                            precision = 6;
+                            if (values.actualAvailable)
+                                valueText = QString::number(
+                                    values.actualRisk, 'g', 6);
                             break;
                         case 11:
-                            key = PK::Segment::TravelTime;
+                            if (values.actualAvailable)
+                                valueText = QString::number(
+                                    values.actualTravelTimeHours,
+                                    'g', 2);
                             break;
                         }
-
-                        if (!key.isEmpty()
-                            && actualValuesObj.contains(
-                                key))
-                        {
-                            styleTableCell(
-                                table, tableRow, tableCol,
-                                QString::number(
-                                    actualValuesObj[key]
-                                        .toDouble(),
-                                    'g', precision));
-                        }
-                        else
-                        {
-                            styleTableCell(table, tableRow,
-                                           tableCol,
-                                           tr("N/A"));
-                        }
+                        styleTableCell(table, tableRow,
+                                       tableCol, valueText);
                     }
                 }
                 else
@@ -3001,130 +2929,102 @@ void PathReportGenerator::addSegmentPositionCostTable(
                 if (segmentIdx < segments.size()
                     && segments[segmentIdx])
                 {
-                    const QJsonObject &attributes =
-                        segments[segmentIdx]
-                            ->getAttributes();
+                    const auto estimatedCostObj =
+                        m_viewModel.segmentPredictedCosts(
+                            path, segmentIdx);
+                    const auto actualCostObj =
+                        m_viewModel.segmentActualCosts(
+                            path, segmentIdx);
 
                     // Handle different cost categories
                     if (rowIdx % 2 == 0) // Even rows are
                                          // predicted costs
                     {
-                        QJsonObject estimatedCostObj;
-                        if (attributes.contains(
-                                "estimated_cost")
-                            && attributes["estimated_cost"]
-                                   .isObject())
-                        {
-                            estimatedCostObj =
-                                attributes["estimated_cost"]
-                                    .toObject();
-                        }
-
-                        // Determine which cost to display
-                        // based on rowIdx
-                        QString key;
-                        QString format    = "f";
-                        int     precision = 2;
-
+                        QString valueText = tr("N/A");
                         switch (rowIdx)
                         {
                         case 0:
-                            key = PK::Segment::CarbonEmissions;
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.carbonEmissions,
+                                    'g', 2);
                             break;
                         case 2:
-                            key = PK::Segment::Cost;
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.directCost,
+                                    'g', 2);
                             break;
                         case 4:
-                            key = PK::Segment::Distance;
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.distance,
+                                    'g', 2);
                             break;
                         case 6:
-                            key = PK::Segment::EnergyConsumption;
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.energyConsumption,
+                                    'g', 2);
                             break;
                         case 8:
-                            key       = PK::Segment::Risk;
-                            precision = 6;
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.risk, 'g', 6);
                             break;
                         case 10:
-                            key = PK::Segment::TravelTime;
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.travelTime,
+                                    'g', 2);
                             break;
                         }
-
-                        if (!key.isEmpty()
-                            && estimatedCostObj.contains(
-                                key))
-                        {
-                            styleTableCell(
-                                table, tableRow, tableCol,
-                                QString::number(
-                                    estimatedCostObj[key]
-                                        .toDouble(),
-                                    'g', precision));
-                        }
-                        else
-                        {
-                            styleTableCell(table, tableRow,
-                                           tableCol,
-                                           tr("N/A"));
-                        }
+                        styleTableCell(table, tableRow,
+                                       tableCol, valueText);
                     }
                     else // Odd rows are actual costs
                     {
-                        QJsonObject actualCostObj;
-                        if (attributes.contains(
-                                PK::Segment::ActualCost)
-                            && attributes[PK::Segment::ActualCost]
-                                   .isObject())
-                        {
-                            actualCostObj =
-                                attributes[PK::Segment::ActualCost]
-                                    .toObject();
-                        }
-
-                        // Determine which cost to display
-                        // based on rowIdx
-                        QString key;
-                        QString format    = "f";
-                        int     precision = 2;
-
+                        QString valueText = tr("N/A");
                         switch (rowIdx)
                         {
                         case 1:
-                            key = PK::Segment::CarbonEmissions;
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.carbonEmissions,
+                                    'g', 2);
                             break;
                         case 3:
-                            key = PK::Segment::Cost;
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.directCost,
+                                    'g', 2);
                             break;
                         case 5:
-                            key = PK::Segment::Distance;
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.distance,
+                                    'g', 2);
                             break;
                         case 7:
-                            key = PK::Segment::EnergyConsumption;
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.energyConsumption,
+                                    'g', 2);
                             break;
                         case 9:
-                            key       = PK::Segment::Risk;
-                            precision = 6;
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.risk, 'g', 6);
                             break;
                         case 11:
-                            key = PK::Segment::TravelTime;
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.travelTime,
+                                    'g', 2);
                             break;
                         }
-
-                        if (!key.isEmpty()
-                            && actualCostObj.contains(key))
-                        {
-                            styleTableCell(
-                                table, tableRow, tableCol,
-                                QString::number(
-                                    actualCostObj[key]
-                                        .toDouble(),
-                                    'g', precision));
-                        }
-                        else
-                        {
-                            styleTableCell(table, tableRow,
-                                           tableCol,
-                                           tr("N/A"));
-                        }
+                        styleTableCell(table, tableRow,
+                                       tableCol, valueText);
                     }
                 }
                 else
@@ -3163,38 +3063,20 @@ void PathReportGenerator::addSegmentPositionCostTable(
             if (segmentIdx < segments.size()
                 && segments[segmentIdx])
             {
-                const QJsonObject &attributes =
-                    segments[segmentIdx]->getAttributes();
-
-                // Get predicted total cost
-                double predictedTotal = 0.0;
-                if (attributes.contains("estimated_cost")
-                    && attributes["estimated_cost"]
-                           .isObject())
-                {
-                    QJsonObject estimatedCostObj =
-                        attributes["estimated_cost"]
-                            .toObject();
-
-                    if (estimatedCostObj.contains(PK::Segment::Cost))
-                        predictedTotal =
-                            estimatedCostObj[PK::Segment::Cost]
-                                .toDouble();
-                }
-
-                // Get actual total cost if available
-                double actualTotal = -1.0;
-                if (attributes.contains(PK::Segment::ActualCost)
-                    && attributes[PK::Segment::ActualCost].isObject())
-                {
-                    QJsonObject actualCostObj =
-                        attributes[PK::Segment::ActualCost]
-                            .toObject();
-
-                    if (actualCostObj.contains(PK::Segment::Cost))
-                        actualTotal = actualCostObj[PK::Segment::Cost]
-                                          .toDouble();
-                }
+                const auto estimatedCostObj =
+                    m_viewModel.segmentPredictedCosts(
+                        path, segmentIdx);
+                const auto actualCostObj =
+                    m_viewModel.segmentActualCosts(
+                        path, segmentIdx);
+                const double predictedTotal =
+                    estimatedCostObj.available
+                        ? estimatedCostObj.directCost
+                        : 0.0;
+                const double actualTotal =
+                    actualCostObj.available
+                        ? actualCostObj.directCost
+                        : -1.0;
 
                 // Display the costs
                 QString costText;
@@ -3337,18 +3219,7 @@ QImage PathReportGenerator::createTransportModeImage(
 QString PathReportGenerator::getTerminalDisplayNameByID(
     Backend::Path *path, const QString &terminalID)
 {
-    if (path)
-    {
-        for (const auto &terminal :
-             path->getTerminalsInPath())
-        {
-            if (terminal.canonicalName == terminalID)
-            {
-                return terminal.displayName;
-            }
-        }
-    }
-    return terminalID;
+    return m_viewModel.terminalDisplayName(path, terminalID);
 }
 
 } // namespace GUI

@@ -374,8 +374,15 @@ int RunCommand::execute(const QStringList &args)
     qCDebug(lcCli) << "RunCommand::execute: computing container allocation and path metrics...";
     const auto allocation = Backend::Scenario::ContainerAllocator::allocate(
         rt.document(), rt.paths());
+    for (auto *p : rt.paths())
+    {
+        if (!p)
+            continue;
+        p->setEffectiveContainerCount(
+            allocation.effectiveContainerCountForPath(p));
+    }
 
-    QHash<int, Backend::Scenario::PathMetrics> metrics;
+    QHash<QString, Backend::Scenario::PathMetrics> metrics;
     auto *cfg = ctl.getConfigController();
     auto *veh = ctl.getVehicleController();
     if (cfg)
@@ -390,9 +397,9 @@ int RunCommand::execute(const QStringList &args)
                 Backend::Scenario::PathMetricsCalculator::gatherInputs(
                     mode, *cfg, veh);
             const int count =
-                allocation.byPathId.value(p->getPathId()).size();
+                p->getEffectiveContainerCount();
             metrics.insert(
-                p->getPathId(),
+                p->canonicalPathKey(),
                 Backend::Scenario::PathMetricsCalculator::compute(
                     p->totalEstimatedLength(),
                     p->totalEstimatedTravelTime(),
@@ -406,6 +413,22 @@ int RunCommand::execute(const QStringList &args)
         qCWarning(lcCli) << "RunCommand::execute: ConfigController is null — skipping per-path metrics";
     }
 
+    QHash<QString, Backend::Scenario::PathKey> displayKeysByPathKey;
+    for (auto *p : rt.paths())
+    {
+        if (!p)
+            continue;
+        displayKeysByPathKey.insert(
+            p->canonicalPathKey(),
+            Backend::Scenario::PathKey{
+                p->getOriginId().isEmpty() ? p->getStartTerminal()
+                                           : p->getOriginId(),
+                p->getDestinationId().isEmpty()
+                    ? p->getEndTerminal()
+                    : p->getDestinationId(),
+                p->getRank()});
+    }
+
     for (const auto &fmt : rt.document().output.formats)
     {
         QString werr;
@@ -417,7 +440,8 @@ int RunCommand::execute(const QStringList &args)
             qCDebug(lcCli) << "RunCommand::execute: writing JSON results to" << filePath;
             JsonResultsWriter jw;
             okWrite = jw.write(filePath, results, &werr,
-                               metrics, allocation.keyByPathId, rt.paths());
+                               metrics, displayKeysByPathKey,
+                               rt.paths());
         }
         else if (fmt == QLatin1String("csv"))
         {

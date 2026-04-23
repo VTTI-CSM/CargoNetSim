@@ -12,6 +12,7 @@
 
 #include <QList>
 #include <QMap>
+#include <QJsonObject>
 #include <QObject>
 #include <QPointF>        // for globalPositionOf() return type
 #include <QString>
@@ -86,6 +87,7 @@ public:
     QList<NodeLinkage>               linkages;
     QList<Connection>                connections;
     QList<GlobalLink>                globalLinks;
+    QList<QJsonObject>               comparisonSnapshots;
 
     // Scenario-scope auto-rules for cross-region links
     // (e.g. "sea_port_pairs_within_km: 10000"). Global links have no

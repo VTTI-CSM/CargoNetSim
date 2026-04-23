@@ -12,16 +12,25 @@
  */
 
 #include "ShortestPathTable.h"
+#include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Controllers/ConfigController.h"
+#include "Backend/Scenario/ScenarioSerializer.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Utils/IconCreator.h" // For icon creation utilities
 #include "GUI/Utils/PathReportExporter.h"
 #include "GUI/Widgets/PathComparisonDialog.h"
 #include <QApplication>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QFileDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollBar>
+#include <QSet>
 #include <QVariant>
 #include <QtWidgets/qscrollarea.h>
 #include <stdexcept>
@@ -34,6 +43,185 @@ namespace CargoNetSim
 {
 namespace GUI
 {
+
+namespace
+{
+
+QJsonObject metricsToJson(
+    const Backend::Scenario::PathMetrics &metrics)
+{
+    QJsonObject o;
+    o[QStringLiteral("valid")] = metrics.valid;
+    o[QStringLiteral("distance_km")] = metrics.distanceKm;
+    o[QStringLiteral("travel_time_hours")] = metrics.travelTimeHours;
+    o[QStringLiteral("risk_per_vehicle")] = metrics.riskPerVehicle;
+    o[QStringLiteral("fuel_per_vehicle")] = metrics.fuelPerVehicle;
+    o[QStringLiteral("energy_per_vehicle")] = metrics.energyPerVehicle;
+    o[QStringLiteral("carbon_per_vehicle")] = metrics.carbonPerVehicle;
+    o[QStringLiteral("fuel_type")] = metrics.fuelType;
+    o[QStringLiteral("container_count")] = metrics.containerCount;
+    o[QStringLiteral("fuel_per_container")] = metrics.fuelPerContainer;
+    o[QStringLiteral("energy_per_container")] = metrics.energyPerContainer;
+    o[QStringLiteral("carbon_per_container")] = metrics.carbonPerContainer;
+    o[QStringLiteral("risk_per_container")] = metrics.riskPerContainer;
+    o[QStringLiteral("vehicles_needed")] = metrics.vehiclesNeeded;
+    return o;
+}
+
+Backend::Scenario::PathMetrics metricsFromJson(
+    const QJsonObject &o)
+{
+    Backend::Scenario::PathMetrics metrics;
+    metrics.valid = o.value(QStringLiteral("valid")).toBool(false);
+    metrics.distanceKm =
+        o.value(QStringLiteral("distance_km")).toDouble(0.0);
+    metrics.travelTimeHours =
+        o.value(QStringLiteral("travel_time_hours")).toDouble(0.0);
+    metrics.riskPerVehicle =
+        o.value(QStringLiteral("risk_per_vehicle")).toDouble(0.0);
+    metrics.fuelPerVehicle =
+        o.value(QStringLiteral("fuel_per_vehicle")).toDouble(0.0);
+    metrics.energyPerVehicle =
+        o.value(QStringLiteral("energy_per_vehicle")).toDouble(0.0);
+    metrics.carbonPerVehicle =
+        o.value(QStringLiteral("carbon_per_vehicle")).toDouble(0.0);
+    metrics.fuelType =
+        o.value(QStringLiteral("fuel_type")).toString();
+    metrics.containerCount =
+        o.value(QStringLiteral("container_count")).toInt(0);
+    metrics.fuelPerContainer =
+        o.value(QStringLiteral("fuel_per_container")).toDouble(0.0);
+    metrics.energyPerContainer =
+        o.value(QStringLiteral("energy_per_container")).toDouble(0.0);
+    metrics.carbonPerContainer =
+        o.value(QStringLiteral("carbon_per_container")).toDouble(0.0);
+    metrics.riskPerContainer =
+        o.value(QStringLiteral("risk_per_container")).toDouble(0.0);
+    metrics.vehiclesNeeded =
+        o.value(QStringLiteral("vehicles_needed")).toInt(0);
+    return metrics;
+}
+
+QString sha256Hex(const QJsonObject &o)
+{
+    const QByteArray payload =
+        QJsonDocument(o).toJson(QJsonDocument::Compact);
+    return QString::fromLatin1(
+        QCryptographicHash::hash(
+            payload, QCryptographicHash::Sha256)
+            .toHex());
+}
+
+QJsonObject buildPathSnapshotJson(const ShortestPathsTable::PathData &pathData)
+{
+    const auto *path = pathData.path;
+    QJsonObject pathJson;
+    if (!path)
+        return pathJson;
+
+    pathJson[QStringLiteral("path_id")] = path->getPathId();
+    pathJson[QStringLiteral("path_uid")] = path->getPathUid();
+    pathJson[QStringLiteral("canonical_path_key")] =
+        path->canonicalPathKey();
+    pathJson[QStringLiteral("total_path_cost")] =
+        path->getTotalPathCost();
+    pathJson[QStringLiteral("total_edge_costs")] =
+        path->getTotalEdgeCosts();
+    pathJson[QStringLiteral("total_terminal_costs")] =
+        path->getTotalTerminalCosts();
+    pathJson[QStringLiteral("ranking_cost")] =
+        path->getRankingCost();
+    pathJson[QStringLiteral("start_terminal")] =
+        path->getOriginId();
+    pathJson[QStringLiteral("end_terminal")] =
+        path->getDestinationId();
+    pathJson[QStringLiteral("rank")] = path->getRank();
+    pathJson[QStringLiteral("requested_mode")] =
+        path->getRequestedMode();
+    pathJson[QStringLiteral("requested_top_n")] =
+        path->getRequestedTopN();
+    pathJson[QStringLiteral("skip_same_mode_terminal_delays_and_costs")] =
+        path->skipSameModeTerminalDelaysAndCosts();
+    pathJson[QStringLiteral("effective_container_count")] =
+        path->getEffectiveContainerCount();
+    pathJson[QStringLiteral("weighted_terminal_delay_total")] =
+        path->getWeightedTerminalDelayTotal();
+    pathJson[QStringLiteral("weighted_terminal_direct_cost_total")] =
+        path->getWeightedTerminalDirectCostTotal();
+    pathJson[QStringLiteral("raw_terminal_delay_total")] =
+        path->getRawTerminalDelayTotal();
+    pathJson[QStringLiteral("raw_terminal_cost_total")] =
+        path->getRawTerminalCostTotal();
+    if (!path->getCostBreakdown().isEmpty())
+        pathJson[QStringLiteral("cost_breakdown")] =
+            path->getCostBreakdown();
+
+    QJsonObject discoveryContext;
+    discoveryContext[QStringLiteral("start_terminal")] =
+        path->getOriginId();
+    discoveryContext[QStringLiteral("end_terminal")] =
+        path->getDestinationId();
+    discoveryContext[QStringLiteral("requested_mode")] =
+        path->getRequestedMode();
+    discoveryContext[QStringLiteral("requested_top_n")] =
+        path->getRequestedTopN();
+    discoveryContext[QStringLiteral("skip_same_mode_terminal_delays_and_costs")] =
+        path->skipSameModeTerminalDelaysAndCosts();
+    pathJson[QStringLiteral("discovery_context")] =
+        discoveryContext;
+
+    QJsonArray terminals;
+    for (const auto &terminal : path->getTerminalsInPath())
+    {
+        QJsonObject o;
+        o[QStringLiteral("terminal")] = terminal.id;
+        o[QStringLiteral("display_name")] = terminal.displayName;
+        o[QStringLiteral("canonical_name")] = terminal.canonicalName;
+        o[QStringLiteral("sequence_index")] = terminal.sequenceIndex;
+        o[QStringLiteral("handling_time")] = terminal.handlingTime;
+        o[QStringLiteral("cost")] = terminal.rawCost;
+        o[QStringLiteral("costs_skipped")] = terminal.costsSkipped;
+        o[QStringLiteral("weighted_terminal_delay_contribution")] =
+            terminal.weightedTerminalDelayContribution;
+        o[QStringLiteral("weighted_terminal_cost_contribution")] =
+            terminal.weightedTerminalCostContribution;
+        o[QStringLiteral("weighted_terminal_total_contribution")] =
+            terminal.weightedTerminalTotalContribution;
+        if (!terminal.skipReason.isEmpty())
+            o[QStringLiteral("skip_reason")] =
+                terminal.skipReason;
+        terminals.append(o);
+    }
+    pathJson[QStringLiteral("terminals_in_path")] = terminals;
+
+    QJsonArray segments;
+    for (const auto *segment : path->getSegments())
+    {
+        if (!segment)
+            continue;
+        QJsonObject o;
+        o[QStringLiteral("from")] = segment->getStart();
+        o[QStringLiteral("to")] = segment->getEnd();
+        o[QStringLiteral("mode")] =
+            Backend::TransportationTypes::toInt(
+                segment->getMode());
+        o[QStringLiteral("sequence_index")] =
+            segment->sequenceIndex();
+        o[QStringLiteral("ranking_cost_contribution")] =
+            segment->rankingCostContribution();
+        o[QStringLiteral("weighted_edge_cost")] =
+            segment->weightedEdgeCost();
+        o[QStringLiteral("weighted_terminal_cost_embedded_in_segment")] =
+            segment->weightedTerminalCostEmbeddedInSegment();
+        o[QStringLiteral("attributes")] =
+            segment->getAttributes();
+        segments.append(o);
+    }
+    pathJson[QStringLiteral("segments")] = segments;
+    return pathJson;
+}
+
+} // namespace
 
 //------------------------------------------------------------------------------
 // TerminalPathDelegate Implementation
@@ -445,9 +633,10 @@ void ShortestPathsTable::addPaths(
                 -1.0;
             pathDataPtr->isVisible = true;
 
-            // Store the pointer in the map
-            m_pathData.insert(path->getPathId(),
-                              pathDataPtr);
+            // Store the pointer in the map. Live-path updates still
+            // arrive keyed by local path_id, so keep that as the
+            // primary runtime key here.
+            m_pathData.insert(path->getPathId(), pathDataPtr);
         }
         catch (const std::exception &ex)
         {
@@ -530,7 +719,8 @@ void ShortestPathsTable::updatePredictionCosts(
         {
             // Get the path ID for this row
             auto idItem = m_table->item(row, 1);
-            if (idItem && idItem->text().toInt() == pathId)
+            if (idItem
+                && idItem->data(Qt::UserRole).toInt() == pathId)
             {
                 // Update the predicted cost cell if total
                 // cost was updated
@@ -603,7 +793,8 @@ void ShortestPathsTable::updateSimulationCosts(
     {
         // Get the path ID for this row
         auto idItem = m_table->item(row, 1);
-        if (idItem && idItem->text().toInt() == pathId)
+        if (idItem
+            && idItem->data(Qt::UserRole).toInt() == pathId)
         {
             // Update the actual cost cell if simulation
             // total cost was updated
@@ -923,8 +1114,9 @@ void ShortestPathsTable::refreshTable()
 #endif
 
         // Add Path ID cell
-        auto pathItem =
-            new QTableWidgetItem(QString::number(pathId));
+        auto pathItem = new QTableWidgetItem(
+            QString::number(pathData->path->getPathId()));
+        pathItem->setData(Qt::UserRole, pathId);
         m_table->setItem(row, 1, pathItem);
 
         // Create and add terminal path visualization
@@ -1046,7 +1238,8 @@ int ShortestPathsTable::getSelectedPathId() const
 
     // Get the Path ID from column 1
     auto idItem = m_table->item(row, 1);
-    return idItem ? idItem->text().toInt() : -1;
+    return idItem ? idItem->data(Qt::UserRole).toInt()
+                  : -1;
 }
 
 /**
@@ -1084,7 +1277,8 @@ QVector<int> ShortestPathsTable::getCheckedPathIds() const
             auto idItem = m_table->item(row, 1);
             if (idItem)
             {
-                checkedPaths.append(idItem->text().toInt());
+                checkedPaths.append(
+                    idItem->data(Qt::UserRole).toInt());
             }
         }
     }
@@ -1101,6 +1295,7 @@ void ShortestPathsTable::clear()
 {
     // Clear all path data, which will delete the owned Path
     // pointers
+    qDeleteAll(m_pathData);
     m_pathData.clear();
 
     // Clear the table
@@ -1109,6 +1304,200 @@ void ShortestPathsTable::clear()
     // Disable buttons that require paths
     m_compareButton->setEnabled(false);
     m_exportButton->setEnabled(false);
+    m_predicted.clear();
+    m_actual.clear();
+    m_rowByPathId.clear();
+}
+
+QList<QJsonObject> ShortestPathsTable::buildComparisonSnapshots(
+    const Backend::Scenario::ScenarioDocument &doc) const
+{
+    QList<QJsonObject> snapshots;
+
+    QJsonObject topology;
+    topology[QStringLiteral("regions")] = doc.regions.size();
+    topology[QStringLiteral("terminals")] = doc.terminals.size();
+    topology[QStringLiteral("linkages")] = doc.linkages.size();
+    topology[QStringLiteral("connections")] = doc.connections.size();
+    topology[QStringLiteral("global_links")] = doc.globalLinks.size();
+
+    QVariantMap costWeights;
+    auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
+    if (auto *cfg = ctl.getConfigController())
+        costWeights = cfg->getCostFunctionWeights();
+
+    const QString discoveredAtUtc =
+        QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    QJsonObject scenarioSnapshot =
+        Backend::Scenario::ScenarioSerializer::toJson(doc);
+    scenarioSnapshot.remove(QStringLiteral("comparison_snapshots"));
+    const QString scenarioFingerprint =
+        sha256Hex(scenarioSnapshot);
+
+    const QString topologyFingerprint = sha256Hex(topology);
+    const QString costFingerprint = sha256Hex(
+        QJsonObject::fromVariantMap(costWeights));
+
+    const QVector<int> checkedPathIds = getCheckedPathIds();
+    QSet<int> checkedSet;
+    for (const int pathId : checkedPathIds)
+        checkedSet.insert(pathId);
+
+    for (auto it = m_pathData.constBegin();
+         it != m_pathData.constEnd(); ++it)
+    {
+        const int pathId = it.key();
+        const PathData *pathData = it.value();
+        if (!pathData || !pathData->path)
+            continue;
+
+        QJsonObject snapshot;
+        snapshot[QStringLiteral("schema_version")] = 1;
+        snapshot[QStringLiteral("canonical_path_key")] =
+            pathData->path->canonicalPathKey();
+        snapshot[QStringLiteral("path_uid")] =
+            pathData->path->getPathUid();
+
+        QJsonObject selection;
+        selection[QStringLiteral("is_visible")] =
+            pathData->isVisible;
+        selection[QStringLiteral("is_selected")] =
+            checkedSet.contains(pathId);
+        snapshot[QStringLiteral("selection")] = selection;
+
+        QJsonObject queryContext;
+        queryContext[QStringLiteral("origin")] =
+            pathData->path->getOriginId();
+        queryContext[QStringLiteral("destination")] =
+            pathData->path->getDestinationId();
+        queryContext[QStringLiteral("rank")] =
+            pathData->path->getRank();
+        queryContext[QStringLiteral("requested_mode")] =
+            pathData->path->getRequestedMode();
+        queryContext[QStringLiteral("requested_top_n")] =
+            pathData->path->getRequestedTopN();
+        queryContext[QStringLiteral("skip_same_mode_terminal_delays_and_costs")] =
+            pathData->path->skipSameModeTerminalDelaysAndCosts();
+        snapshot[QStringLiteral("query_context")] =
+            queryContext;
+
+        QJsonObject provenance;
+        provenance[QStringLiteral("discovered_at")] =
+            discoveredAtUtc;
+        provenance[QStringLiteral("scenario_fingerprint")] =
+            scenarioFingerprint;
+        provenance[QStringLiteral("topology_fingerprint")] =
+            topologyFingerprint;
+        provenance[QStringLiteral("cost_weights_fingerprint")] =
+            costFingerprint;
+        provenance[QStringLiteral("cost_weights")] =
+            QJsonObject::fromVariantMap(costWeights);
+        snapshot[QStringLiteral("discovery_provenance")] =
+            provenance;
+
+        const auto predicted = m_predicted.value(pathId);
+        const auto actual = m_actual.value(pathId);
+        snapshot[QStringLiteral("predicted_metrics")] =
+            metricsToJson(predicted);
+        snapshot[QStringLiteral("actual_metrics")] =
+            metricsToJson(actual);
+
+        QJsonObject simulation;
+        simulation[QStringLiteral("state")] =
+            pathData->m_totalSimulationPathCost >= 0.0
+                ? QStringLiteral("simulated")
+                : QStringLiteral("not_simulated");
+        simulation[QStringLiteral("total_cost")] =
+            pathData->m_totalSimulationPathCost;
+        simulation[QStringLiteral("edge_costs")] =
+            pathData->m_totalSimulationEdgeCosts;
+        simulation[QStringLiteral("terminal_costs")] =
+            pathData->m_totalSimulationTerminalCosts;
+        simulation[QStringLiteral("effective_container_count")] =
+            pathData->path->getEffectiveContainerCount();
+        snapshot[QStringLiteral("simulation")] =
+            simulation;
+
+        snapshot[QStringLiteral("path")] =
+            buildPathSnapshotJson(*pathData);
+        snapshots.append(snapshot);
+    }
+
+    return snapshots;
+}
+
+void ShortestPathsTable::loadComparisonSnapshots(
+    const QList<QJsonObject> &snapshots)
+{
+    clear();
+
+    QSet<int> selectedPathIds;
+    int nextSyntheticKey = -1;
+    for (const QJsonObject &snapshot : snapshots)
+    {
+        const QJsonObject pathJson =
+            snapshot.value(QStringLiteral("path")).toObject();
+        if (pathJson.isEmpty())
+            continue;
+
+        auto *path = Backend::Path::fromJson(pathJson, {});
+        if (!path)
+            continue;
+
+        int pathId = path->getPathId();
+        while (m_pathData.contains(pathId))
+            pathId = nextSyntheticKey--;
+        m_predicted.insert(
+            pathId,
+            metricsFromJson(
+                snapshot.value(QStringLiteral("predicted_metrics"))
+                    .toObject()));
+        m_actual.insert(
+            pathId,
+            metricsFromJson(
+                snapshot.value(QStringLiteral("actual_metrics"))
+                    .toObject()));
+
+        const QJsonObject simulation =
+            snapshot.value(QStringLiteral("simulation")).toObject();
+        const QJsonObject selection =
+            snapshot.value(QStringLiteral("selection")).toObject();
+        auto *pathData = new PathData(
+            path,
+            simulation.value(QStringLiteral("total_cost")).toDouble(-1.0),
+            simulation.value(QStringLiteral("edge_costs")).toDouble(-1.0),
+            simulation.value(QStringLiteral("terminal_costs")).toDouble(-1.0));
+        pathData->isVisible =
+            selection.value(QStringLiteral("is_visible")).toBool(true);
+        m_pathData.insert(pathId, pathData);
+        if (selection.value(QStringLiteral("is_selected")).toBool(false))
+            selectedPathIds.insert(pathId);
+    }
+
+    refreshTable();
+    m_exportButton->setEnabled(!m_pathData.isEmpty());
+    m_selectAllButton->setEnabled(!m_pathData.isEmpty());
+
+    for (int row = 0; row < m_table->rowCount(); ++row)
+    {
+        auto *idItem = m_table->item(row, 1);
+        if (!idItem)
+            continue;
+        const int pathId =
+            idItem->data(Qt::UserRole).toInt();
+        if (!selectedPathIds.contains(pathId))
+            continue;
+        auto *checkboxWidget = m_table->cellWidget(row, 0);
+        if (!checkboxWidget || !checkboxWidget->layout())
+            continue;
+        auto *checkBox = qobject_cast<QCheckBox *>(
+            checkboxWidget->layout()->itemAt(0)->widget());
+        if (checkBox)
+            checkBox->setChecked(true);
+    }
+
+    m_compareButton->setEnabled(!selectedPathIds.isEmpty());
+    m_unselectAllButton->setEnabled(!selectedPathIds.isEmpty());
 }
 
 /**

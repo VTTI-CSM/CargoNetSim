@@ -37,6 +37,33 @@ class PathSegment : public QObject
 {
     Q_OBJECT
 public:
+    struct SegmentMetricSnapshot
+    {
+        bool   available = false;
+        double travelTime = 0.0;
+        double distance = 0.0;
+        double carbonEmissions = 0.0;
+        double energyConsumption = 0.0;
+        double risk = 0.0;
+    };
+
+    struct SegmentCostSnapshot
+    {
+        bool   available = false;
+        double travelTime = 0.0;
+        double distance = 0.0;
+        double carbonEmissions = 0.0;
+        double energyConsumption = 0.0;
+        double risk = 0.0;
+        double directCost = 0.0;
+
+        double total() const
+        {
+            return travelTime + distance + carbonEmissions
+                   + energyConsumption + risk + directCost;
+        }
+    };
+
     /**
      * @brief Constructs a PathSegment instance
      * @param pathSegmentId Unique identifier for the
@@ -84,6 +111,13 @@ public:
      */
     static PathSegment *fromJson(const QJsonObject &json,
                                  QObject *parent = nullptr);
+
+    /**
+     * @brief Creates a deep copy of the segment.
+     * @param parent Parent QObject for the clone
+     * @return Newly allocated copy owned by the caller
+     */
+    PathSegment *clone(QObject *parent = nullptr) const;
 
     /**
      * @brief Retrieves the path segment identifier
@@ -136,6 +170,26 @@ public:
         return m_attributes;
     }
 
+    int sequenceIndex() const
+    {
+        return m_sequenceIndex;
+    }
+
+    double rankingCostContribution() const
+    {
+        return m_rankingCostContribution;
+    }
+
+    double weightedEdgeCost() const
+    {
+        return m_weightedEdgeCost;
+    }
+
+    double weightedTerminalCostEmbeddedInSegment() const
+    {
+        return m_weightedTerminalCostEmbeddedInSegment;
+    }
+
     /**
      * @brief Sets the segment attributes
      * @param attributes New attributes as QJsonObject
@@ -159,6 +213,7 @@ public:
     // are produced by per-mode shortest-path routing).
     double estimatedDistance()   const;  // metres
     double estimatedTravelTime() const;  // seconds
+    SegmentMetricSnapshot estimatedValues() const;
 
     // Post-simulation (SegmentCostMath writes these in km/hours/tons/kWh;
     // typed accessors below convert distance→metres and time→seconds so
@@ -169,6 +224,9 @@ public:
     double actualEnergyConsumption() const;  // kWh (direct)
     double actualCarbonEmissions()   const;  // tonnes CO2 (direct)
     double actualRisk()              const;  // risk-factor units (direct)
+    SegmentMetricSnapshot actualValues() const;
+    SegmentCostSnapshot estimatedCosts() const;
+    SegmentCostSnapshot actualCosts() const;
 
     /// Populator-side setter. Replaces or creates the `estimated`
     /// sub-object; leaves `actual` and any pre-existing keys
@@ -226,6 +284,10 @@ private:
      * @brief Transportation mode for the segment
      */
     TransportationTypes::TransportationMode m_mode;
+    int                                     m_sequenceIndex = 0;
+    double                                  m_rankingCostContribution = 0.0;
+    double                                  m_weightedEdgeCost = 0.0;
+    double m_weightedTerminalCostEmbeddedInSegment = 0.0;
     /**
      * @brief Additional attributes of the segment
      */

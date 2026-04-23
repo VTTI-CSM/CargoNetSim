@@ -15,6 +15,7 @@
 #include "Backend/Scenario/ScenarioApplier.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRegistry.h"
+#include "Backend/Scenario/RuntimeArtifactIdentity.h"
 #include "Backend/Scenario/SimulationRequestBuilder.h"
 #include <containerLib/container.h>
 
@@ -99,7 +100,7 @@ private slots:
         auto *segment = new PathSegment(
             "seg0", "T_O", "T_D",
             TransportationTypes::TransportationMode::Train);
-        QList<Terminal *>    emptyTerminals;
+        QList<PathTerminal>  emptyTerminals;
         QList<PathSegment *> segments{segment};
         auto *path = new Path(1, 0.0, 0.0, 0.0,
                               emptyTerminals, segments);
@@ -130,7 +131,11 @@ private slots:
         const auto &td = bundle.trainData["USA_rail"].first();
         QCOMPARE(td.containers.size(), 5);
         QVERIFY(td.train != nullptr);
-        QCOMPARE(td.train->getUserId(), QString("1_0_0"));
+        RuntimeArtifactIdentity trainId;
+        QVERIFY(RuntimeArtifacts::decode(td.train->getUserId(), trainId));
+        QCOMPARE(trainId.artifactType, QStringLiteral("train"));
+        QCOMPARE(trainId.segmentIndex, 0);
+        QCOMPARE(trainId.artifactIndex, 0);
 
         // --- Cleanup ---
         qDeleteAll(originContainers);
@@ -195,7 +200,7 @@ private slots:
         auto *segment = new PathSegment(
             "seg0", "T_O", "T_D",
             TransportationTypes::TransportationMode::Truck);
-        QList<Terminal *>    emptyTerminals;
+        QList<PathTerminal>  emptyTerminals;
         QList<PathSegment *> segments{segment};
         auto *path = new Path(1, 0.0, 0.0, 0.0,
                               emptyTerminals, segments);
@@ -221,9 +226,15 @@ private slots:
         QVERIFY(bundle.truckData.contains("USA_truck"));
         QCOMPARE(bundle.truckData["USA_truck"].size(), 3);
         const auto &trips = bundle.truckData["USA_truck"];
-        QCOMPARE(trips[0].tripId, QString("1_0_0"));
-        QCOMPARE(trips[1].tripId, QString("1_0_1"));
-        QCOMPARE(trips[2].tripId, QString("1_0_2"));
+        RuntimeArtifactIdentity trip0;
+        RuntimeArtifactIdentity trip1;
+        RuntimeArtifactIdentity trip2;
+        QVERIFY(RuntimeArtifacts::decode(trips[0].tripId, trip0));
+        QVERIFY(RuntimeArtifacts::decode(trips[1].tripId, trip1));
+        QVERIFY(RuntimeArtifacts::decode(trips[2].tripId, trip2));
+        QCOMPARE(trip0.artifactIndex, 0);
+        QCOMPARE(trip1.artifactIndex, 1);
+        QCOMPARE(trip2.artifactIndex, 2);
         QCOMPARE(trips[0].originNode,      1);
         QCOMPARE(trips[0].destinationNode, 2);
         // 5 containers across 3 trucks: 2 + 2 + 1
@@ -283,7 +294,7 @@ private slots:
         auto *segment = new PathSegment(
             "seg0", "SP_A", "SP_B",
             TransportationTypes::TransportationMode::Ship);
-        QList<Terminal *>    emptyTerminals;
+        QList<PathTerminal>  emptyTerminals;
         QList<PathSegment *> segments{segment};
         auto *path = new Path(1, 0.0, 0.0, 0.0,
                               emptyTerminals, segments);
@@ -310,7 +321,11 @@ private slots:
         QCOMPARE(bundle.shipData["USA"].size(), 1);
         const auto &sd = bundle.shipData["USA"].first();
         QVERIFY(sd.ship != nullptr);
-        QCOMPARE(sd.ship->getUserId(),          QString("1_0_0"));
+        RuntimeArtifactIdentity shipId;
+        QVERIFY(RuntimeArtifacts::decode(sd.ship->getUserId(), shipId));
+        QCOMPARE(shipId.artifactType, QStringLiteral("ship"));
+        QCOMPARE(shipId.segmentIndex, 0);
+        QCOMPARE(shipId.artifactIndex, 0);
         QCOMPARE(sd.destinationTerminal,        QString("SP_B"));
         QCOMPARE(sd.containers.size(),          5);
 
@@ -388,7 +403,7 @@ private slots:
             auto *seg = new PathSegment(
                 "seg0", s, e,
                 TransportationTypes::TransportationMode::Train);
-            QList<Terminal *>    termsNone;
+            QList<PathTerminal>  termsNone;
             QList<PathSegment *> segs{seg};
             return new Path(pathId, 0.0, 0.0, 0.0, termsNone, segs);
         };
@@ -414,8 +429,8 @@ private slots:
         // the test's pre-Plan-10 semantics (each path gets the full
         // 5-container pool) by assigning the same list to both path ids.
         CargoNetSim::Backend::Scenario::PathAllocation alloc;
-        alloc.byPathId.insert(1, originContainers);
-        alloc.byPathId.insert(2, originContainers);
+        alloc.byCanonicalPath.insert(p1->canonicalPathKey(), originContainers);
+        alloc.byCanonicalPath.insert(p2->canonicalPathKey(), originContainers);
 
         QVERIFY2(builder.build({p1, p2}, alloc, bundle, &err),
                  qPrintable(err));
@@ -427,8 +442,8 @@ private slots:
         QStringList userIds;
         for (const auto &td : bundle.trainData["USA_rail"])
             userIds << td.train->getUserId();
-        QVERIFY(userIds.contains("1_0_0"));
-        QVERIFY(userIds.contains("2_0_0"));
+        QCOMPARE(userIds.size(), 2);
+        QVERIFY(userIds[0] != userIds[1]);
 
         for (const auto &td : bundle.trainData["USA_rail"])
             QCOMPARE(td.containers.size(), 5);

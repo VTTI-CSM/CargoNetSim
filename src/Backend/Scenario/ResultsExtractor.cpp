@@ -28,11 +28,10 @@ ResultsExtractor::ResultsExtractor(
 }
 
 QList<PathSimulationResult> ResultsExtractor::extract(
-    const QList<CargoNetSim::Backend::Path *> &paths,
-    int                                        containerCount)
+    const QList<CargoNetSim::Backend::Path *> &paths)
 {
     qCInfo(lcScenario) << "ResultsExtractor::extract: paths:" << paths.size()
-                       << "containerCount:" << containerCount;
+                       << "(per-path container counts carried on Path snapshots)";
     QList<PathSimulationResult> results;
     if (!m_config)
     {
@@ -57,11 +56,13 @@ QList<PathSimulationResult> ResultsExtractor::extract(
     {
         if (!path)
             continue;
+        const int containerCount =
+            path->getEffectiveContainerCount();
         if (containerCount == 0)
         {
-            qCWarning(lcScenario) << "ResultsExtractor::extract: containerCount is 0, skipping path";
-            emit errorMessage(QStringLiteral(
-                "No containers at origin terminal!"));
+            qCWarning(lcScenario)
+                << "ResultsExtractor::extract: effectiveContainerCount is 0, skipping path"
+                << path->canonicalPathKey();
             continue;
         }
 
@@ -71,6 +72,7 @@ QList<PathSimulationResult> ResultsExtractor::extract(
             costWeights, transportModes, containerCount);
         results.append(r);
         qCDebug(lcScenario) << "ResultsExtractor::extract: pathId:" << r.pathId
+                            << "pathKey:" << r.canonicalPathKey
                             << "totalCost:" << r.totalCost
                             << "edgeCosts:" << r.edgeCosts
                             << "terminalCosts:" << r.terminalCosts;

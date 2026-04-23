@@ -87,9 +87,9 @@ namespace Cli {
  *
  * The optional `metrics` and `origin`/`destination`/`rank` fields are
  * emitted when the caller passes populated `metrics` / `keys` maps
- * (Plan 10 Task 12). Both maps are keyed by `PathSimulationResult::
- * pathId`; a result whose id is absent from a map simply omits that
- * section — existing parsers that ignore unknown fields are unaffected.
+ * keyed by canonical path identity. This avoids collisions when
+ * multiple origin/destination pairs legitimately reuse the same local
+ * `path_id`.
  *
  * Stateless: one instance per invocation. No thread-safety concerns —
  * writers do not share state.
@@ -103,16 +103,18 @@ public:
      *                    valid file with an empty `paths` array).
      * @param err         On failure, filled with a human-readable
      *                    reason. Caller can pass nullptr.
-     * @param metrics     Optional per-path metrics keyed by path id.
-     *                    When a result's id is present AND the value's
+     * @param metrics     Optional per-path metrics keyed by canonical
+     *                    path identity.
+     *                    When a result's key is present AND the value's
      *                    `valid` flag is true, a nested `metrics`
      *                    object is emitted.
      * @param keys        Optional per-path (origin, destination, rank)
-     *                    tuples keyed by path id. When present, they
-     *                    are emitted as top-level fields on the path
-     *                    object.
+     *                    tuples keyed by canonical path identity. When
+     *                    present, they are emitted as top-level fields
+     *                    on the path object.
      * @param paths       Optional list of Path pointers. When a
-     *                    matching Path is found for a result's pathId,
+     *                    matching Path is found for a result's canonical
+     *                    key,
      *                    a `segments` array is emitted containing each
      *                    segment's estimated metrics.
      * @return `true` on success, `false` on any I/O failure.
@@ -122,9 +124,9 @@ public:
         const QList<CargoNetSim::Backend::Scenario::PathSimulationResult>
                       &results,
         QString       *err,
-        const QHash<int, CargoNetSim::Backend::Scenario::PathMetrics>
+        const QHash<QString, CargoNetSim::Backend::Scenario::PathMetrics>
                       &metrics = {},
-        const QHash<int, CargoNetSim::Backend::Scenario::PathKey>
+        const QHash<QString, CargoNetSim::Backend::Scenario::PathKey>
                       &keys    = {},
         const QList<CargoNetSim::Backend::Path *>
                       &paths   = {});

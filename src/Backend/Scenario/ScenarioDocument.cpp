@@ -52,6 +52,7 @@ void ScenarioDocument::reset()
     linkages.clear();
     connections.clear();
     globalLinks.clear();
+    comparisonSnapshots.clear();
     globalLinkStrategy = LinkageStrategy::Manual;
     globalLinkAutoRules.clear();
     globalLinkAutoRuleParams.clear();

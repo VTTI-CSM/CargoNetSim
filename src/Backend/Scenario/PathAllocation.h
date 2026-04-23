@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QList>
 
+#include "Backend/Models/Path.h"
 #include "PathKey.h"
 
 // Forward-declare ContainerCore::Container — full definition only needed
@@ -22,22 +23,52 @@ namespace Scenario {
 /// assigned container per-segment (the segment builders copy +
 /// rewrite IDs internally).
 ///
-/// Rank-0 only: paths with rank >= 1 will NOT appear in `byPathId`
-/// (they carry zero containers). They DO appear in `keyByPathId`
-/// for display purposes. See ContainerAllocator.h for the policy
-/// rationale.
-///
-/// Keyed by path id (int) rather than PathKey because PathDiscovery's
-/// output is addressed by id everywhere downstream; the PathKey
-/// mapping is carried alongside for CLI / GUI display needs.
+/// Rank-0 only: paths with rank >= 1 will NOT appear in
+/// `byCanonicalPath` (they carry zero containers). They DO appear in
+/// `keyByCanonicalPath` for display purposes. See ContainerAllocator.h
+/// for the policy rationale.
 struct PathAllocation
 {
-    QHash<int /*pathId*/, QList<ContainerCore::Container *>> byPathId;
+    QHash<QString /*canonicalPathKey*/,
+          QList<ContainerCore::Container *>> byCanonicalPath;
+    QHash<QString /*canonicalPathKey*/, PathKey> keyByCanonicalPath;
+    QHash<QString /*canonicalPathKey*/, int> effectiveContainerCountByCanonicalPath;
 
-    /// Parallel lookup: path id → human-facing (origin, dest, rank)
-    /// triple. The allocator populates both in one pass.
-    QHash<int /*pathId*/, PathKey> keyByPathId;
+    QList<ContainerCore::Container *>
+    containersForPath(const CargoNetSim::Backend::Path *path) const;
+
+    int effectiveContainerCountForPath(
+        const CargoNetSim::Backend::Path *path) const;
+
+    PathKey keyForPath(
+        const CargoNetSim::Backend::Path *path) const;
 };
+
+inline QList<ContainerCore::Container *>
+PathAllocation::containersForPath(
+    const CargoNetSim::Backend::Path *path) const
+{
+    if (!path)
+        return {};
+    return byCanonicalPath.value(path->canonicalPathKey());
+}
+
+inline int PathAllocation::effectiveContainerCountForPath(
+    const CargoNetSim::Backend::Path *path) const
+{
+    if (!path)
+        return 0;
+    return effectiveContainerCountByCanonicalPath.value(
+        path->canonicalPathKey(), 0);
+}
+
+inline PathKey PathAllocation::keyForPath(
+    const CargoNetSim::Backend::Path *path) const
+{
+    if (!path)
+        return {};
+    return keyByCanonicalPath.value(path->canonicalPathKey());
+}
 
 } // namespace Scenario
 } // namespace Backend

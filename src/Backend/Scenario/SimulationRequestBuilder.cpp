@@ -10,6 +10,7 @@
 #include "Backend/Scenario/NetworkLookup.h"
 #include "Backend/Scenario/NetworkSpec.h"
 #include "Backend/Scenario/NodeLinkage.h"
+#include "Backend/Scenario/RuntimeArtifactIdentity.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include "PropertyKeys.h"
@@ -103,7 +104,8 @@ int numVehiclesNeeded(int containerCount, int perVehicle)
 QList<ContainerCore::Container *> takeContainersForVehicle(
     int                                   take,
     QList<ContainerCore::Container *>    &source,
-    int                                   pathId,
+    const CargoNetSim::Backend::Path     *path,
+    int                                   segmentIndex,
     int                                  &containerCounter,
     const QString                        &currentLocation,
     const QString                        &destination)
@@ -113,10 +115,10 @@ QList<ContainerCore::Container *> takeContainersForVehicle(
     {
         auto *orig = source.takeFirst();
         auto *copy = orig->copy();
-        copy->setContainerID(QString("%1_%2_%3")
-                                 .arg(pathId)
-                                 .arg(orig->getContainerID())
-                                 .arg(containerCounter++));
+        copy->setContainerID(
+            RuntimeArtifacts::copiedContainerId(
+                path, segmentIndex, containerCounter++,
+                orig->getContainerID()));
         copy->setContainerCurrentLocation(currentLocation);
         copy->addDestination(destination);
         result.append(copy);
@@ -172,10 +174,10 @@ bool SimulationRequestBuilder::buildTrainSegment(
 
         for (int i = 0; i < numTrains; ++i)
         {
-            const QString trainId = QString("%1_%2_%3")
-                                        .arg(path->getPathId())
-                                        .arg(segmentIdx)
-                                        .arg(trainCounter++);
+            const QString trainId =
+                RuntimeArtifacts::vehicleId(
+                    path, segmentIdx, trainCounter++,
+                    QStringLiteral("train"));
 
             auto *baseTrain = m_vehicles->getRandomTrain();
             if (!baseTrain)
@@ -195,7 +197,7 @@ bool SimulationRequestBuilder::buildTrainSegment(
             td.train      = train;
             td.containers = takeContainersForVehicle(
                 qMin(trainContainerCount, containersCopy.size()),
-                containersCopy, path->getPathId(), containerCounter,
+                containersCopy, path, segmentIdx, containerCounter,
                 QString::number(pair.start.nodeId),
                 QString::number(pair.end.nodeId));
             bundle.trainData[networkName].append(td);
@@ -261,15 +263,14 @@ bool SimulationRequestBuilder::buildTruckSegment(
         for (int i = 0; i < numTrucks; ++i)
         {
             TruckSimData td;
-            td.tripId = QString("%1_%2_%3")
-                            .arg(path->getPathId())
-                            .arg(segmentIdx)
-                            .arg(truckCounter++);
+            td.tripId = RuntimeArtifacts::vehicleId(
+                path, segmentIdx, truckCounter++,
+                QStringLiteral("truck"));
             td.originNode      = pair.start.nodeId;
             td.destinationNode = pair.end.nodeId;
             td.containers      = takeContainersForVehicle(
                 qMin(truckContainerCount, containersCopy.size()),
-                containersCopy, path->getPathId(), containerCounter,
+                containersCopy, path, segmentIdx, containerCounter,
                 startName, endName);
             bundle.truckData[networkName].append(td);
         }
@@ -315,10 +316,10 @@ bool SimulationRequestBuilder::buildShipSegment(
 
     for (int i = 0; i < numShips; ++i)
     {
-        const QString shipId = QString("%1_%2_%3")
-                                   .arg(path->getPathId())
-                                   .arg(segmentIdx)
-                                   .arg(shipCounter++);
+        const QString shipId =
+            RuntimeArtifacts::vehicleId(
+                path, segmentIdx, shipCounter++,
+                QStringLiteral("ship"));
 
         auto *ship = m_vehicles->getRandomShip()->copy();
         ship->setUserId(shipId);
@@ -332,7 +333,7 @@ bool SimulationRequestBuilder::buildShipSegment(
         sd.destinationTerminal = endId;
         sd.containers          = takeContainersForVehicle(
             qMin(shipContainerCount, containersCopy.size()),
-            containersCopy, path->getPathId(), containerCounter,
+            containersCopy, path, segmentIdx, containerCounter,
             startId, endId);
         bundle.shipData[networkName].append(sd);
     }
@@ -353,8 +354,7 @@ bool SimulationRequestBuilder::build(
     {
         qCDebug(lcScenario) << "SimulationRequestBuilder::build: processing pathId:"
                             << p->getPathId();
-        const auto &perPathPool =
-            allocation.byPathId.value(p->getPathId());
+        const auto perPathPool = allocation.containersForPath(p);
         SimulationRequestBundle perPath;
         QString                 localErr;
         if (!buildForPath(p, perPathPool, perPath, &localErr))

@@ -14,7 +14,6 @@ VehicleController::VehicleController(QObject *parent)
 
 VehicleController::~VehicleController()
 {
-    clear();
 }
 
 // Ship Management Methods

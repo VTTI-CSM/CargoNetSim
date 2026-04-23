@@ -77,6 +77,8 @@ set(GUI_SOURCES
     Utils/IconCreator.h
     Utils/PathFindingWorker.h
     Utils/PathFindingWorker.cpp
+    Utils/PathComparisonViewModel.h
+    Utils/PathComparisonViewModel.cpp
     Utils/PathReportGenerator.h
     Utils/PathReportGenerator.cpp
     Utils/PathReportExporter.h

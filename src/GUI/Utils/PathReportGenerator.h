@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include "GUI/Utils/PathComparisonViewModel.h"
 #include "GUI/Widgets/ShortestPathTable.h"
 #include <KDReportsAutoTableElement.h>
 #include <KDReportsCell.h>
@@ -236,6 +237,7 @@ private:
     // Data members
     const QList<const ShortestPathsTable::PathData *>
          &m_pathData; ///< Path data to include in report
+    PathComparisonViewModel m_viewModel;
     QFont m_pageTitleFont;    ///< Font for page titles
     QFont m_sectionTitleFont; ///< Font for section titles
     QFont m_normalTextFont;   ///< Font for normal text

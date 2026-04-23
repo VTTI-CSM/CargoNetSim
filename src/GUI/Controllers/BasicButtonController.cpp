@@ -3,6 +3,7 @@
 #include <QComboBox>
 #include <QCursor>
 #include <QFileDialog>
+#include <QJsonObject>
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QTextEdit>
@@ -12,6 +13,7 @@
 #include "../Items/DistanceMeasurementTool.h"
 #include "../Items/TerminalItem.h"
 #include "../MainWindow.h"
+#include "../Widgets/ShortestPathTable.h"
 #include "../Widgets/GraphicsScene.h"
 #include "../Widgets/GraphicsView.h"
 #include "../Widgets/SetCoordinatesDialog.h"
@@ -691,6 +693,13 @@ void BasicButtonController::saveScenario(
             filePath += ".yml";
         mainWindow->currentProjectPath_ = filePath;
     }
+
+    mainWindow->runtime()->document().comparisonSnapshots =
+        mainWindow->shortestPathTable_
+            ? mainWindow->shortestPathTable_
+                  ->buildComparisonSnapshots(
+                      mainWindow->runtime()->document())
+            : QList<QJsonObject>{};
 
     QString err;
     if (!ProjectSerializer::saveProject(

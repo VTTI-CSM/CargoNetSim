@@ -11,6 +11,19 @@ namespace CargoNetSim
 namespace Backend
 {
 
+QString TerminalSimulationClient::makeTopPathsCacheKey(
+    const QString &start, const QString &end, int mode,
+    int requestedTopN,
+    bool skipSameModeTerminalDelaysAndCosts)
+{
+    return QStringLiteral("%1|%2|mode=%3|top=%4|skip=%5")
+        .arg(start, end, QString::number(mode),
+             QString::number(requestedTopN),
+             skipSameModeTerminalDelaysAndCosts
+                 ? QStringLiteral("1")
+                 : QStringLiteral("0"));
+}
+
 // Constructor implementation
 TerminalSimulationClient::TerminalSimulationClient(
     QObject *parent, const QString &host, int port)
@@ -543,8 +556,14 @@ QList<Path *> TerminalSimulationClient::findTopPaths(
     });
     // Access paths thread-safely
     Commons::ScopedReadLock locker(m_dataMutex);
-    QString                 key = start + "-" + end;
-    return m_topPaths.value(key, QList<Path *>());
+    const QString key = makeTopPathsCacheKey(
+        start, end, modeInt, n, skipDelays);
+    QList<Path *> out;
+    const auto cached = m_topPaths.value(key);
+    out.reserve(cached.size());
+    for (const auto *path : cached)
+        out.append(path ? path->clone() : nullptr);
+    return out;
 }
 
 // Add single container
@@ -1215,31 +1234,29 @@ void TerminalSimulationClient::onRoutesAdded(
 void TerminalSimulationClient::onPathsFound(
     const QJsonObject &message)
 {
-    // Extract result and parameters from message
+    // Extract result and parameters from message. The cache key must
+    // include the full request identity so one discovery variant never
+    // overwrites another.
     QJsonObject result = message["result"].toObject();
+    QJsonObject params = message["params"].toObject();
     QString     start = result["start_terminal"].toString();
     QString     end   = result["end_terminal"].toString();
     QJsonArray  paths = result["paths"].toArray();
-    QString     key   = start + "-" + end;
+    const int mode =
+        params.value("mode")
+            .toInt(result.value("requested_mode").toInt(0));
+    const int requestedTopN =
+        params.value("n")
+            .toInt(result.value("requested_top_n").toInt(0));
+    const bool skipDelays =
+        params.value("skip_same_mode_terminal_delays_and_costs")
+            .toBool(result.value("skip_same_mode_terminal_delays_and_costs")
+                        .toBool(true));
+    const QString key = makeTopPathsCacheKey(
+        start, end, mode, requestedTopN, skipDelays);
 
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
-
-    qCInfo(lcClientTerminal).nospace()
-        << "[DIAG] onPathsFound BEGIN key=" << key
-        << " incomingPaths=" << paths.size()
-        << " m_terminalStatusSize=" << m_terminalStatus.size()
-        << " thread=" << QThread::currentThread();
-    // Dump the full m_terminalStatus snapshot so we can
-    // correlate the pointers with the allocation / deletion
-    // log entries emitted earlier.
-    for (auto it = m_terminalStatus.constBegin();
-         it != m_terminalStatus.constEnd(); ++it)
-    {
-        qCInfo(lcClientTerminal).nospace()
-            << "[DIAG]   m_terminalStatus[" << it.key()
-            << "] = " << static_cast<const void *>(it.value());
-    }
 
     // Clean up old top paths
     QList<Path *> oldPaths = m_topPaths.value(key);
@@ -1263,7 +1280,10 @@ void TerminalSimulationClient::onPathsFound(
     }
 
     // Log event for auditing
-    qCInfo(lcClientTerminal) << "Path found from" << start << "to" << end;
+    qCInfo(lcClientTerminal) << "Path found from" << start << "to"
+                             << end << "mode" << mode
+                             << "topN" << requestedTopN
+                             << "skipDelays" << skipDelays;
 }
 
 // Handle containers added event

@@ -12,6 +12,7 @@
  */
 #pragma once
 
+#include "GUI/Utils/PathComparisonViewModel.h"
 #include "GUI/Widgets/ShortestPathTable.h"
 #include <QDialog>
 #include <QGridLayout>
@@ -129,6 +130,7 @@ private:
      * @brief List of PathData objects being compared
      */
     QList<const ShortestPathsTable::PathData *> m_pathData;
+    PathComparisonViewModel m_viewModel;
 
     /**
      * @brief Tab widget for organizing comparison views

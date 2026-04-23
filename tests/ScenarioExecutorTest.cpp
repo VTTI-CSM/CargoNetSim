@@ -95,7 +95,7 @@ private slots:
         auto *segment = new PathSegment(
             "seg1", "O", "D",
             TransportationTypes::TransportationMode::Train);
-        QList<Terminal *>    emptyTerminals;
+        QList<PathTerminal>  emptyTerminals;
         QList<PathSegment *> segments{segment};
         auto *path =
             new Path(1, 0.0, 0.0, 0.0, emptyTerminals, segments);

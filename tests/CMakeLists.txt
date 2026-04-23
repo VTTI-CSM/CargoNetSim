@@ -207,6 +207,24 @@ set_target_properties(SimulationOrchestratorTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
+# Phase 2 pathFound remediation regression tests
+add_executable(PathFoundRemediationPhase2Test PathFoundRemediationPhase2Test.cpp)
+target_include_directories(PathFoundRemediationPhase2Test PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(PathFoundRemediationPhase2Test PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(PathFoundRemediationPhase2Test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+add_custom_command(
+    TARGET PathFoundRemediationPhase2Test POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/fixtures
+        ${CMAKE_BINARY_DIR}/bin/fixtures
+)
+
 # Results extractor tests
 add_executable(ResultsExtractorTest ResultsExtractorTest.cpp)
 target_include_directories(ResultsExtractorTest PRIVATE ${TEST_INCLUDE_DIRS})

@@ -28,12 +28,21 @@ PathAllocation allocate(const ScenarioDocument &doc,
     for (auto *p : paths)
     {
         if (!p) continue;
-        const QString o = p->getStartTerminal();
-        const QString d = p->getEndTerminal();
-        const int     r = rankCounter[o][d]++;
+        const QString o =
+            !p->getOriginId().isEmpty() ? p->getOriginId()
+                                        : p->getStartTerminal();
+        const QString d =
+            !p->getDestinationId().isEmpty()
+                ? p->getDestinationId()
+                : p->getEndTerminal();
+        const int r = p->getPathUid().isEmpty()
+                          ? rankCounter[o][d]++
+                          : p->getRank();
         PathKey key{ o, d, r };
         pathByKey.insert(key, p);
-        out.keyByPathId.insert(p->getPathId(), key);
+        out.keyByCanonicalPath.insert(p->canonicalPathKey(), key);
+        out.effectiveContainerCountByCanonicalPath.insert(
+            p->canonicalPathKey(), 0);
     }
 
     for (const QString &originId : doc.originTerminalIds())
@@ -123,7 +132,10 @@ PathAllocation allocate(const ScenarioDocument &doc,
             share.reserve(counts[i]);
             for (int j = 0; j < counts[i] && cursor < N; ++j, ++cursor)
                 share.append(pool[cursor]);
-            out.byPathId[(*it)->getPathId()] = share;
+            out.byCanonicalPath[(*it)->canonicalPathKey()] =
+                share;
+            out.effectiveContainerCountByCanonicalPath[(*it)->canonicalPathKey()] =
+                share.size();
             assignedForOrigin += share.size();
         }
 
@@ -141,8 +153,8 @@ PathAllocation allocate(const ScenarioDocument &doc,
     }
 
     int totalAllocated = 0;
-    for (auto it = out.byPathId.constBegin();
-         it != out.byPathId.constEnd(); ++it)
+    for (auto it = out.byCanonicalPath.constBegin();
+         it != out.byCanonicalPath.constEnd(); ++it)
         totalAllocated += it.value().size();
     qCInfo(lcScenario) << "ContainerAllocator::allocate:"
                        << "completed — total containers allocated ="

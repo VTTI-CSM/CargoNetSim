@@ -730,6 +730,11 @@ QJsonObject ScenarioSerializer::toJson(const ScenarioDocument &doc)
     for (const GlobalLink &g : doc.globalLinks) globalLinks.append(globalLinkToJson(g));
     root["global_links"] = globalLinks;
 
+    QJsonArray comparisonSnapshots;
+    for (const QJsonObject &snapshot : doc.comparisonSnapshots)
+        comparisonSnapshots.append(snapshot);
+    root["comparison_snapshots"] = comparisonSnapshots;
+
     // Scenario-scope global-link metadata (Task 17). Emitted as sibling keys
     // so the `global_links` array shape stays compatible with existing
     // fixtures. Defaults (Manual + empty) produce empty/omitted fields on the
@@ -828,6 +833,15 @@ ScenarioSerializer::fromJson(const QJsonObject &j)
     {
         GlobalLink g = globalLinkFromJson(gv.toObject());
         doc->addGlobalLink(g);
+    }
+
+    const QJsonArray comparisonSnapshots =
+        j.value("comparison_snapshots").toArray();
+    for (const QJsonValue &snapshotValue : comparisonSnapshots)
+    {
+        if (!snapshotValue.isObject())
+            continue;
+        doc->comparisonSnapshots.append(snapshotValue.toObject());
     }
 
     // Scenario-scope global-link metadata (Task 17). Absent keys → defaults

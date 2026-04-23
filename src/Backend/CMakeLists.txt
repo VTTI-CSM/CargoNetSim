@@ -151,6 +151,8 @@ set(Backend_SOURCES
     Scenario/Point2D.h
     Scenario/PropertyKeys.h
     Scenario/RegionSpec.h
+    Scenario/RuntimeArtifactIdentity.h
+    Scenario/RuntimeArtifactIdentity.cpp
     Scenario/PathAllocation.h
     Scenario/PathDiscovery.h
     Scenario/PathDiscovery.cpp

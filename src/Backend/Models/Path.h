@@ -20,6 +20,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QtGlobal>
 
 #include "Terminal.h"
 
@@ -50,6 +51,14 @@ struct PathTerminal
     QString id;             ///< Server-side terminal name/id.
     QString displayName;    ///< Human-readable name for UI.
     QString canonicalName;  ///< First of Terminal::getNames().
+    int     sequenceIndex = 0;
+    double  handlingTime = 0.0;
+    double  rawCost = 0.0;
+    bool    costsSkipped = false;
+    double  weightedTerminalDelayContribution = 0.0;
+    double  weightedTerminalCostContribution = 0.0;
+    double  weightedTerminalTotalContribution = 0.0;
+    QString skipReason;
 };
 
 /**
@@ -121,6 +130,13 @@ public:
              QObject *parent = nullptr);
 
     /**
+     * @brief Creates a deep copy of the path and its segments.
+     * @param parent Parent QObject for the clone
+     * @return Newly allocated copy owned by the caller
+     */
+    Path *clone(QObject *parent = nullptr) const;
+
+    /**
      * @brief Destroys the Path, freeing segments
      *
      * Deletes all owned PathSegment pointers.
@@ -137,6 +153,83 @@ public:
     {
         return m_pathId;
     }
+
+    QString getPathUid() const
+    {
+        return m_pathUid;
+    }
+
+    QString getOriginId() const
+    {
+        return m_originId;
+    }
+
+    QString getDestinationId() const
+    {
+        return m_destinationId;
+    }
+
+    int getRank() const
+    {
+        return m_rank;
+    }
+
+    int getRequestedMode() const
+    {
+        return m_requestedMode;
+    }
+
+    int getRequestedTopN() const
+    {
+        return m_requestedTopN;
+    }
+
+    bool skipSameModeTerminalDelaysAndCosts() const
+    {
+        return m_skipSameModeTerminalDelaysAndCosts;
+    }
+
+    double getRankingCost() const
+    {
+        return m_rankingCost;
+    }
+
+    int getEffectiveContainerCount() const
+    {
+        return m_effectiveContainerCount;
+    }
+
+    void setEffectiveContainerCount(int count)
+    {
+        m_effectiveContainerCount = qMax(0, count);
+    }
+
+    double getWeightedTerminalDelayTotal() const
+    {
+        return m_weightedTerminalDelayTotal;
+    }
+
+    double getWeightedTerminalDirectCostTotal() const
+    {
+        return m_weightedTerminalDirectCostTotal;
+    }
+
+    double getRawTerminalDelayTotal() const
+    {
+        return m_rawTerminalDelayTotal;
+    }
+
+    double getRawTerminalCostTotal() const
+    {
+        return m_rawTerminalCostTotal;
+    }
+
+    QJsonObject getCostBreakdown() const
+    {
+        return m_costBreakdown;
+    }
+
+    QString canonicalPathKey() const;
 
     /**
      * @brief Retrieves the total path cost
@@ -276,6 +369,15 @@ private:
      * @brief Unique identifier for the path
      */
     int m_pathId;
+    QString m_pathUid;
+    QString m_originId;
+    QString m_destinationId;
+    int     m_rank = 0;
+    int     m_requestedMode = 0;
+    int     m_requestedTopN = 0;
+    bool    m_skipSameModeTerminalDelaysAndCosts = true;
+    double  m_rankingCost = 0.0;
+    int     m_effectiveContainerCount = 0;
 
     /**
      * @brief Total cost of the path
@@ -291,6 +393,11 @@ private:
      * @brief Total cost at terminals
      */
     double m_totalTerminalCosts;
+    double m_weightedTerminalDelayTotal = 0.0;
+    double m_weightedTerminalDirectCostTotal = 0.0;
+    double m_rawTerminalDelayTotal = 0.0;
+    double m_rawTerminalCostTotal = 0.0;
+    QJsonObject m_costBreakdown;
 
     /**
      * @brief Value-snapshot list of terminals traversed by

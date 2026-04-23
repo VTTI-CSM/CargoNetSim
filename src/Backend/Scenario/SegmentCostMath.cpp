@@ -15,6 +15,7 @@
 #include "Backend/Models/Path.h"
 #include "Backend/Models/PathSegment.h"
 #include "PropertyKeys.h"
+#include "RuntimeArtifactIdentity.h"
 #include "TerminalCostMath.h"
 
 namespace CargoNetSim
@@ -155,13 +156,13 @@ double shipSegmentCost(
             if (!shipState)
                 continue;
 
-            QStringList idParts =
-                shipState->getShipId().split('_');
-            if (idParts.size() >= 3
-                && idParts[0]
-                       == QString::number(path->getPathId())
-                && idParts[1]
-                       == QString::number(segmentCounter))
+            RuntimeArtifactIdentity artifact;
+            if (RuntimeArtifacts::decode(
+                    shipState->getShipId(), artifact)
+                && artifact.artifactType
+                       == QStringLiteral("ship")
+                && artifact.pathKey == path->canonicalPathKey()
+                && artifact.segmentIndex == segmentCounter)
             {
                 metrics.vehicleCount++;
                 metrics.travelTime +=
@@ -228,13 +229,13 @@ double trainSegmentCost(
             if (!trainState)
                 continue;
 
-            QStringList idParts =
-                trainState->getTrainUserId().split('_');
-            if (idParts.size() >= 3
-                && idParts[0]
-                       == QString::number(path->getPathId())
-                && idParts[1]
-                       == QString::number(segmentCounter))
+            RuntimeArtifactIdentity artifact;
+            if (RuntimeArtifacts::decode(
+                    trainState->getTrainUserId(), artifact)
+                && artifact.artifactType
+                       == QStringLiteral("train")
+                && artifact.pathKey == path->canonicalPathKey()
+                && artifact.segmentIndex == segmentCounter)
             {
                 metrics.vehicleCount++;
                 metrics.travelTime +=
@@ -550,6 +551,16 @@ computePathCosts(
     const auto terminals = path->getTerminalsInPath();
 
     r.pathId        = path->getPathId();
+    r.canonicalPathKey = path->canonicalPathKey();
+    r.pathUid = path->getPathUid();
+    r.originId = path->getOriginId().isEmpty()
+        ? path->getStartTerminal()
+        : path->getOriginId();
+    r.destinationId = path->getDestinationId().isEmpty()
+        ? path->getEndTerminal()
+        : path->getDestinationId();
+    r.rank = path->getRank();
+    r.effectiveContainerCount = containerCount;
     r.edgeCosts     = edgeCosts(shipClient, trainClient, truckManager,
                                 path, segments, costFunctionWeights,
                                 transportModes, containerCount);

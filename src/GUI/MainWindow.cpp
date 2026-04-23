@@ -323,6 +323,22 @@ void MainWindow::setRuntime(
         auto *doc = &m_runtime->document();
         GUI::Scenario::SceneRepopulator::repopulate(doc, this);
 
+        if (shortestPathTable_)
+        {
+            shortestPathTable_->clear();
+            if (!doc->comparisonSnapshots.isEmpty())
+            {
+                shortestPathTable_->loadComparisonSnapshots(
+                    doc->comparisonSnapshots);
+                if (shortestPathTableDock_)
+                    shortestPathTableDock_->show();
+            }
+            else if (shortestPathTableDock_)
+            {
+                shortestPathTableDock_->hide();
+            }
+        }
+
         m_settingsCtrl->loadFromDocument();
 
         qCDebug(lcGui) << "MainWindow::setRuntime:"

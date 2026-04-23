@@ -1,0 +1,211 @@
+{
+  "responses": [
+    {
+      "event": "pathFound",
+      "params": {
+        "start_terminal": "O1",
+        "end_terminal": "DA",
+        "mode": -1,
+        "n": 2,
+        "skip_same_mode_terminal_delays_and_costs": true
+      },
+      "result": {
+        "start_terminal": "O1",
+        "end_terminal": "DA",
+        "paths": [
+          {
+            "path_id": 1,
+            "total_path_cost": 125.0,
+            "total_edge_costs": 100.0,
+            "total_terminal_costs": 25.0,
+            "cost_breakdown": {
+              "cost": 100.0,
+              "terminal_cost": 25.0
+            },
+            "terminals_in_path": [
+              {
+                "terminal": "O1",
+                "handling_time": 0.0,
+                "cost": 0.0,
+                "costs_skipped": true
+              },
+              {
+                "terminal": "H1",
+                "handling_time": 1800.0,
+                "cost": 25.0,
+                "costs_skipped": false
+              },
+              {
+                "terminal": "DA",
+                "handling_time": 0.0,
+                "cost": 0.0,
+                "costs_skipped": false
+              }
+            ],
+            "segments": [
+              {
+                "from": "O1",
+                "to": "H1",
+                "from_terminal_id": "O1",
+                "to_terminal_id": "H1",
+                "mode": 1,
+                "weight": 55.0,
+                "attributes": {
+                  "estimated_values": {
+                    "distance": 1000.0,
+                    "travelTime": 600.0
+                  },
+                  "estimated_cost": {
+                    "cost": 55.0
+                  }
+                }
+              },
+              {
+                "from": "H1",
+                "to": "DA",
+                "from_terminal_id": "H1",
+                "to_terminal_id": "DA",
+                "mode": 1,
+                "weight": 45.0,
+                "attributes": {
+                  "estimated_values": {
+                    "distance": 800.0,
+                    "travelTime": 500.0
+                  },
+                  "estimated_cost": {
+                    "cost": 45.0
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "path_id": 2,
+            "total_path_cost": 140.0,
+            "total_edge_costs": 110.0,
+            "total_terminal_costs": 30.0,
+            "cost_breakdown": {
+              "cost": 110.0,
+              "terminal_cost": 30.0
+            },
+            "terminals_in_path": [
+              {
+                "terminal": "O1",
+                "handling_time": 0.0,
+                "cost": 0.0,
+                "costs_skipped": true
+              },
+              {
+                "terminal": "H2",
+                "handling_time": 2400.0,
+                "cost": 30.0,
+                "costs_skipped": false
+              },
+              {
+                "terminal": "DA",
+                "handling_time": 0.0,
+                "cost": 0.0,
+                "costs_skipped": false
+              }
+            ],
+            "segments": [
+              {
+                "from": "O1",
+                "to": "H2",
+                "from_terminal_id": "O1",
+                "to_terminal_id": "H2",
+                "mode": 2,
+                "weight": 60.0,
+                "attributes": {
+                  "estimated_values": {
+                    "distance": 1100.0,
+                    "travelTime": 650.0
+                  },
+                  "estimated_cost": {
+                    "cost": 60.0
+                  }
+                }
+              },
+              {
+                "from": "H2",
+                "to": "DA",
+                "from_terminal_id": "H2",
+                "to_terminal_id": "DA",
+                "mode": 2,
+                "weight": 50.0,
+                "attributes": {
+                  "estimated_values": {
+                    "distance": 900.0,
+                    "travelTime": 550.0
+                  },
+                  "estimated_cost": {
+                    "cost": 50.0
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "event": "pathFound",
+      "params": {
+        "start_terminal": "O2",
+        "end_terminal": "DB",
+        "mode": -1,
+        "n": 1,
+        "skip_same_mode_terminal_delays_and_costs": true
+      },
+      "result": {
+        "start_terminal": "O2",
+        "end_terminal": "DB",
+        "paths": [
+          {
+            "path_id": 1,
+            "total_path_cost": 90.0,
+            "total_edge_costs": 70.0,
+            "total_terminal_costs": 20.0,
+            "cost_breakdown": {
+              "cost": 70.0,
+              "terminal_cost": 20.0
+            },
+            "terminals_in_path": [
+              {
+                "terminal": "O2",
+                "handling_time": 0.0,
+                "cost": 0.0,
+                "costs_skipped": true
+              },
+              {
+                "terminal": "DB",
+                "handling_time": 1200.0,
+                "cost": 20.0,
+                "costs_skipped": false
+              }
+            ],
+            "segments": [
+              {
+                "from": "O2",
+                "to": "DB",
+                "from_terminal_id": "O2",
+                "to_terminal_id": "DB",
+                "mode": 1,
+                "weight": 70.0,
+                "attributes": {
+                  "estimated_values": {
+                    "distance": 700.0,
+                    "travelTime": 400.0
+                  },
+                  "estimated_cost": {
+                    "cost": 70.0
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

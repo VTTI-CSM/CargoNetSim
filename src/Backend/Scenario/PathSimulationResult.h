@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QString>
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -18,6 +20,12 @@ namespace Scenario
 struct PathSimulationResult
 {
     int    pathId        = -1;
+    QString canonicalPathKey;
+    QString pathUid;
+    QString originId;
+    QString destinationId;
+    int    rank          = 0;
+    int    effectiveContainerCount = 0;
     double totalCost     = 0.0;
     double edgeCosts     = 0.0;
     double terminalCosts = 0.0;

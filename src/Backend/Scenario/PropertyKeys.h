@@ -38,6 +38,7 @@ namespace Terminal {
 namespace Segment {
     // Sub-object container names
     inline const QString Estimated               = QStringLiteral("estimated");
+    inline const QString EstimatedCost           = QStringLiteral("estimated_cost");
     /// Preserved as "actual_values" (not "actual") for backward compat
     /// with raw-read sites in PathComparisonDialog / PathReportGenerator.
     inline const QString ActualValues            = QStringLiteral("actual_values");

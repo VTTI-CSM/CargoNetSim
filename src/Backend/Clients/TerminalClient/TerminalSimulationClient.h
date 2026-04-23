@@ -520,6 +520,11 @@ protected:
                          const QJsonObject &message) override;
 
 private:
+    static QString makeTopPathsCacheKey(
+        const QString &start, const QString &end, int mode,
+        int requestedTopN,
+        bool skipSameModeTerminalDelaysAndCosts);
+
     /**
      * @brief Handles terminal added event
      * @param message Event data from server

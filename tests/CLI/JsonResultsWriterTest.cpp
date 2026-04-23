@@ -49,6 +49,8 @@ private slots:
 
         PSR r;
         r.pathId        = 1;
+        r.pathUid       = QStringLiteral("uid-1");
+        r.canonicalPathKey = QStringLiteral("uid-1");
         r.totalCost     = 123.45;
         r.edgeCosts     = 100.0;
         r.terminalCosts = 23.45;
@@ -62,6 +64,7 @@ private slots:
         QCOMPARE(paths.size(), 1);
         const QJsonObject p = paths.first().toObject();
         QCOMPARE(p.value(QStringLiteral("path_id")).toInt(),          1);
+        QCOMPARE(p.value(QStringLiteral("path_uid")).toString(), QStringLiteral("uid-1"));
         QCOMPARE(p.value(QStringLiteral("total_cost")).toDouble(),    123.45);
         QCOMPARE(p.value(QStringLiteral("edge_costs")).toDouble(),    100.0);
         QCOMPARE(p.value(QStringLiteral("terminal_costs")).toDouble(), 23.45);
@@ -79,6 +82,8 @@ private slots:
         {
             PSR r;
             r.pathId    = i;
+            r.pathUid   = QStringLiteral("uid-%1").arg(i);
+            r.canonicalPathKey = r.pathUid;
             r.totalCost = 10.0 * i;
             results.append(r);
         }
@@ -150,6 +155,8 @@ private slots:
 
         PSR r;
         r.pathId    = 42;
+        r.pathUid   = QStringLiteral("uid-O1-DA-r0");
+        r.canonicalPathKey = r.pathUid;
         r.totalCost = 1.0;
 
         PathMetrics m;
@@ -167,12 +174,12 @@ private slots:
         m.carbonPerContainer  = 0.134;
         m.riskPerContainer    = 0.003;
         m.fuelType            = QStringLiteral("diesel_1");
-        QHash<int, PathMetrics> metrics;
-        metrics.insert(42, m);
+        QHash<QString, PathMetrics> metrics;
+        metrics.insert(r.canonicalPathKey, m);
 
         PathKey key{ QStringLiteral("O1"), QStringLiteral("DA"), 0 };
-        QHash<int, PathKey> keys;
-        keys.insert(42, key);
+        QHash<QString, PathKey> keys;
+        keys.insert(r.canonicalPathKey, key);
 
         Cli::JsonResultsWriter w;
         QString                err;
@@ -189,6 +196,8 @@ private slots:
         QCOMPARE(pObj.value(QStringLiteral("destination")).toString(),
                  QString("DA"));
         QCOMPARE(pObj.value(QStringLiteral("rank")).toInt(), 0);
+        QCOMPARE(pObj.value(QStringLiteral("path_uid")).toString(),
+                 r.pathUid);
         const auto mo = pObj.value(QStringLiteral("metrics")).toObject();
         QCOMPARE(mo.value(QStringLiteral("container_count")).toInt(), 6);
         QCOMPARE(mo.value(QStringLiteral("vehicles_needed")).toInt(), 1);
@@ -198,6 +207,135 @@ private slots:
         QCOMPARE(mo.value(QStringLiteral("per_container")).toObject()
                      .value(QStringLiteral("energy_kwh")).toDouble(),
                  500.0);
+    }
+
+    void test_ranked_but_unsimulated_alternative_is_labeled_explicitly()
+    {
+        QSKIP("Deferred outside Phase 4: explicit simulation_state for ranked but undispatched alternatives depends on the alternative-path simulation policy work.");
+
+        using namespace CargoNetSim;
+        using namespace CargoNetSim::Backend::Scenario;
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString out = dir.filePath(QStringLiteral("results.json"));
+
+        PSR dispatched;
+        dispatched.pathId = 1;
+        dispatched.pathUid = QStringLiteral("uid-1");
+        dispatched.canonicalPathKey = dispatched.pathUid;
+        dispatched.totalCost = 100.0;
+
+        PSR alternative;
+        alternative.pathId = 2;
+        alternative.pathUid = QStringLiteral("uid-2");
+        alternative.canonicalPathKey = alternative.pathUid;
+        alternative.totalCost = 120.0;
+
+        PathMetrics simulated;
+        simulated.valid = true;
+        simulated.containerCount = 6;
+        simulated.vehiclesNeeded = 1;
+
+        QHash<QString, PathMetrics> metrics;
+        metrics.insert(QStringLiteral("uid-1"), simulated);
+        metrics.insert(QStringLiteral("uid-2"), PathMetrics{});
+
+        QHash<QString, PathKey> keys;
+        keys.insert(QStringLiteral("uid-1"),
+                    PathKey{QStringLiteral("O1"), QStringLiteral("DA"), 0});
+        keys.insert(QStringLiteral("uid-2"),
+                    PathKey{QStringLiteral("O1"), QStringLiteral("DA"), 1});
+
+        Cli::JsonResultsWriter w;
+        QString err;
+        QVERIFY2(w.write(out, {dispatched, alternative}, &err, metrics, keys),
+                 qPrintable(err));
+
+        const auto root = readBack(out);
+        const auto paths = root.value(QStringLiteral("paths")).toArray();
+        QCOMPARE(paths.size(), 2);
+
+        const auto altObj = paths[1].toObject();
+        QCOMPARE(altObj.value(QStringLiteral("rank")).toInt(), 1);
+        QCOMPARE(altObj.value(QStringLiteral("simulation_state")).toString(),
+                 QStringLiteral("not_simulated"));
+    }
+
+    void test_duplicate_display_path_ids_do_not_collapse_canonical_metrics()
+    {
+        using namespace CargoNetSim;
+        using namespace CargoNetSim::Backend::Scenario;
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString out = dir.filePath(QStringLiteral("results.json"));
+
+        PSR first;
+        first.pathId = 1;
+        first.pathUid = QStringLiteral("uid-O1-DA-r0");
+        first.canonicalPathKey = first.pathUid;
+        first.originId = QStringLiteral("O1");
+        first.destinationId = QStringLiteral("DA");
+        first.rank = 0;
+        first.effectiveContainerCount = 4;
+        first.totalCost = 100.0;
+
+        PSR second;
+        second.pathId = 1;
+        second.pathUid = QStringLiteral("uid-O2-DB-r0");
+        second.canonicalPathKey = second.pathUid;
+        second.originId = QStringLiteral("O2");
+        second.destinationId = QStringLiteral("DB");
+        second.rank = 0;
+        second.effectiveContainerCount = 7;
+        second.totalCost = 200.0;
+
+        PathMetrics firstMetrics;
+        firstMetrics.valid = true;
+        firstMetrics.containerCount = 4;
+
+        PathMetrics secondMetrics;
+        secondMetrics.valid = true;
+        secondMetrics.containerCount = 7;
+
+        QHash<QString, PathMetrics> metrics;
+        metrics.insert(first.canonicalPathKey, firstMetrics);
+        metrics.insert(second.canonicalPathKey, secondMetrics);
+
+        QHash<QString, PathKey> keys;
+        keys.insert(first.canonicalPathKey,
+                    PathKey{QStringLiteral("O1"), QStringLiteral("DA"), 0});
+        keys.insert(second.canonicalPathKey,
+                    PathKey{QStringLiteral("O2"), QStringLiteral("DB"), 0});
+
+        Cli::JsonResultsWriter w;
+        QString err;
+        QVERIFY2(w.write(out, {first, second}, &err, metrics, keys),
+                 qPrintable(err));
+
+        const auto paths =
+            readBack(out).value(QStringLiteral("paths")).toArray();
+        QCOMPARE(paths.size(), 2);
+
+        const auto firstObj = paths[0].toObject();
+        const auto secondObj = paths[1].toObject();
+        QCOMPARE(firstObj.value(QStringLiteral("path_id")).toInt(), 1);
+        QCOMPARE(secondObj.value(QStringLiteral("path_id")).toInt(), 1);
+        QCOMPARE(firstObj.value(QStringLiteral("path_uid")).toString(),
+                 first.pathUid);
+        QCOMPARE(secondObj.value(QStringLiteral("path_uid")).toString(),
+                 second.pathUid);
+        QCOMPARE(firstObj.value(QStringLiteral("metrics")).toObject()
+                     .value(QStringLiteral("container_count")).toInt(),
+                 4);
+        QCOMPARE(secondObj.value(QStringLiteral("metrics")).toObject()
+                     .value(QStringLiteral("container_count")).toInt(),
+                 7);
+        QCOMPARE(firstObj.value(QStringLiteral("origin")).toString(),
+                 QStringLiteral("O1"));
+        QCOMPARE(secondObj.value(QStringLiteral("origin")).toString(),
+                 QStringLiteral("O2"));
     }
 };
 

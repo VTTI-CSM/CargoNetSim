@@ -77,8 +77,7 @@ public:
      * level; per-mode cost math lives in the private calculate* methods.
      */
     QList<PathSimulationResult>
-    extract(const QList<CargoNetSim::Backend::Path *> &paths,
-            int                                        containerCount);
+    extract(const QList<CargoNetSim::Backend::Path *> &paths);
 
 signals:
     void statusMessage(const QString &msg);

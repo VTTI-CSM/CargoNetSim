@@ -46,7 +46,7 @@ Path *makePath(int id,
                     /*totalCost=*/0.0,
                     /*edgeCost=*/0.0,
                     /*termCost=*/0.0,
-                    QList<Terminal *>{},                 // empty — unused
+                    QList<PathTerminal>{},               // empty — unused
                     QList<PathSegment *>{ seg });
 }
 
@@ -108,9 +108,9 @@ private slots:
         paths << makePath(42, "O", "D");
 
         const auto alloc = ContainerAllocator::allocate(doc, paths);
-        QCOMPARE(alloc.byPathId.value(42).size(), 5);
+        QCOMPARE(alloc.containersForPath(paths[0]).size(), 5);
         const PathKey expectedKey{ "O", "D", 0 };
-        QCOMPARE(alloc.keyByPathId.value(42), expectedKey);
+        QCOMPARE(alloc.keyForPath(paths[0]), expectedKey);
 
         qDeleteAll(paths);
     }
@@ -129,8 +129,8 @@ private slots:
         paths << makePath(2, "other", "D");  // unrelated origin
 
         const auto alloc = ContainerAllocator::allocate(doc, paths);
-        QCOMPARE(alloc.byPathId.value(1).size(), 3);
-        QVERIFY(!alloc.byPathId.contains(2));
+        QCOMPARE(alloc.containersForPath(paths[0]).size(), 3);
+        QVERIFY(alloc.containersForPath(paths[1]).isEmpty());
         qDeleteAll(paths);
     }
 
@@ -150,8 +150,8 @@ private slots:
         paths << makePath(20, "O2", "D");
 
         const auto alloc = ContainerAllocator::allocate(doc, paths);
-        QCOMPARE(alloc.byPathId.value(10).size(), 2);
-        QCOMPARE(alloc.byPathId.value(20).size(), 7);
+        QCOMPARE(alloc.containersForPath(paths[0]).size(), 2);
+        QCOMPARE(alloc.containersForPath(paths[1]).size(), 7);
         qDeleteAll(paths);
     }
 
@@ -175,8 +175,8 @@ private slots:
         paths << makePath(2, "O", "B");
 
         const auto alloc = ContainerAllocator::allocate(doc, paths);
-        QCOMPARE(alloc.byPathId.value(1).size(), 6);
-        QCOMPARE(alloc.byPathId.value(2).size(), 4);
+        QCOMPARE(alloc.containersForPath(paths[0]).size(), 6);
+        QCOMPARE(alloc.containersForPath(paths[1]).size(), 4);
         qDeleteAll(paths);
     }
 
@@ -205,9 +205,9 @@ private slots:
         paths << makePath(3, "O", "C");
 
         const auto alloc = ContainerAllocator::allocate(doc, paths);
-        const int total = alloc.byPathId.value(1).size()
-                        + alloc.byPathId.value(2).size()
-                        + alloc.byPathId.value(3).size();
+        const int total = alloc.containersForPath(paths[0]).size()
+                        + alloc.containersForPath(paths[1]).size()
+                        + alloc.containersForPath(paths[2]).size();
         QCOMPARE(total, 7);
         qDeleteAll(paths);
     }
@@ -232,9 +232,9 @@ private slots:
         paths << makePath(200, "O2", "DA");
 
         const auto alloc = ContainerAllocator::allocate(*doc, paths);
-        QCOMPARE(alloc.byPathId.value(100).size(), 6);
-        QCOMPARE(alloc.byPathId.value(101).size(), 4);
-        QCOMPARE(alloc.byPathId.value(200).size(), 5);
+        QCOMPARE(alloc.containersForPath(paths[0]).size(), 6);
+        QCOMPARE(alloc.containersForPath(paths[1]).size(), 4);
+        QCOMPARE(alloc.containersForPath(paths[2]).size(), 5);
 
         qDeleteAll(paths);
     }

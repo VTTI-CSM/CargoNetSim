@@ -1,6 +1,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -56,6 +57,42 @@ private slots:
 
         auto reloaded = ProjectSerializer::loadProject(outPath, &err);
         QVERIFY2(reloaded != nullptr, qPrintable(err));
+    }
+
+    void test_round_trip_preserves_comparison_snapshots()
+    {
+        const QString srcPath =
+            QDir(QCoreApplication::applicationDirPath())
+                .filePath("fixtures/scenario/minimal.yml");
+
+        QString err;
+        auto    doc = ProjectSerializer::loadProject(srcPath, &err);
+        QVERIFY2(doc != nullptr, qPrintable(err));
+
+        doc->comparisonSnapshots = {
+            QJsonObject{
+                {QStringLiteral("schema_version"), 1},
+                {QStringLiteral("canonical_path_key"),
+                 QStringLiteral("uid-O1-DA-r0")},
+                {QStringLiteral("path_uid"),
+                 QStringLiteral("uid-O1-DA-r0")},
+                {QStringLiteral("selection"),
+                 QJsonObject{
+                     {QStringLiteral("is_visible"), true},
+                     {QStringLiteral("is_selected"), true}}}
+            }
+        };
+
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        const QString outPath =
+            QDir(tempDir.path()).filePath("comparison_round_trip.yml");
+
+        QVERIFY(ProjectSerializer::saveProject(*doc, outPath, &err));
+        auto reloaded = ProjectSerializer::loadProject(outPath, &err);
+        QVERIFY2(reloaded != nullptr, qPrintable(err));
+        QCOMPARE(reloaded->comparisonSnapshots,
+                 doc->comparisonSnapshots);
     }
 };
 

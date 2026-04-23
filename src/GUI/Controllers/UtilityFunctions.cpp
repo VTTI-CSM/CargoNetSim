@@ -672,6 +672,13 @@ void CargoNetSim::GUI::UtilitiesFunctions::
             const auto allocation =
                 ContainerAllocator::allocate(
                     mainWindow->runtime()->document(), paths);
+            for (auto *path : paths)
+            {
+                if (!path)
+                    continue;
+                path->setEffectiveContainerCount(
+                    allocation.effectiveContainerCountForPath(path));
+            }
 
             QHash<int, PathMetrics> predicted;
             if (cfg)
@@ -685,7 +692,7 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                         PathMetricsCalculator::gatherInputs(
                             mode, *cfg, veh);
                     const int count =
-                        allocation.byPathId.value(p->getPathId()).size();
+                        p->getEffectiveContainerCount();
                     predicted.insert(
                         p->getPathId(),
                         PathMetricsCalculator::compute(
@@ -1111,9 +1118,6 @@ void CargoNetSim::GUI::UtilitiesFunctions::
 
                          auto &ctl =
                              CargoNetSim::CargoNetSimController::getInstance();
-                         const auto &doc = rt->document();
-                         const auto allocation =
-                             ContainerAllocator::allocate(doc, rt->paths());
 
                          // Monetary costs — pre-existing behavior.
                          for (const auto &r : rt->results())
@@ -1148,8 +1152,9 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                              // folds fuel into energyConsumption.
 
                              const int count =
-                                 allocation.byPathId
-                                     .value(p->getPathId()).size();
+                                 p->getEffectiveContainerCount();
+                             if (count <= 0)
+                                 continue;
                              const auto mode =
                                  p->getSegments().first()->getMode();
                              int capacity = 1;

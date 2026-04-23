@@ -21,8 +21,8 @@ bool JsonResultsWriter::write(
     const QString &outputPath,
     const QList<Backend::Scenario::PathSimulationResult> &results,
     QString *err,
-    const QHash<int, Backend::Scenario::PathMetrics> &metrics,
-    const QHash<int, Backend::Scenario::PathKey>     &keys,
+    const QHash<QString, Backend::Scenario::PathMetrics> &metrics,
+    const QHash<QString, Backend::Scenario::PathKey>     &keys,
     const QList<Backend::Path *>                     &paths)
 {
     qCInfo(lcCli) << "JsonResultsWriter::write: path" << outputPath
@@ -32,28 +32,44 @@ bool JsonResultsWriter::write(
                   << "paths:" << paths.size();
 
     // Build a lookup index for fast O(1) segment lookup inside the loop.
-    QHash<int, Backend::Path *> pathIndex;
+    QHash<QString, Backend::Path *> pathIndex;
     for (auto *p : paths)
-        if (p) pathIndex[p->getPathId()] = p;
+        if (p) pathIndex[p->canonicalPathKey()] = p;
 
     QJsonArray pathsArr;
     for (const auto &r : results)
     {
         QJsonObject p;
         p[QStringLiteral("path_id")]        = r.pathId;
+        if (!r.pathUid.isEmpty())
+            p[QStringLiteral("path_uid")] = r.pathUid;
         p[QStringLiteral("total_cost")]     = r.totalCost;
         p[QStringLiteral("edge_costs")]     = r.edgeCosts;
         p[QStringLiteral("terminal_costs")] = r.terminalCosts;
+        p[QStringLiteral("effective_container_count")] =
+            r.effectiveContainerCount;
+
+        const QString canonicalKey = !r.canonicalPathKey.isEmpty()
+            ? r.canonicalPathKey
+            : r.pathUid;
 
         // Optional: (origin, destination, rank) from PathKey. Keys are
         // pure display metadata — consumers that do not care will see
         // them as unknown fields and ignore them.
-        if (keys.contains(r.pathId))
+        if (keys.contains(canonicalKey))
         {
-            const auto &k = keys.value(r.pathId);
+            const auto &k = keys.value(canonicalKey);
             p[QStringLiteral("origin")]      = k.originId;
             p[QStringLiteral("destination")] = k.destinationId;
             p[QStringLiteral("rank")]        = k.rank;
+        }
+        else
+        {
+            if (!r.originId.isEmpty())
+                p[QStringLiteral("origin")] = r.originId;
+            if (!r.destinationId.isEmpty())
+                p[QStringLiteral("destination")] = r.destinationId;
+            p[QStringLiteral("rank")] = r.rank;
         }
 
         // Optional: per-path metrics block. Only emitted when the
@@ -61,9 +77,9 @@ bool JsonResultsWriter::write(
         // lookup data available). An invalid entry is equivalent to
         // the caller not supplying one at all — the block is simply
         // omitted rather than emitted as null or all-zeros.
-        if (metrics.contains(r.pathId))
+        if (metrics.contains(canonicalKey))
         {
-            const auto &m = metrics.value(r.pathId);
+            const auto &m = metrics.value(canonicalKey);
             if (m.valid)
             {
                 QJsonObject perVeh;
@@ -92,9 +108,9 @@ bool JsonResultsWriter::write(
         }
 
         // Optional segments array — emitted when a matching Path* is available.
-        if (pathIndex.contains(r.pathId))
+        if (pathIndex.contains(canonicalKey))
         {
-            const auto *path = pathIndex.value(r.pathId);
+            const auto *path = pathIndex.value(canonicalKey);
 
             using M = Backend::TransportationTypes::TransportationMode;
             auto modeStr = [](M m) -> QString {

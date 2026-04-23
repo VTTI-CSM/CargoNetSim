@@ -109,6 +109,13 @@ bool ScenarioExecutor::run()
         SimulationRequestBundle bundle;
         const auto allocation =
             ContainerAllocator::allocate(*m_document, m_paths);
+        for (auto *path : m_paths)
+        {
+            if (!path)
+                continue;
+            path->setEffectiveContainerCount(
+                allocation.effectiveContainerCountForPath(path));
+        }
         if (!builder.build(m_paths, allocation, bundle, &err))
         {
             qCWarning(lcScenario) << "ScenarioExecutor::run: build failed:" << err;
@@ -149,9 +156,7 @@ bool ScenarioExecutor::run()
         connect(&extractor, &ResultsExtractor::errorMessage,
                 this, &ScenarioExecutor::errorMessage);
 
-        const int containerCount =
-            m_document->originContainers().size();
-        m_results = extractor.extract(m_paths, containerCount);
+        m_results = extractor.extract(m_paths);
         qCDebug(lcScenario) << "ScenarioExecutor::run: extracted" << m_results.size() << "path results";
         for (const auto &r : m_results)
             emit pathResultReady(r);
