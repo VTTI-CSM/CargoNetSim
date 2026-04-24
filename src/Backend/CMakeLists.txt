@@ -159,6 +159,11 @@ set(Backend_SOURCES
     Scenario/PathDistancePopulator.h
     Scenario/PathDistancePopulator.cpp
     Scenario/PathKey.h
+    Scenario/PreparedPathEligibilityService.h
+    Scenario/PreparedPathEligibilityService.cpp
+    Scenario/PreparedPathStatus.h
+    Scenario/PathPreparationService.h
+    Scenario/PathPreparationService.cpp
     Scenario/PathMetrics.h
     Scenario/PathMetricsInputs.h
     Scenario/PathMetricsCalculator.h

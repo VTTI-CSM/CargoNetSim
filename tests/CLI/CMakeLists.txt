@@ -220,3 +220,15 @@ add_custom_command(
         ${CMAKE_SOURCE_DIR}/tests/fixtures
         ${CMAKE_BINARY_DIR}/bin/fixtures
 )
+
+# Track A1: lightweight RunCommand contract tests that do not require
+# a live simulator stack. These lock argument handling and the
+# temporary bare-run=`--all` transition without standing up RabbitMQ.
+add_executable(RunCommandTest RunCommandTest.cpp)
+target_link_libraries(RunCommandTest PRIVATE
+    cargonetsim-cli-lib
+    Qt6::Test
+)
+set_target_properties(RunCommandTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)

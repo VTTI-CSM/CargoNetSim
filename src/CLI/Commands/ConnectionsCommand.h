@@ -18,9 +18,9 @@ namespace Cli {
  *
  * Plan 5 Task 13. Exit codes:
  *   * `ExitCode::Success (0)`            — every polled server reports
- *     `connected=true` (or the poll yields no servers).
+ *     `commandAvailable=true` (or the poll yields no servers).
  *   * `ExitCode::ServerDisconnected (5)` — at least one server reports
- *     `connected=false`.
+ *     `commandAvailable=false`.
  *
  * Arguments:
  *   * `--watch` — after the first render, keep polling once per second

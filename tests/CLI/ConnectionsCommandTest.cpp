@@ -3,6 +3,7 @@
 #include <QList>
 #include <QTest>
 
+#include "Backend/Scenario/SimulatorCommandAvailability.h"
 #include "Backend/Scenario/ServerStatusProbe.h"
 #include "CLI/Commands/ConnectionsCommand.h"
 #include "CLI/ExitCodes.h"
@@ -32,8 +33,12 @@ private:
     {
         Status s;
         s.server       = name;
+        s.clientExists = true;
         s.connected    = connected;
         s.hasConsumers = hasConsumers;
+        s.commandAvailable =
+            CargoNetSim::Backend::Scenario::isCommandAvailable(
+                connected, hasConsumers);
         return s;
     }
 
@@ -54,7 +59,7 @@ private slots:
         QList<Status> statuses = {
             make(QStringLiteral("ship"),     true, true),
             make(QStringLiteral("train"),    true, true),
-            make(QStringLiteral("truck"),    true, false),
+            make(QStringLiteral("truck"),    true, true),
             make(QStringLiteral("terminal"), true, true),
         };
         Cli::ConnectionsCommand cmd(makePoller(statuses), &sink);
@@ -84,6 +89,26 @@ private slots:
         QCOMPARE(rc,
                  static_cast<int>(Cli::ExitCode::ServerDisconnected));
         QVERIFY(sink.data().contains("disconnected"));
+    }
+
+    void test_missing_consumers_returns_server_disconnected_exit_code()
+    {
+        using namespace CargoNetSim;
+        QBuffer sink;
+        QVERIFY(sink.open(QIODevice::WriteOnly));
+
+        QList<Status> statuses = {
+            make(QStringLiteral("ship"),     true, true),
+            make(QStringLiteral("train"),    true, false),
+            make(QStringLiteral("truck"),    true, true),
+            make(QStringLiteral("terminal"), true, true),
+        };
+        Cli::ConnectionsCommand cmd(makePoller(statuses), &sink);
+        const int               rc = cmd.execute({});
+
+        QCOMPARE(rc,
+                 static_cast<int>(Cli::ExitCode::ServerDisconnected));
+        QVERIFY(sink.data().contains("consumers=0"));
     }
 
     void test_empty_poller_result_returns_success_with_no_output()

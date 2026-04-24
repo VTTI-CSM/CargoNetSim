@@ -91,6 +91,7 @@ bool ScenarioExecutor::run()
         {
             qCWarning(lcScenario) << "ScenarioExecutor::run: validation failed:" << err;
             emit errorMessage(err);
+            emit failed(err);
             emit finished();
             return false;
         }
@@ -120,6 +121,7 @@ bool ScenarioExecutor::run()
         {
             qCWarning(lcScenario) << "ScenarioExecutor::run: build failed:" << err;
             emit errorMessage(err);
+            emit failed(err);
             emit finished();
             return false;
         }
@@ -140,6 +142,9 @@ bool ScenarioExecutor::run()
         if (!orch.submit(bundle, &err))
         {
             qCWarning(lcScenario) << "ScenarioExecutor::run: orchestrator submit failed:" << err;
+            emit failed(err.isEmpty()
+                            ? QStringLiteral("Simulation submission failed")
+                            : err);
             emit finished();
             return false;
         }
@@ -163,20 +168,25 @@ bool ScenarioExecutor::run()
 
         emit statusMessage(QStringLiteral(
             "Simulation validation completed successfully"));
+        emit succeeded();
     }
     catch (const std::exception &e)
     {
         qCCritical(lcScenario) << "ScenarioExecutor::run: exception:" << e.what();
-        emit errorMessage(
-            QString("Error during simulation: %1").arg(e.what()));
+        const QString message =
+            QString("Error during simulation: %1").arg(e.what());
+        emit errorMessage(message);
+        emit failed(message);
         emit finished();
         return false;
     }
     catch (...)
     {
         qCCritical(lcScenario) << "ScenarioExecutor::run: unknown exception";
-        emit errorMessage(
-            QStringLiteral("Unknown error during simulation"));
+        const QString message =
+            QStringLiteral("Unknown error during simulation");
+        emit errorMessage(message);
+        emit failed(message);
         emit finished();
         return false;
     }

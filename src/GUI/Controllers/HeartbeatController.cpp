@@ -1,6 +1,7 @@
 #include "HeartbeatController.h"
 #include "../MainWindow.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Scenario/SimulatorCommandAvailability.h"
 #include "Backend/Scenario/ServerStatusProbe.h"
 #include <QDateTime>
 #include <QDebug>
@@ -148,8 +149,7 @@ void HeartbeatController::checkQueueConsumers()
 
     for (const auto &status : statuses)
     {
-        const bool ok =
-            status.clientExists && status.hasConsumers;
+        const bool ok = status.commandAvailable;
         qCDebug(lcGuiHeartbeat) << "HeartbeatController::checkQueueConsumers:"
                                 << "server=" << status.server
                                 << "connected=" << ok;

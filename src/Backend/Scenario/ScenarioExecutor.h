@@ -66,6 +66,8 @@ signals:
     void statusMessage(const QString &msg);
     void errorMessage(const QString &msg);
     void pathResultReady(const PathSimulationResult &result);
+    void succeeded();
+    void failed(const QString &message);
     void finished();
 
 private:

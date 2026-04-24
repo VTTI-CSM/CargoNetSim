@@ -8,6 +8,7 @@
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Models/Path.h"
 #include "Backend/Models/PathSegment.h"
+#include "Backend/Scenario/PathPreparationService.h"
 #include "Backend/Scenario/PathSimulationResult.h"
 #include "Backend/Scenario/ScenarioExecutor.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
@@ -99,7 +100,18 @@ private slots:
         QList<PathSegment *> segments{segment};
         auto *path =
             new Path(1, 0.0, 0.0, 0.0, emptyTerminals, segments);
-        rt.setPaths({path});
+        const auto prepared =
+            PathPreparationService::prepareDiscoveredPaths(
+                {path}, rt.document(),
+                controller.getConfigController(),
+                /*networks=*/nullptr,
+                /*regionData=*/nullptr,
+                controller.getVehicleController());
+        rt.setPreparedPaths(prepared);
+        QString selectionErr;
+        QVERIFY2(rt.setSelectedPathKeys(prepared.pathIdentities(),
+                                        &selectionErr),
+                 qPrintable(selectionErr));
 
         // 5. Drive the simulation to completion via QEventLoop — CLI
         //    will use this same pattern (spec §5.3 idiom).
@@ -122,7 +134,6 @@ private slots:
         QCOMPARE(results.first().pathId, 1);
         QVERIFY(results.first().totalCost > 0.0);
 
-        delete path;  // Path owns its segments
         controller.stopAll();
     }
 };

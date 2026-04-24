@@ -5,6 +5,8 @@
 #include <QString>
 #include <memory>
 
+#include "PreparedPathStatus.h"
+#include "PathPreparationService.h"
 #include "PathSimulationResult.h"
 #include "ScenarioRegistry.h"
 
@@ -31,10 +33,13 @@ class ScenarioExecutor;
  * Lifecycle:
  *   1. ctor(unique_ptr<ScenarioDocument>) — claim ownership of the doc
  *   2. load()                             — validate + apply → ready
- *   3. setPaths(paths)                    — GUI or CLI provides paths
- *   4. startSimulation()                  — spawn executor on worker
+ *   3. setPreparedPaths(paths)            — backend-owned prepared paths
+ *      become the runtime source of truth
+ *   4. setSelectedPathKeys(keys)          — GUI or CLI selects a subset by
+ *      stable prepared identity
+ *   5. startSimulation()                  — spawn executor on worker
  *      thread, return immediately; result arrives via `completed`/`failed`
- *   5. stop()/pause()/resume()            — forward to CargoNetSimController
+ *   6. stop()/pause()/resume()            — forward to CargoNetSimController
  *
  * CLI blocking-wait idiom:
  *     QEventLoop loop;
@@ -57,10 +62,20 @@ public:
      *  Idempotent — calling a second time re-validates and re-applies. */
     bool load();
 
-    /** @brief Caller supplies the paths to simulate (GUI: checked rows
-     *         from ShortestPathTable; CLI: discovered paths). Must be
-     *         set before startSimulation. */
-    void setPaths(const QList<CargoNetSim::Backend::Path *> &paths);
+    /** @brief Backend-owned prepared paths become the runtime source
+     *         of truth for later selection and execution. */
+    void setPreparedPaths(const PreparedPathSet &preparedPaths);
+
+    /** @brief Re-evaluate prepared-path eligibility from current
+     *         backend simulator availability for GUI/CLI rendering. */
+    void refreshPreparedPathEligibility();
+
+    /** @brief Select the subset of prepared paths to simulate using the
+     *         stable prepared-path identities supplied by A2 discovery.
+     *         Returns false and optionally fills @p err if any requested
+     *         identity is unknown. */
+    bool setSelectedPathKeys(const QVector<QString> &pathKeys,
+                             QString               *err = nullptr);
 
     /** @brief Spawn the executor on the worker thread. Returns immediately;
      *         progress via signals. Fails if load() hasn't run, or if a
@@ -79,11 +94,25 @@ public:
     ScenarioDocument       &document();
     const ScenarioRegistry &registry() const { return m_registry; }
     ScenarioRegistry       &registry()       { return m_registry; }
+    const PreparedPathSet  &preparedPaths() const
+    {
+        return m_preparedPaths;
+    }
+    const QHash<QString, PreparedPathEligibility> &preparedPathEligibility()
+        const
+    {
+        return m_preparedPathEligibility;
+    }
+
+    /** @brief Validate the current selection against fresh backend
+     *         simulator availability. */
+    bool validateCurrentSelectionForSimulation(
+        QString *err = nullptr) const;
 
     QList<PathSimulationResult> results() const { return m_lastResults; }
 
-    /** @brief Plan 8.2: completion handler reads actual segment
-     *         attributes through these non-owning path pointers. */
+    /** @brief Backend-owned selected path view used by executor and post-run
+     *         completion handlers. */
     const QList<CargoNetSim::Backend::Path *> &paths() const
     {
         return m_paths;
@@ -98,16 +127,33 @@ signals:
 
 private slots:
     void onStepCompleted(double currentTime, double progress);
+    void onExecutorSucceeded();
+    void onExecutorFailed(const QString &message);
     void onExecutorFinished();
 
 private:
+    enum class TerminalOutcome
+    {
+        None,
+        Succeeded,
+        Failed
+    };
+
+    void cleanupWorker();
+
     std::unique_ptr<ScenarioDocument>   m_document;
     ScenarioRegistry                    m_registry;
+    PreparedPathSet                     m_preparedPaths;
+    QHash<QString, PreparedPathEligibility> m_preparedPathEligibility;
     QThread                            *m_workerThread = nullptr;
     ScenarioExecutor                   *m_executor     = nullptr;
     QList<CargoNetSim::Backend::Path *> m_paths;
+    QVector<QString>                    m_selectedPathKeys;
     QList<PathSimulationResult>         m_lastResults;
     bool                                m_loaded       = false;
+    bool                                m_terminalSignaled = false;
+    TerminalOutcome                     m_terminalOutcome = TerminalOutcome::None;
+    QString                             m_failureMessage;
     double                              m_endTime      = 0.0;
     double                              m_lastTime     = 0.0;
     double                              m_lastProgress = 0.0;

@@ -183,7 +183,7 @@ QWidget *PathComparisonDialog::createSummaryTab()
             try
             {
                 startTerminal = getTerminalDisplayNameByID(
-                    path->path,
+                    path->path.get(),
                     path->path->getStartTerminal());
             }
             catch (const std::exception &e)
@@ -200,7 +200,7 @@ QWidget *PathComparisonDialog::createSummaryTab()
             try
             {
                 endTerminal = getTerminalDisplayNameByID(
-                    path->path,
+                    path->path.get(),
                     path->path->getEndTerminal());
             }
             catch (const std::exception &e)
@@ -521,10 +521,10 @@ QWidget *PathComparisonDialog::createSegmentsTab()
                                 "%3 (%4)</p>")
                             .arg(path->path->getPathId())
                             .arg(m_viewModel.terminalDisplayName(
-                                path->path,
+                                path->path.get(),
                                 segments[segmentIdx]->getStart()))
                             .arg(m_viewModel.terminalDisplayName(
-                                path->path,
+                                path->path.get(),
                                 segments[segmentIdx]->getEnd()))
                             .arg(Backend::TransportationTypes::toString(
                                 segments[segmentIdx]->getMode()));
@@ -1061,11 +1061,11 @@ QWidget *PathComparisonDialog::createCostsTab()
                 {
                     QString startTerminalName =
                         getTerminalDisplayNameByID(
-                            path->path, segments[segmentIdx]
+                            path->path.get(), segments[segmentIdx]
                                             ->getStart());
                     QString endTerminalName =
                         getTerminalDisplayNameByID(
-                            path->path,
+                            path->path.get(),
                             segments[segmentIdx]->getEnd());
                     QString segmentInfo =
                         QString("<p><b>Path %1:</b> %2 → "
@@ -1852,7 +1852,7 @@ void PathComparisonDialog::onExportButtonClicked()
             {
                 out << ","
                     << getTerminalDisplayNameByID(
-                           path->path,
+                           path->path.get(),
                            path->path->getStartTerminal());
             }
             catch (const std::exception &)
@@ -1877,7 +1877,7 @@ void PathComparisonDialog::onExportButtonClicked()
             {
                 out << ","
                     << getTerminalDisplayNameByID(
-                           path->path,
+                           path->path.get(),
                            path->path->getEndTerminal());
             }
             catch (const std::exception &)
@@ -2016,11 +2016,12 @@ void PathComparisonDialog::onExportButtonClicked()
 
                 QString startTerminalName =
                     getTerminalDisplayNameByID(
-                        path->path,
+                        path->path.get(),
                         segments[i]->getStart());
                 QString endTerminalName =
                     getTerminalDisplayNameByID(
-                        path->path, segments[i]->getEnd());
+                        path->path.get(),
+                        segments[i]->getEnd());
 
                 out << "Segment " << i + 1 << " Details:\n";
                 out << "Start Terminal,"
@@ -2201,11 +2202,11 @@ void PathComparisonDialog::onExportButtonClicked()
 
                     QString startTerminalName =
                         getTerminalDisplayNameByID(
-                            path->path,
+                            path->path.get(),
                             segments[i]->getStart());
                     QString endTerminalName =
                         getTerminalDisplayNameByID(
-                            path->path,
+                            path->path.get(),
                             segments[i]->getEnd());
 
                     QString segmentInfo =

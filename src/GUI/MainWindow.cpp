@@ -1993,7 +1993,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     }
 }
 
-void MainWindow::flashPathLines(int pathId)
+void MainWindow::flashPathLines(const QString &pathKey)
 {
     if (!shortestPathTable_)
     {
@@ -2002,13 +2002,13 @@ void MainWindow::flashPathLines(int pathId)
 
     // Get the selected path data
     const ShortestPathsTable::PathData *pathData =
-        shortestPathTable_->getDataByPathId(pathId);
+        shortestPathTable_->getDataByPathKey(pathKey);
 
     if (!pathData || !pathData->path)
     {
         qCWarning(lcGui)
-            << "Cannot flash path: Invalid path data for ID"
-            << pathId;
+            << "Cannot flash path: Invalid path data for key"
+            << pathKey;
         return;
     }
 

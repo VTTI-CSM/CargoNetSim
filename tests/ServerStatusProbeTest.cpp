@@ -35,6 +35,7 @@ private slots:
                                     .arg(s.server)));
             QCOMPARE(s.connected, false);
             QCOMPARE(s.hasConsumers, false);
+            QCOMPARE(s.commandAvailable, false);
         }
     }
 };

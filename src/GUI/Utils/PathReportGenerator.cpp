@@ -696,14 +696,14 @@ void PathReportGenerator::addPathSegments(
             // Start terminal
             styleTableCell(table, row, 1,
                            getTerminalDisplayNameByID(
-                               pathData->path,
+                               pathData->path.get(),
                                segments[i]->getStart()));
 
             // End terminal
             styleTableCell(
                 table, row, 2,
                 getTerminalDisplayNameByID(
-                    pathData->path, segments[i]->getEnd()));
+                    pathData->path.get(), segments[i]->getEnd()));
 
             // Transportation mode
             styleTableCell(
@@ -1684,10 +1684,10 @@ void PathReportGenerator::addPathCosts(
                     QString routeInfo =
                         QString("%1 → %2 (%3)")
                             .arg(getTerminalDisplayNameByID(
-                                pathData->path,
+                                pathData->path.get(),
                                 segments[i]->getStart()))
                             .arg(getTerminalDisplayNameByID(
-                                pathData->path,
+                                pathData->path.get(),
                                 segments[i]->getEnd()))
                             .arg(
                                 Backend::TransportationTypes::
@@ -2208,10 +2208,10 @@ void PathReportGenerator::addSegmentComparisonTable(
                     QString segmentInfo =
                         QString("%1 → %2 (%3)")
                             .arg(getTerminalDisplayNameByID(
-                                path->path,
+                                path->path.get(),
                                 segments[i]->getStart()))
                             .arg(getTerminalDisplayNameByID(
-                                path->path,
+                                path->path.get(),
                                 segments[i]->getEnd()))
                             .arg(
                                 Backend::TransportationTypes::
@@ -2520,11 +2520,11 @@ void PathReportGenerator::
                         tr("Path %1: %2 → %3 (%4)")
                             .arg(path->path->getPathId())
                             .arg(getTerminalDisplayNameByID(
-                                path->path,
+                                path->path.get(),
                                 segments[segmentIdx]
                                     ->getStart()))
                             .arg(getTerminalDisplayNameByID(
-                                path->path,
+                                path->path.get(),
                                 segments[segmentIdx]
                                     ->getEnd()))
                             .arg(
@@ -2813,11 +2813,11 @@ void PathReportGenerator::addSegmentCostComparisonTables(
                         tr("Path %1: %2 → %3 (%4)")
                             .arg(path->path->getPathId())
                             .arg(getTerminalDisplayNameByID(
-                                path->path,
+                                path->path.get(),
                                 segments[segmentIdx]
                                     ->getStart()))
                             .arg(getTerminalDisplayNameByID(
-                                path->path,
+                                path->path.get(),
                                 segments[segmentIdx]
                                     ->getEnd()))
                             .arg(

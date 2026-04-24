@@ -13,6 +13,7 @@
 #include "Backend/Scenario/GlobalLink.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRegistry.h"
+#include "Backend/Scenario/SimulatorCommandAvailability.h"
 
 namespace CargoNetSim {
 namespace Backend {
@@ -110,13 +111,13 @@ QList<CargoNetSim::Backend::Path *> PathDiscovery::findTopPaths(
         return result;
     }
 
-    auto *handler = terminalClient->getRabbitMQHandler();
-    if (!handler || !handler->isConnected()
-        || !handler->hasCommandQueueConsumers())
+    if (!isCommandAvailable(terminalClient))
     {
         qCCritical(lcScenario) << "PathDiscovery::findTopPaths:"
-                               << "TerminalSim is not connected";
-        if (err) *err = QStringLiteral("TerminalSim is not connected");
+                               << "TerminalSim command queue is unavailable";
+        if (err)
+            *err = QStringLiteral(
+                "TerminalSim command queue is unavailable");
         return result;
     }
 

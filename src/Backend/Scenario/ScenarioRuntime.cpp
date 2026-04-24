@@ -1,10 +1,13 @@
 #include "ScenarioRuntime.h"
 
 #include <QMetaObject>
+#include <QSet>
+#include <QStringList>
 #include <QThread>
 
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "PreparedPathEligibilityService.h"
 #include "ScenarioApplier.h"
 #include "ScenarioDocument.h"
 #include "ScenarioExecutor.h"
@@ -31,19 +34,11 @@ ScenarioRuntime::ScenarioRuntime(
             &CargoNetSim::CargoNetSimController::
                 simulationStepCompleted,
             this, &ScenarioRuntime::onStepCompleted);
-    connect(&controller,
-            &CargoNetSim::CargoNetSimController::
-                simulationCompleted,
-            this, &ScenarioRuntime::completed);
 }
 
 ScenarioRuntime::~ScenarioRuntime()
 {
-    if (m_workerThread)
-    {
-        m_workerThread->quit();
-        m_workerThread->wait();
-    }
+    cleanupWorker();
 }
 
 bool ScenarioRuntime::load()
@@ -86,16 +81,98 @@ bool ScenarioRuntime::load()
 
     m_endTime = m_document->simulation.endTime.value_or(86400.0);
     controller.setSimulationEndTime(m_endTime);
+    m_preparedPaths = PreparedPathSet();
+    m_preparedPathEligibility.clear();
+    m_paths.clear();
+    m_selectedPathKeys.clear();
+    m_lastResults.clear();
     m_loaded = true;
     qCInfo(lcScenario) << "ScenarioRuntime::load: succeeded, endTime:" << m_endTime;
     return true;
 }
 
-void ScenarioRuntime::setPaths(
-    const QList<CargoNetSim::Backend::Path *> &paths)
+void ScenarioRuntime::setPreparedPaths(
+    const PreparedPathSet &preparedPaths)
 {
-    m_paths = paths;
-    qCDebug(lcScenario) << "ScenarioRuntime::setPaths: set" << m_paths.size() << "paths";
+    m_preparedPaths = preparedPaths;
+    refreshPreparedPathEligibility();
+    m_paths.clear();
+    m_selectedPathKeys.clear();
+    qCDebug(lcScenario)
+        << "ScenarioRuntime::setPreparedPaths: prepared"
+        << m_preparedPaths.size() << "path(s)";
+}
+
+void ScenarioRuntime::refreshPreparedPathEligibility()
+{
+    if (m_preparedPaths.isEmpty())
+    {
+        m_preparedPathEligibility.clear();
+        return;
+    }
+
+    m_preparedPathEligibility =
+        PreparedPathEligibilityService::evaluateAll(
+            m_preparedPaths,
+            PreparedPathEligibilityService::currentAvailability());
+}
+
+bool ScenarioRuntime::setSelectedPathKeys(
+    const QVector<QString> &pathKeys, QString *err)
+{
+    if (pathKeys.isEmpty())
+    {
+        m_selectedPathKeys.clear();
+        m_paths.clear();
+        qCDebug(lcScenario)
+            << "ScenarioRuntime::setSelectedPathKeys: cleared selection";
+        return true;
+    }
+
+    if (m_preparedPaths.isEmpty())
+    {
+        if (err)
+        {
+            *err = QStringLiteral(
+                "No prepared paths are available for selection");
+        }
+        return false;
+    }
+
+    QVector<QString> normalizedKeys;
+    normalizedKeys.reserve(pathKeys.size());
+    QSet<QString> seen;
+    QStringList   missing;
+    for (const auto &pathKey : pathKeys)
+    {
+        if (pathKey.isEmpty() || seen.contains(pathKey))
+            continue;
+        if (!m_preparedPaths.containsPathIdentity(pathKey))
+        {
+            missing.append(pathKey);
+            continue;
+        }
+        seen.insert(pathKey);
+        normalizedKeys.append(pathKey);
+    }
+
+    if (!missing.isEmpty())
+    {
+        if (err)
+        {
+            *err = QStringLiteral(
+                       "Unknown prepared path identity: %1")
+                       .arg(missing.join(QStringLiteral(", ")));
+        }
+        return false;
+    }
+
+    m_selectedPathKeys = normalizedKeys;
+    m_paths = m_preparedPaths.rawPaths(m_selectedPathKeys);
+    qCDebug(lcScenario)
+        << "ScenarioRuntime::setSelectedPathKeys: selected"
+        << m_paths.size() << "path(s)";
+    return true;
 }
 
 bool ScenarioRuntime::startSimulation()
@@ -118,6 +195,10 @@ bool ScenarioRuntime::startSimulation()
 
     m_workerThread = new QThread(this);
     m_executor     = new ScenarioExecutor();
+    m_terminalOutcome  = TerminalOutcome::None;
+    m_failureMessage.clear();
+    m_terminalSignaled = false;
+    m_lastResults.clear();
 
     // Plan-deviation: Task 23 decoupled the executor from the runtime.
     // Inject inputs directly instead of setContext(this).
@@ -133,11 +214,24 @@ bool ScenarioRuntime::startSimulation()
             this, &ScenarioRuntime::statusMessage);
     connect(m_executor, &ScenarioExecutor::errorMessage,
             this, &ScenarioRuntime::errorMessage);
+    connect(m_executor, &ScenarioExecutor::succeeded, this,
+            &ScenarioRuntime::onExecutorSucceeded);
+    connect(m_executor, &ScenarioExecutor::failed, this,
+            &ScenarioRuntime::onExecutorFailed);
     connect(m_executor, &ScenarioExecutor::finished, this,
             &ScenarioRuntime::onExecutorFinished);
 
     m_workerThread->start();
     return true;
+}
+
+bool ScenarioRuntime::validateCurrentSelectionForSimulation(
+    QString *err) const
+{
+    return PreparedPathEligibilityService::validateSelection(
+        m_preparedPaths, m_selectedPathKeys,
+        PreparedPathEligibilityService::currentAvailability(),
+        err);
 }
 
 void ScenarioRuntime::onStepCompleted(double currentTime,
@@ -159,6 +253,53 @@ void ScenarioRuntime::onExecutorFinished()
         m_lastResults = m_executor->results();
     qCDebug(lcScenario) << "ScenarioRuntime::onExecutorFinished: collected"
                         << m_lastResults.size() << "results";
+    cleanupWorker();
+
+    switch (m_terminalOutcome)
+    {
+    case TerminalOutcome::Succeeded:
+        if (!m_terminalSignaled)
+        {
+            m_terminalSignaled = true;
+            emit completed();
+        }
+        break;
+    case TerminalOutcome::Failed:
+        if (!m_terminalSignaled)
+        {
+            m_terminalSignaled = true;
+            emit failed(m_failureMessage.isEmpty()
+                            ? QStringLiteral("Simulation failed")
+                            : m_failureMessage);
+        }
+        break;
+    case TerminalOutcome::None:
+        if (!m_terminalSignaled)
+        {
+            m_terminalSignaled = true;
+            emit failed(QStringLiteral(
+                "Simulation ended without a terminal outcome"));
+        }
+        break;
+    }
+}
+
+void ScenarioRuntime::onExecutorSucceeded()
+{
+    m_terminalOutcome = TerminalOutcome::Succeeded;
+    m_failureMessage.clear();
+}
+
+void ScenarioRuntime::onExecutorFailed(const QString &message)
+{
+    m_terminalOutcome = TerminalOutcome::Failed;
+    m_failureMessage =
+        message.isEmpty() ? QStringLiteral("Simulation failed")
+                          : message;
+}
+
+void ScenarioRuntime::cleanupWorker()
+{
     if (m_workerThread)
     {
         m_workerThread->quit();
@@ -171,7 +312,6 @@ void ScenarioRuntime::onExecutorFinished()
         m_executor->deleteLater();
         m_executor = nullptr;
     }
-    emit completed();
 }
 
 void ScenarioRuntime::stop()

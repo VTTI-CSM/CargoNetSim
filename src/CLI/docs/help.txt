@@ -4,22 +4,18 @@ USAGE
     cargonetsim-cli <subcommand> [options]
 
 SUBCOMMANDS
-    run         <scenario.yml>   Execute the scenario end-to-end.
-                                 The scenario YAML is the ONLY argument;
-                                 every parameter (output directory,
-                                 simulation end time, origins and
-                                 destinations, etc.) is read from the
-                                 YAML itself. No flags accepted.
+    run         [--all] <scenario.yml>
+                                 Execute the scenario end-to-end.
+                                 `--all` is the explicit Track A1
+                                 selection flag; a bare scenario path
+                                 is still accepted temporarily as an
+                                 alias for `--all`.
 
     validate    <scenario.yml>   Parse + validate; exit non-zero on error.
 
     preview     <scenario.yml>   Load, validate, run linker, emit JSON to stdout.
 
-    status      [--json]         Query running simulations.
-
     connections [--watch]        Show per-server RabbitMQ connection status.
-
-    stop        [--pid N]        Halt a running simulation gracefully.
 
     --help, -h                   This help.
     --version, -v                Print version and exit.
@@ -28,8 +24,7 @@ EXIT CODES
     0   success
     1   simulation run failed at runtime
     2   scenario validation failed
-    3   connection to simulators could not be established within timeout
-    4   no running simulation found (for status/stop)
+    3   required simulator unavailable before simulation start
     5   at least one simulator disconnected (for connections)
    64   misuse / bad command-line arguments
 

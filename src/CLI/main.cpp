@@ -26,8 +26,6 @@
 #include "Commands/HelpVersion.h"
 #include "Commands/PreviewCommand.h"
 #include "Commands/RunCommand.h"
-#include "Commands/StatusCommand.h"
-#include "Commands/StopCommand.h"
 #include "Commands/ValidateCommand.h"
 
 int main(int argc, char *argv[])
@@ -73,12 +71,8 @@ int main(int argc, char *argv[])
                       std::make_shared<ValidateCommand>());
     d.registerCommand(QStringLiteral("preview"),
                       std::make_shared<PreviewCommand>());
-    d.registerCommand(QStringLiteral("status"),
-                      std::make_shared<StatusCommand>());
     d.registerCommand(QStringLiteral("connections"),
                       std::make_shared<ConnectionsCommand>());
-    d.registerCommand(QStringLiteral("stop"),
-                      std::make_shared<StopCommand>());
 
     // Share one instance between the long + short aliases so a future
     // HelpCommand that caches state (e.g. precomputed help text) would

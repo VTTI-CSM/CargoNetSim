@@ -267,9 +267,9 @@ public:
 
     /**
      * @brief Flashes the path lines for a selected path
-     * @param pathId ID of the path to visualize
+     * @param pathKey Stable backend-derived path identity
      */
-    void flashPathLines(int pathId);
+    void flashPathLines(const QString &pathKey);
 
     void showStatusBarMessage(QString message,
                               int     timeout = 0);

@@ -10,6 +10,7 @@
 #include "Backend/Clients/TruckClient/TruckSimulationManager.h"
 #include "Backend/Models/ShipSystem.h"
 #include "Backend/Models/TrainSystem.h"
+#include "Backend/Scenario/SimulatorCommandAvailability.h"
 
 namespace CargoNetSim
 {
@@ -82,15 +83,14 @@ bool SimulationOrchestrator::ensureClientConnected(
         return emitAndFail(
             kind + QStringLiteral(" client is not available"), err);
     }
-    auto *handler = client->getRabbitMQHandler();
-    if (!handler || !handler->hasCommandQueueConsumers())
+    if (!isCommandAvailable(client))
     {
         qCWarning(lcScenario) << "SimulationOrchestrator::ensureClientConnected:"
-                              << kind << "not connected to RabbitMQ";
+                              << kind << "command queue is unavailable";
         return emitAndFail(
             kind
                 + QStringLiteral(
-                    " client is not connected to RabbitMQ"),
+                    " client command queue is unavailable"),
             err);
     }
     return true;

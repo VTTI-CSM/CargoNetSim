@@ -102,8 +102,8 @@ QString PathComparisonViewModel::segmentDescription(
 
     const auto *segment = segments[segmentIndex];
     return QStringLiteral("%1 → %2 (%3)")
-        .arg(terminalDisplayName(pathData->path, segment->getStart()),
-             terminalDisplayName(pathData->path, segment->getEnd()),
+        .arg(terminalDisplayName(pathData->path.get(), segment->getStart()),
+             terminalDisplayName(pathData->path.get(), segment->getEnd()),
              Backend::TransportationTypes::toString(segment->getMode()));
 }
 

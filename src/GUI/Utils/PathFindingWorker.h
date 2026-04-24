@@ -1,29 +1,32 @@
 #pragma once
 
-#include <QList>
 #include <QObject>
 #include <QString>
 
+#include "Backend/Scenario/PathPreparationService.h"
+
 namespace CargoNetSim {
 namespace Backend {
-class Path;
+class ConfigController;
+class NetworkController;
+class RegionDataController;
+class VehicleController;
+namespace Scenario {
+class ScenarioDocument;
+class ScenarioRegistry;
+} // namespace Scenario
 } // namespace Backend
 
 namespace GUI {
 
-class MainWindow;
-
 /**
  * @brief Worker-thread wrapper that drives
- *        `Backend::Scenario::PathDiscovery` off the GUI thread.
+ *        backend path discovery + preparation off the GUI thread.
  *
  * Plan 5 Task 5 reduced this class to a minimal QObject thread
- * boundary. All path-finding logic lives in
- * `Backend::Scenario::PathDiscovery` — this worker only:
- *   * reads the scenario from `MainWindow::runtime()`,
- *   * delegates to `PathDiscovery::findTopPaths`,
- *   * re-emits the result (or the error) via Qt signals so the
- *     GUI can display them without blocking the event loop.
+ * boundary. The worker receives stable backend inputs at initialize-time,
+ * performs discovery plus preparation entirely on the worker thread, and
+ * re-emits an immutable prepared result back to the GUI thread.
  *
  * Lifecycle (see UtilityFunctions.cpp where this worker is
  * spawned): consumer creates the worker, calls `initialize()`,
@@ -39,9 +42,16 @@ class PathFindingWorker : public QObject
 public:
     PathFindingWorker();
 
-    /// Bind the worker to a MainWindow (for its ScenarioRuntime)
-    /// and the top-N count. Must be called before `process()`.
-    void initialize(MainWindow *window, int count);
+    /// Bind the worker to the backend discovery/preparation inputs.
+    /// Must be called before `process()`.
+    void initialize(
+        const Backend::Scenario::ScenarioDocument *document,
+        const Backend::Scenario::ScenarioRegistry *registry,
+        int                                        count,
+        Backend::ConfigController                 *config,
+        Backend::NetworkController                *networks,
+        Backend::RegionDataController             *regionData,
+        Backend::VehicleController                *vehicles);
 
 public slots:
     /// Entry point on the worker thread. Always emits exactly one
@@ -49,13 +59,19 @@ public slots:
     void process();
 
 signals:
-    void resultReady(const QList<Backend::Path *> &paths);
+    void resultReady(
+        const Backend::Scenario::PreparedPathSet &preparedPaths);
     void error(const QString &message);
     void finished();
 
 private:
-    MainWindow *mainWindow = nullptr;
-    int         pathsCount = 0;
+    const Backend::Scenario::ScenarioDocument *m_document = nullptr;
+    const Backend::Scenario::ScenarioRegistry *m_registry = nullptr;
+    Backend::ConfigController                 *m_config = nullptr;
+    Backend::NetworkController                *m_networks = nullptr;
+    Backend::RegionDataController             *m_regionData = nullptr;
+    Backend::VehicleController                *m_vehicles = nullptr;
+    int                                        pathsCount = 0;
 };
 
 } // namespace GUI

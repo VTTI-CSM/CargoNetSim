@@ -57,7 +57,7 @@ private slots:
         auto *s2 = new PathSegment("s2", "T2", "T3", Mode::Train);
         s2->setEstimatedPhysicalMetrics(200.0, 0.8, 0.03);
 
-        Path p(1, 0.0, 0.0, 0.0, QList<CargoNetSim::Backend::Terminal *>{},
+        Path p(1, 0.0, 0.0, 0.0, QList<CargoNetSim::Backend::PathTerminal>{},
                 QList<PathSegment *>{s1, s2});
 
         QCOMPARE(p.totalEstimatedEnergyConsumption(), 300.0);

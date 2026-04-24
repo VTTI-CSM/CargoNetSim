@@ -31,6 +31,7 @@ public:
         bool    clientExists = false;
         bool    connected    = false;
         bool    hasConsumers = false;
+        bool    commandAvailable = false;
     };
 
     explicit ServerStatusProbe(QObject *parent = nullptr);

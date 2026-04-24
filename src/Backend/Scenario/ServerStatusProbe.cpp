@@ -7,6 +7,7 @@
 #include "Backend/Clients/TruckClient/TruckSimulationManager.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Scenario/SimulatorCommandAvailability.h"
 
 #include <QDebug>
 #include <exception>
@@ -73,6 +74,8 @@ QList<ServerStatusProbe::ServerStatus> ServerStatusProbe::pollAll()
             terminal.connected    = c->isConnected();
             if (auto *h = c->getRabbitMQHandler())
                 terminal.hasConsumers = h->hasCommandQueueConsumers();
+            terminal.commandAvailable = isCommandAvailable(
+                terminal.connected, terminal.hasConsumers);
         }
         qCDebug(lcScenario) << "ServerStatusProbe::pollAll: TerminalSim"
                             << "connected=" << terminal.connected
@@ -84,6 +87,8 @@ QList<ServerStatusProbe::ServerStatus> ServerStatusProbe::pollAll()
             train.connected    = c->isConnected();
             if (auto *h = c->getRabbitMQHandler())
                 train.hasConsumers = h->hasCommandQueueConsumers();
+            train.commandAvailable = isCommandAvailable(
+                train.connected, train.hasConsumers);
         }
         qCDebug(lcScenario) << "ServerStatusProbe::pollAll: NeTrainSim"
                             << "connected=" << train.connected
@@ -95,6 +100,8 @@ QList<ServerStatusProbe::ServerStatus> ServerStatusProbe::pollAll()
             ship.connected    = c->isConnected();
             if (auto *h = c->getRabbitMQHandler())
                 ship.hasConsumers = h->hasCommandQueueConsumers();
+            ship.commandAvailable = isCommandAvailable(
+                ship.connected, ship.hasConsumers);
         }
         qCDebug(lcScenario) << "ServerStatusProbe::pollAll: ShipNetSim"
                             << "connected=" << ship.connected
@@ -102,12 +109,16 @@ QList<ServerStatusProbe::ServerStatus> ServerStatusProbe::pollAll()
 
         if (auto *tm = controller.getTruckManager())
         {
-            truck.clientExists = true;
-            // Truck manager aggregates per-network clients; "connected"
-            // maps to "any command queue consumer active" which is also
-            // the truck-manager-level check used today.
-            truck.hasConsumers = tm->hasCommandQueueConsumers();
-            truck.connected    = truck.hasConsumers;
+            const bool hasConcreteClients =
+                !tm->getAllClientNames().isEmpty();
+            truck.clientExists = hasConcreteClients;
+            if (hasConcreteClients)
+            {
+                truck.connected    = tm->isConnected();
+                truck.hasConsumers = tm->hasCommandQueueConsumers();
+                truck.commandAvailable = isCommandAvailable(
+                    truck.connected, truck.hasConsumers);
+            }
         }
         qCDebug(lcScenario) << "ServerStatusProbe::pollAll: INTEGRATION"
                             << "connected=" << truck.connected

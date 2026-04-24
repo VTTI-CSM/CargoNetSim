@@ -1,10 +1,27 @@
 #pragma once
 
+#include <functional>
+
+#include <QHash>
+#include <QList>
+#include <QString>
+
+#include "Backend/Scenario/PathKey.h"
+#include "Backend/Scenario/PathMetrics.h"
+#include "Backend/Scenario/PathSimulationResult.h"
+#include "CLI/ExitCodes.h"
 #include "CLI/Subcommand.h"
 
 class QIODevice;
+class RunCommandTest;
 
 namespace CargoNetSim {
+namespace Backend {
+class Path;
+namespace Scenario {
+class ScenarioDocument;
+}
+}
 namespace Cli {
 
 /**
@@ -16,32 +33,26 @@ namespace Cli {
  *   1. `ScenarioSerializer::fromYaml`      — parse the YAML.
  *   2. `ScenarioValidator::validate`       — surface every issue to
  *      stderr via the shared `formatValidationIssues` helper.
- *   3. `CargoNetSimController::initialize` + `startAll` + wait for
- *      the `allClientsReady` signal (30 s budget).
+ *   3. `CargoNetSimController::initialize` + `startAll`.
  *   4. `ScenarioRuntime::load`             — validate + apply.
  *   5. `Backend::Scenario::PathDiscovery`  — produce the top-N paths.
- *   6. `RuntimeStateFile::write` (Task 10) — make this process
- *      visible to sibling `status` / `stop` commands.
- *   7. `ControlChannelServer` (Task 9)     — accept `{"op":"status"}`
- *      and `{"op":"stop"}` from those siblings.
- *   8. `ProgressReporter` (Task 8)         — rate-limited stderr
+ *   6. `ProgressReporter` (Task 8)         — rate-limited stderr
  *      ticks driven by `ScenarioRuntime::progressChanged`.
- *   9. `ScenarioRuntime::startSimulation`  — spawn the executor;
+ *   7. `ScenarioRuntime::statusMessage`    — direct stage updates
+ *      streamed to the terminal during the blocking run.
+ *   8. `ScenarioRuntime::startSimulation`  — spawn the executor;
  *      block the calling thread on a local `QEventLoop` until
  *      `completed` or `failed`.
- *  10. `JsonResultsWriter` / `CsvResultsWriter` (Tasks 6 + 7) —
+ *   9. `JsonResultsWriter` / `CsvResultsWriter` (Tasks 6 + 7) —
  *      emit `results.{json,csv}` under the YAML's `output.directory`.
  *
- * Argument contract (plan 5 preamble, spec §8.3): `run` takes
- * **exactly one** positional scenario YAML file. Any other argv shape
- * (zero args, ≥ 2 args, any `--flag`) returns `ExitCode::BadArgs`.
- * Every simulation parameter — output directory, end time, origins,
- * etc. — is read from the YAML itself.
+ * Argument contract (Track A1 transition): `run` takes exactly one
+ * positional scenario YAML file and currently supports only `--all`
+ * as explicit selection intent. A bare scenario path is still treated
+ * as a temporary alias for `--all`.
  *
- * Cleanup: every resource (controller startup, state file,
- * RabbitMQ connection, IPC listener) is released via `qScopeGuard`
- * on every exit path, success or failure. No stale state files or
- * lingering sockets after `run` returns.
+ * Cleanup: controller startup is released via `qScopeGuard` on every
+ * exit path, success or failure.
  *
  * Output sink: the optional `QIODevice *` constructor parameter
  * receives every stderr write — diagnostics, validator issues, and
@@ -56,6 +67,40 @@ public:
     int execute(const QStringList &args) override;
 
 private:
+    friend class ::RunCommandTest;
+
+    struct WriterHooks
+    {
+        std::function<bool(const QString &)> mkpath;
+        std::function<bool(
+            const QString &,
+            const QList<CargoNetSim::Backend::Scenario::PathSimulationResult> &,
+            QString *,
+            const QHash<QString, CargoNetSim::Backend::Scenario::PathMetrics> &,
+            const QHash<QString, CargoNetSim::Backend::Scenario::PathKey> &,
+            const QList<CargoNetSim::Backend::Path *> &)>
+            writeJson;
+        std::function<bool(
+            const QString &,
+            const QList<CargoNetSim::Backend::Scenario::PathSimulationResult> &,
+            QString *)>
+            writeCsv;
+    };
+
+    static WriterHooks defaultWriterHooks();
+
+    int writeOutputs(
+        const CargoNetSim::Backend::Scenario::ScenarioDocument &doc,
+        const QList<CargoNetSim::Backend::Scenario::PathSimulationResult>
+            &results,
+        const QList<CargoNetSim::Backend::Path *> &paths,
+        const QHash<QString, CargoNetSim::Backend::Scenario::PathMetrics>
+            &predictedMetricsByCanonicalPath,
+        const QHash<QString, CargoNetSim::Backend::Scenario::PathKey>
+            &pathKeysByCanonicalPath,
+        const WriterHooks                         &hooks =
+            defaultWriterHooks()) const;
+
     QIODevice *m_err;  // not owned; nullptr → write to stderr
 };
 

@@ -16,12 +16,9 @@
 #include "GUI/Utils/PathFindingWorker.h"
 #include "GUI/Widgets/TerminalSelectionDialog.h"
 
-#include "Backend/Scenario/ContainerAllocator.h"
 #include "Backend/Scenario/NetworkLookup.h"
-#include "Backend/Scenario/PathDistancePopulator.h"
-#include "Backend/Scenario/EstimatedPhysicsPopulator.h"
 #include "Backend/Scenario/PathMetricsCalculator.h"
-#include "Backend/Scenario/PathSimulationResult.h"
+#include "Backend/Scenario/PathPreparationService.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 
@@ -617,15 +614,19 @@ void CargoNetSim::GUI::UtilitiesFunctions::
     // Create a worker and a thread
     QThread           *thread = new QThread();
     PathFindingWorker *worker = new PathFindingWorker();
+    auto              *rt     = mainWindow->runtime();
+    auto              &ctl =
+        CargoNetSim::CargoNetSimController::getInstance();
+    auto *cfg  = ctl.getConfigController();
+    auto *nets = ctl.getNetworkController();
+    auto *rgn  = ctl.getRegionDataController();
+    auto *veh  = ctl.getVehicleController();
+    worker->initialize(&rt->document(), &rt->registry(),
+                       PathsCount, cfg, nets, rgn, veh);
 
     // Set up connections
     QObject::connect(thread, &QThread::started, worker,
-                     [mainWindow, PathsCount, worker]() {
-                         worker->initialize(mainWindow,
-                                            PathsCount);
-                         worker->process();
-                     });
-    // &PathFindingWorker::process);
+                     &PathFindingWorker::process);
     QObject::connect(worker, &PathFindingWorker::finished,
                      thread, &QThread::quit);
     QObject::connect(worker, &PathFindingWorker::finished,
@@ -634,76 +635,29 @@ void CargoNetSim::GUI::UtilitiesFunctions::
     QObject::connect(thread, &QThread::finished, thread,
                      &QThread::deleteLater);
 
-    // Plan 8.2: resultReady orchestrates three stages before the table:
-    //   (1) populator writes estimated.{distance,duration} per segment
-    //   (2) calculator derives per-vehicle predicted PathMetrics per path
-    //   (3) table receives (paths, predicted) — actual stays empty until
-    //       ScenarioExecutor fires its setActualMetrics on completion.
+    // A2 slice 2: discovery + preparation now complete on the worker
+    // thread and the runtime becomes the backend-owned source of truth
+    // for the prepared path set consumed by the GUI.
     QObject::connect(
         worker, &PathFindingWorker::resultReady, mainWindow,
-        [mainWindow](const QList<Backend::Path *> &paths) {
-            using namespace CargoNetSim::Backend::Scenario;
-
-            auto &ctl =
-                CargoNetSim::CargoNetSimController::getInstance();
-            auto *cfg  = ctl.getConfigController();
-            auto *nets = ctl.getNetworkController();
-            auto *rgn  = ctl.getRegionDataController();
-            auto *veh  = ctl.getVehicleController();
-
-            if (cfg && nets)
+        [mainWindow](const Backend::Scenario::PreparedPathSet &prepared) {
+            auto *runtime = mainWindow->runtime();
+            if (!runtime)
             {
-                PathDistancePopulator::populate(
-                    paths,
-                    mainWindow->runtime()->document(),
-                    *nets, *cfg, rgn);
+                mainWindow->showStatusBarError(
+                    "No scenario loaded.", 3000);
+                mainWindow->findShortestPathButton_->setEnabled(
+                    true);
+                mainWindow->stopStatusProgress();
+                return;
             }
 
-            if (cfg)
-            {
-                EstimatedPhysicsPopulator physPop(cfg);
-                for (auto *path : paths)
-                    physPop.populate(path, mainWindow->runtime()->document());
-            }
-
-            // Plan 10: allocate containers across paths. Pure and
-            // deterministic — same (doc, paths) yields the same
-            // allocation on CLI and GUI.
-            const auto allocation =
-                ContainerAllocator::allocate(
-                    mainWindow->runtime()->document(), paths);
-            for (auto *path : paths)
-            {
-                if (!path)
-                    continue;
-                path->setEffectiveContainerCount(
-                    allocation.effectiveContainerCountForPath(path));
-            }
-
-            QHash<int, PathMetrics> predicted;
-            if (cfg)
-            {
-                for (auto *p : paths)
-                {
-                    if (!p || p->getSegments().isEmpty()) continue;
-                    const auto mode =
-                        p->getSegments().first()->getMode();
-                    const auto inputs =
-                        PathMetricsCalculator::gatherInputs(
-                            mode, *cfg, veh);
-                    const int count =
-                        p->getEffectiveContainerCount();
-                    predicted.insert(
-                        p->getPathId(),
-                        PathMetricsCalculator::compute(
-                            p->totalEstimatedLength(),
-                            p->totalEstimatedTravelTime(),
-                            mode, inputs, count));
-                }
-            }
-
+            runtime->setPreparedPaths(prepared);
             mainWindow->shortestPathTable_->clear();
-            mainWindow->shortestPathTable_->addPaths(paths, predicted);
+            mainWindow->shortestPathTable_->setPreparedPaths(
+                runtime->preparedPaths(),
+                {},
+                runtime->preparedPathEligibility());
             mainWindow->shortestPathTableDock_->show();
             mainWindow->findShortestPathButton_->setEnabled(true);
             mainWindow->stopStatusProgress();
@@ -1063,20 +1017,40 @@ void CargoNetSim::GUI::UtilitiesFunctions::
         return;
     }
 
-    const auto selectedPathsData =
-        mainWindow->shortestPathTable_->getCheckedPathData();
-    if (selectedPathsData.isEmpty())
+    const auto selectedPathKeys =
+        mainWindow->shortestPathTable_->getCheckedPathKeys();
+    if (selectedPathKeys.isEmpty())
     {
         mainWindow->showErrorDialog(
             "No paths selected for validation.");
         return;
     }
 
-    // Collect Backend::Path* from the selected PathData entries.
-    QList<Backend::Path *> paths;
-    for (const auto *pd : selectedPathsData)
-        if (pd && pd->path) paths.append(pd->path);
-    rt->setPaths(paths);
+    QString selectionError;
+    if (!rt->setSelectedPathKeys(selectedPathKeys,
+                                 &selectionError))
+    {
+        mainWindow->showErrorDialog(
+            selectionError.isEmpty()
+                ? QStringLiteral(
+                      "Selected paths are no longer available for validation.")
+                : selectionError);
+        return;
+    }
+
+    rt->refreshPreparedPathEligibility();
+    mainWindow->shortestPathTable_->setPathEligibility(
+        rt->preparedPathEligibility());
+    if (!rt->validateCurrentSelectionForSimulation(
+            &selectionError))
+    {
+        mainWindow->showErrorDialog(
+            selectionError.isEmpty()
+                ? QStringLiteral(
+                      "Selected paths cannot be simulated with the current backend availability.")
+                : selectionError);
+        return;
+    }
 
     // The runtime outlives a single Validate click (it lives for the
     // whole loaded scenario), so re-clicking would add another set of
@@ -1123,7 +1097,8 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                          for (const auto &r : rt->results())
                              mainWindow->shortestPathTable_
                                  ->updateSimulationCosts(
-                                     r.pathId, r.totalCost,
+                                     r.canonicalPathKey,
+                                     r.totalCost,
                                      r.edgeCosts, r.terminalCosts);
 
                          // Plan 8.2: actual per-vehicle metrics come
@@ -1132,7 +1107,7 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                          // — running measurements through the estimation
                          // formula would discard simulator truth.
                          // Plan 10: per-container projection in-place.
-                         QHash<int, PathMetrics> actual;
+                         QHash<QString, PathMetrics> actual;
                          for (auto *p : rt->paths())
                          {
                              if (!p || p->getSegments().isEmpty())
@@ -1167,7 +1142,8 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                              PathMetricsCalculator::projectPerContainer(
                                  m, count, capacity);
 
-                             actual.insert(p->getPathId(), m);
+                             actual.insert(p->canonicalPathKey(),
+                                           m);
                          }
                          mainWindow->shortestPathTable_
                              ->setActualMetrics(actual);

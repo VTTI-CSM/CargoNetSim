@@ -85,6 +85,26 @@ target_link_libraries(PathDistancePopulatorTest PRIVATE Qt6::Core Qt6::Test Carg
 set_target_properties(PathDistancePopulatorTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+add_executable(PathPreparationServiceTest PathPreparationServiceTest.cpp)
+target_include_directories(PathPreparationServiceTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(PathPreparationServiceTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(PathPreparationServiceTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+add_executable(PreparedPathEligibilityServiceTest PreparedPathEligibilityServiceTest.cpp)
+target_include_directories(PreparedPathEligibilityServiceTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(PreparedPathEligibilityServiceTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(PreparedPathEligibilityServiceTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 # Scenario applier tests
 add_executable(ScenarioApplierTest ScenarioApplierTest.cpp)
 target_include_directories(ScenarioApplierTest PRIVATE ${TEST_INCLUDE_DIRS})
@@ -459,6 +479,21 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_CURRENT_SOURCE_DIR}/fixtures
         ${CMAKE_BINARY_DIR}/bin/fixtures
+)
+
+add_executable(ShortestPathTableIdentityTest
+    GUI/ShortestPathTableIdentityTest.cpp)
+target_include_directories(ShortestPathTableIdentityTest PRIVATE
+    ${TEST_INCLUDE_DIRS})
+target_link_libraries(ShortestPathTableIdentityTest PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+    CargoNetSimGUI
+)
+set_target_properties(ShortestPathTableIdentityTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
 # ContainerAllocator tests (Plan 10)

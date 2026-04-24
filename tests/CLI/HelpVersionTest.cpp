@@ -36,6 +36,10 @@ private slots:
         QVERIFY2(bytes.contains("SUBCOMMANDS"), "missing SUBCOMMANDS header");
         QVERIFY2(bytes.contains("EXIT CODES"),  "missing EXIT CODES header");
         QVERIFY2(bytes.contains("ENVIRONMENT"), "missing ENVIRONMENT header");
+        QVERIFY2(!bytes.contains("\n    status"),
+                 "help should not advertise removed status subcommand");
+        QVERIFY2(!bytes.contains("\n    stop"),
+                 "help should not advertise removed stop subcommand");
     }
 
     void test_version_command_writes_cargonetsim_cli_version_line()

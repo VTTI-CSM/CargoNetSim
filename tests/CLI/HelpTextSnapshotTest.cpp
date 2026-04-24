@@ -69,6 +69,25 @@ private slots:
         const QByteArray got = p.readAllStandardOutput();
         QCOMPARE(got, want);
     }
+
+    void test_removed_status_and_stop_subcommands_are_rejected()
+    {
+        const QStringList removedCommands{QStringLiteral("status"),
+                                          QStringLiteral("stop")};
+
+        for (const QString &command : removedCommands)
+        {
+            QProcess p;
+            p.start(QStringLiteral(CARGONETSIM_CLI_BINARY), {command});
+            QVERIFY2(p.waitForFinished(5000),
+                     qPrintable(p.errorString()));
+            QCOMPARE(p.exitCode(), 64);
+
+            const QByteArray err = p.readAllStandardError();
+            QVERIFY2(err.contains("unknown subcommand"),
+                     qPrintable(QString::fromLocal8Bit(err)));
+        }
+    }
 };
 
 QTEST_MAIN(HelpTextSnapshotTest)

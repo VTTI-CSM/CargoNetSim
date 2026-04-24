@@ -1,17 +1,16 @@
 #include "RunCommand.h"
 
-#include <QCoreApplication>
-#include <QDateTime>
 #include <QDir>
 #include <QEventLoop>
 #include <QIODevice>
-#include <QJsonObject>
 #include <QScopeGuard>
-#include <QTimer>
 
 #include <cstdio>
 
+#include "Backend/Clients/BaseClient/RabbitMQHandler.h"
+#include "Backend/Clients/BaseClient/SimulationClientBase.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Models/Path.h"
 #include "Backend/Models/PathSegment.h"
@@ -20,6 +19,7 @@
 #include "Backend/Scenario/PathDiscovery.h"
 #include "Backend/Scenario/PathDistancePopulator.h"
 #include "Backend/Scenario/EstimatedPhysicsPopulator.h"
+#include "Backend/Scenario/PathPreparationService.h"
 #include "Backend/Scenario/PathMetrics.h"
 #include "Backend/Scenario/PathMetricsCalculator.h"
 #include "Backend/Scenario/PathMetricsInputs.h"
@@ -29,8 +29,6 @@
 #include "CLI/Commands/CommandOutput.h"
 #include "CLI/Commands/IssueFormatter.h"
 #include "CLI/ExitCodes.h"
-#include "CLI/Ipc/ControlChannel.h"
-#include "CLI/Ipc/RuntimeStateFile.h"
 #include "CLI/Output/CsvResultsWriter.h"
 #include "CLI/Output/JsonResultsWriter.h"
 #include "CLI/Progress/ProgressReporter.h"
@@ -40,76 +38,90 @@ namespace Cli {
 
 namespace {
 
-/// 30-second budget for every simulator client to emit
-/// `allClientsReady`. Anything longer indicates RabbitMQ brokerage,
-/// simulator executables, or the Qt-to-broker handshake is not
-/// healthy and `run` should fail fast.
-constexpr int kClientsReadyTimeoutMs = 30000;
-
-/// Argument shape for `run`. Intentionally rigid: one scenario path,
-/// no flags. Every simulation parameter comes from the YAML.
+/// Argument shape for `run`. The parity target is explicit selection;
+/// Track A1 currently exposes only `--all`, while a bare scenario path
+/// remains a documented temporary alias for `--all`.
 struct Options
 {
     QString scenarioPath;
+    bool    selectAll = false;
 };
 
 bool parseArgs(const QStringList &args, Options &o, QString *err)
 {
-    if (args.size() != 1)
+    QStringList positional;
+
+    for (const QString &arg : args)
+    {
+        if (arg == QLatin1String("--all"))
+        {
+            o.selectAll = true;
+            continue;
+        }
+        if (arg.startsWith(QLatin1Char('-')))
+        {
+            *err = QStringLiteral(
+                "run: unsupported flag '%1' "
+                "(supported today: --all)\n")
+                .arg(arg);
+            return false;
+        }
+        positional.append(arg);
+    }
+
+    if (positional.size() != 1)
     {
         *err = QStringLiteral(
-            "run: expected exactly one argument (scenario.yml); "
-            "no flags are accepted — every simulation parameter is "
-            "read from the YAML itself\n");
+            "run: expected exactly one scenario argument "
+            "and optional --all\n");
         return false;
     }
-    o.scenarioPath = args.first();
+
+    o.scenarioPath = positional.first();
+    if (!o.selectAll)
+    {
+        // Transition behavior: bare `run scenario.yml` still maps to
+        // `--all` until narrower subset-addressing is introduced.
+        o.selectAll = true;
+    }
     return true;
 }
 
-/// Spin a local event loop until `CargoNetSimController::allClientsReady`
-/// fires or @p timeoutMs elapses. Returns true iff the signal fired in
-/// time. Local loop — does not commit `QCoreApplication::exec()`, so
-/// `run` stays re-entrant even when called under a wrapper that might
-/// have its own event loop (Task 13's `connections --watch`, tests).
-bool waitForClientsReady(CargoNetSim::CargoNetSimController &ctl,
-                         int                                 timeoutMs)
+void emitStatus(QIODevice *sink, const QString &message)
 {
-    QEventLoop waitLoop;
-    QTimer     timeout;
-    bool       ready = false;
-
-    timeout.setSingleShot(true);
-    QObject::connect(&ctl,
-                     &CargoNetSim::CargoNetSimController::allClientsReady,
-                     &waitLoop,
-                     [&] { ready = true; waitLoop.quit(); });
-    QObject::connect(&timeout, &QTimer::timeout,
-                     &waitLoop, &QEventLoop::quit);
-
-    timeout.start(timeoutMs);
-    waitLoop.exec();
-    return ready;
+    streamToOr(sink, stderr,
+               QStringLiteral("run: %1\n").arg(message));
 }
 
-/// Blocking wait on the `ScenarioRuntime` signals. Returns true for a
-/// clean `completed`, false for `failed` (with message in @p failMsg).
 bool waitForSimulationEnd(Backend::Scenario::ScenarioRuntime &rt,
                           QString                            *failMsg)
 {
     QEventLoop loop;
-    bool       failed = false;
+    bool       completed = false;
+    bool       failed    = false;
 
     QObject::connect(&rt, &Backend::Scenario::ScenarioRuntime::completed,
-                     &loop, &QEventLoop::quit);
+                     &loop, [&] {
+                         completed = true;
+                         loop.quit();
+                     });
     QObject::connect(&rt, &Backend::Scenario::ScenarioRuntime::failed,
                      &loop, [&](const QString &m) {
                          failed = true;
                          if (failMsg) *failMsg = m;
                          loop.quit();
                      });
-    loop.exec();
-    return !failed;
+
+    if (!rt.startSimulation())
+    {
+        if (failMsg && failMsg->isEmpty())
+            *failMsg = QStringLiteral("startSimulation failed");
+        return false;
+    }
+
+    if (!completed && !failed)
+        loop.exec();
+    return completed && !failed;
 }
 
 } // namespace
@@ -117,6 +129,117 @@ bool waitForSimulationEnd(Backend::Scenario::ScenarioRuntime &rt,
 RunCommand::RunCommand(QIODevice *errSink)
     : m_err(errSink)
 {
+}
+
+RunCommand::WriterHooks RunCommand::defaultWriterHooks()
+{
+    return WriterHooks{
+        [](const QString &path) { return QDir().mkpath(path); },
+        [](const QString &outputPath,
+           const QList<Backend::Scenario::PathSimulationResult> &results,
+           QString *err,
+           const QHash<QString, Backend::Scenario::PathMetrics> &metrics,
+           const QHash<QString, Backend::Scenario::PathKey> &keys,
+           const QList<Backend::Path *> &paths) {
+            JsonResultsWriter writer;
+            return writer.write(outputPath, results, err, metrics,
+                                keys, paths);
+        },
+        [](const QString &outputPath,
+           const QList<Backend::Scenario::PathSimulationResult> &results,
+           QString *err) {
+            CsvResultsWriter writer;
+            return writer.write(outputPath, results, err);
+        }};
+}
+
+int RunCommand::writeOutputs(
+    const Backend::Scenario::ScenarioDocument &doc,
+    const QList<Backend::Scenario::PathSimulationResult> &results,
+    const QList<Backend::Path *> &paths,
+    const QHash<QString, Backend::Scenario::PathMetrics>
+        &predictedMetricsByCanonicalPath,
+    const QHash<QString, Backend::Scenario::PathKey>
+        &pathKeysByCanonicalPath,
+    const WriterHooks            &hooks) const
+{
+    const QString outDir = doc.output.directory.isEmpty()
+        ? QDir::currentPath()
+        : doc.output.directory;
+    if (!hooks.mkpath || !hooks.mkpath(outDir))
+    {
+        streamToOr(m_err, stderr,
+                   QStringLiteral(
+                       "run: failed to create output directory '%1'\n")
+                       .arg(outDir));
+        return static_cast<int>(ExitCode::RunFailed);
+    }
+    qCDebug(lcCli) << "RunCommand::writeOutputs: output directory ="
+                   << outDir;
+    emitStatus(m_err,
+               QStringLiteral("writing outputs to %1").arg(outDir));
+
+    bool writerFailed = false;
+    for (const auto &fmt : doc.output.formats)
+    {
+        QString werr;
+        bool    okWrite = true;
+        if (fmt == QLatin1String("json"))
+        {
+            const QString filePath =
+                QDir(outDir).filePath(QStringLiteral("results.json"));
+            qCDebug(lcCli) << "RunCommand::writeOutputs: writing JSON results to"
+                           << filePath;
+            okWrite = hooks.writeJson
+                && hooks.writeJson(filePath, results, &werr,
+                                   predictedMetricsByCanonicalPath,
+                                   pathKeysByCanonicalPath, paths);
+        }
+        else if (fmt == QLatin1String("csv"))
+        {
+            const QString filePath =
+                QDir(outDir).filePath(QStringLiteral("results.csv"));
+            qCDebug(lcCli) << "RunCommand::writeOutputs: writing CSV results to"
+                           << filePath;
+            okWrite = hooks.writeCsv
+                && hooks.writeCsv(filePath, results, &werr);
+        }
+        else
+        {
+            qCWarning(lcCli)
+                << "RunCommand::writeOutputs: unknown output format"
+                << fmt;
+            streamToOr(m_err, stderr,
+                       QStringLiteral(
+                           "run: ignoring unknown output format '%1'\n")
+                           .arg(fmt));
+            continue;
+        }
+        if (!okWrite)
+        {
+            writerFailed = true;
+            qCCritical(lcCli) << "RunCommand::writeOutputs: writer"
+                              << fmt << "failed —" << werr;
+            streamToOr(m_err, stderr,
+                       QStringLiteral("run: writer '%1': %2\n")
+                           .arg(fmt, werr));
+        }
+        else
+        {
+            qCInfo(lcCli)
+                << "RunCommand::writeOutputs: results written, format ="
+                << fmt;
+        }
+    }
+
+    if (writerFailed)
+    {
+        qCWarning(lcCli)
+            << "RunCommand::writeOutputs: at least one requested output writer failed";
+        return static_cast<int>(ExitCode::RunFailed);
+    }
+
+    return static_cast<int>(ExitCode::Success);
 }
 
 int RunCommand::execute(const QStringList &args)
@@ -176,7 +299,7 @@ int RunCommand::execute(const QStringList &args)
         }
     }
 
-    // ---- 3. Init controller + startAll + wait for ready ----------------
+    // ---- 3. Init controller + startAll ---------------------------------
     qCDebug(lcCli) << "RunCommand::execute: [stage 3] initializing controller...";
     auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
     if (!ctl.initialize(/*truckExePath=*/QString()))
@@ -199,19 +322,7 @@ int RunCommand::execute(const QStringList &args)
                    QStringLiteral("run: startAll failed\n"));
         return static_cast<int>(ExitCode::ConnectTimeout);
     }
-
-    qCInfo(lcCli) << "RunCommand::execute: waiting for clients ready (timeout ="
-                  << kClientsReadyTimeoutMs << "ms)...";
-    if (!waitForClientsReady(ctl, kClientsReadyTimeoutMs))
-    {
-        qCCritical(lcCli) << "RunCommand::execute: simulators not ready within"
-                          << kClientsReadyTimeoutMs << "ms";
-        streamToOr(m_err, stderr,
-                   QStringLiteral("run: simulators not ready within %1 ms\n")
-                       .arg(kClientsReadyTimeoutMs));
-        return static_cast<int>(ExitCode::ConnectTimeout);
-    }
-    qCInfo(lcCli) << "RunCommand::execute: all clients ready";
+    emitStatus(m_err, QStringLiteral("backend clients started"));
 
     // ---- 4. Construct runtime + apply scenario -------------------------
     qCDebug(lcCli) << "RunCommand::execute: [stage 4] constructing runtime and applying scenario...";
@@ -224,6 +335,7 @@ int RunCommand::execute(const QStringList &args)
         return static_cast<int>(ExitCode::RunFailed);
     }
     qCDebug(lcCli) << "RunCommand::execute: scenario applied successfully";
+    emitStatus(m_err, QStringLiteral("scenario loaded"));
 
     // ---- 5. Path discovery ---------------------------------------------
     const int n = ctl.getConfigController()->getSimulationParams()
@@ -232,6 +344,7 @@ int RunCommand::execute(const QStringList &args)
                    << n << ")...";
     PathDiscovery pd;
     QString       pdErr;
+    emitStatus(m_err, QStringLiteral("discovering candidate paths"));
     auto          paths =
         pd.findTopPaths(rt.document(), rt.registry(), n, &pdErr);
     if (paths.isEmpty())
@@ -246,86 +359,66 @@ int RunCommand::execute(const QStringList &args)
         return static_cast<int>(ExitCode::RunFailed);
     }
     qCDebug(lcCli) << "RunCommand::execute: path discovery found" << paths.size() << "paths";
+    emitStatus(m_err,
+               QStringLiteral("discovered %1 path(s)")
+                   .arg(paths.size()));
 
-    // ---- 5a. Populate estimated distance + travel time -----------------
+    auto prepared =
+        PathPreparationService::prepareDiscoveredPaths(
+            paths, rt.document(), ctl.getConfigController(),
+            ctl.getNetworkController(),
+            ctl.getRegionDataController(),
+            ctl.getVehicleController());
+    rt.setPreparedPaths(prepared);
+    const auto predictedMetricsByCanonicalPath =
+        prepared.predictedMetricsByCanonicalPath();
+    const auto pathKeysByCanonicalPath =
+        prepared.pathKeysByCanonicalPath();
+
+    // ---- 6. Determine the selected simulation set ----------------------
+    QString selectionErr;
+    if (opt.selectAll)
     {
-        auto *cfg  = ctl.getConfigController();
-        auto *nets = ctl.getNetworkController();
-        auto *rgn  = ctl.getRegionDataController();
-        if (cfg && nets)
+        if (!rt.setSelectedPathKeys(prepared.pathIdentities(),
+                                    &selectionErr))
         {
-            PathDistancePopulator::populate(
-                paths, rt.document(), *nets, *cfg, rgn);
-            qCDebug(lcCli) << "RunCommand::execute: distance populated";
+            streamToOr(m_err, stderr,
+                       QStringLiteral("run: %1\n")
+                           .arg(selectionErr.isEmpty()
+                                    ? QStringLiteral(
+                                          "failed to select prepared paths")
+                                    : selectionErr));
+            return static_cast<int>(ExitCode::RunFailed);
         }
     }
 
-    // ---- 5b. Populate estimated energy, carbon, risk -------------------
+    const QList<Backend::Path *> simulationSet = rt.paths();
+
+    if (simulationSet.isEmpty())
     {
-        auto *cfg = ctl.getConfigController();
-        if (cfg)
-        {
-            EstimatedPhysicsPopulator physPop(cfg);
-            for (auto *path : paths)
-                physPop.populate(path, rt.document());
-            qCDebug(lcCli) << "RunCommand::execute: estimated physics populated";
-        }
+        streamToOr(m_err, stderr,
+                   QStringLiteral("run: no paths selected for simulation\n"));
+        return static_cast<int>(ExitCode::RunFailed);
     }
 
-    rt.setPaths(paths);
+    emitStatus(m_err,
+               QStringLiteral("selected %1 path(s) for simulation")
+                   .arg(simulationSet.size()));
 
-    // ---- 6. State file (visible to sibling status/stop commands) -------
-    qCDebug(lcCli) << "RunCommand::execute: [stage 6] writing runtime state file...";
-    const qint64  pid        = QCoreApplication::applicationPid();
-    const QString socketName =
-        QStringLiteral("cargonetsim-cli-%1").arg(pid);
+    // ---- 7. Preflight required simulators ------------------------------
+    QString preflightErr;
+    if (!rt.validateCurrentSelectionForSimulation(&preflightErr))
     {
-        RuntimeStateEntry e;
-        e.pid          = pid;
-        e.socketName   = socketName;
-        e.scenarioPath = opt.scenarioPath;
-        e.startedAt    = QDateTime::currentDateTimeUtc();
-        RuntimeStateFile::write(e, nullptr);
+        streamToOr(m_err, stderr,
+                   QStringLiteral("run: %1\n")
+                       .arg(preflightErr.isEmpty()
+                                ? QStringLiteral(
+                                      "selected paths cannot be simulated")
+                                : preflightErr));
+        return static_cast<int>(ExitCode::ConnectTimeout);
     }
-    qCDebug(lcCli) << "RunCommand::execute: state file written, pid =" << pid
-                   << ", socket =" << socketName;
-    auto stateGuard = qScopeGuard(
-        [pid] { RuntimeStateFile::removeForPid(pid); });
 
-    // ---- 7. Control channel --------------------------------------------
-    // ControlChannelServer's dtor closes the socket automatically, so
-    // no explicit guard is needed — the local variable RAII handles
-    // it on any return path.
-    qCDebug(lcCli) << "RunCommand::execute: [stage 7] setting up IPC control channel...";
-    ControlChannelServer ipc;
-    ipc.setHandler([&rt](const QJsonObject &req) -> QJsonObject {
-        const QString op = req.value(QStringLiteral("op")).toString();
-        qCDebug(lcCli) << "RunCommand::ipcHandler: received op =" << op;
-        if (op == QLatin1String("status"))
-        {
-            return QJsonObject{
-                {QStringLiteral("state"),
-                 rt.isRunning() ? QStringLiteral("running")
-                                : QStringLiteral("idle")},
-                {QStringLiteral("current_time"), rt.currentTime()},
-                {QStringLiteral("end_time"),
-                 rt.document().simulation.endTime.value_or(86400.0)},
-                {QStringLiteral("progress"), rt.progress()}};
-        }
-        if (op == QLatin1String("stop"))
-        {
-            qCInfo(lcCli) << "RunCommand::ipcHandler: stop requested via IPC";
-            rt.stop();
-            return QJsonObject{{QStringLiteral("ok"), true}};
-        }
-        qCWarning(lcCli) << "RunCommand::ipcHandler: unknown op =" << op;
-        return QJsonObject{
-            {QStringLiteral("error"), QStringLiteral("unknown op")}};
-    });
-    ipc.listen(socketName);
-    qCDebug(lcCli) << "RunCommand::execute: IPC channel listening on" << socketName;
-
-    // ---- 8. Progress reporter ------------------------------------------
+    // ---- 8. Progress reporter + status streaming -----------------------
     // Routes through the same sink as our diagnostics so tests (and
     // users who redirect stderr) capture everything in one stream.
     qCDebug(lcCli) << "RunCommand::execute: [stage 8] attaching progress reporter...";
@@ -334,17 +427,14 @@ int RunCommand::execute(const QStringList &args)
                      [&reporter](double t, double p) {
                          reporter.report(t, p);
                      });
+    QObject::connect(&rt, &ScenarioRuntime::statusMessage,
+                     [this](const QString &message) {
+                         emitStatus(m_err, message);
+                     });
 
     // ---- 9. Start + block until completed / failed ---------------------
     qCInfo(lcCli) << "RunCommand::execute: [stage 9] starting simulation...";
-    if (!rt.startSimulation())
-    {
-        qCCritical(lcCli) << "RunCommand::execute: startSimulation failed";
-        streamToOr(m_err, stderr,
-                   QStringLiteral("run: startSimulation failed\n"));
-        return static_cast<int>(ExitCode::RunFailed);
-    }
-    qCInfo(lcCli) << "RunCommand::execute: simulation submitted, blocking until completion...";
+    emitStatus(m_err, QStringLiteral("starting simulation"));
     QString       failMsg;
     const bool    okRun = waitForSimulationEnd(rt, &failMsg);
     reporter.emitFinal(rt.progress());
@@ -360,119 +450,13 @@ int RunCommand::execute(const QStringList &args)
 
     // ---- 10. Write outputs ---------------------------------------------
     qCDebug(lcCli) << "RunCommand::execute: [stage 10] writing results...";
-    const QString outDir = rt.document().output.directory.isEmpty()
-        ? QDir::currentPath()
-        : rt.document().output.directory;
-    QDir().mkpath(outDir);
-    qCDebug(lcCli) << "RunCommand::execute: output directory =" << outDir;
     const auto results = rt.results();
-
-    // Re-derive the allocator + per-path metrics here so `results.json`
-    // carries the same per-vehicle AND per-container projections the
-    // GUI shortest-paths table shows. Pure functions — no simulator
-    // side-effects; safe to invoke after the runtime has completed.
-    qCDebug(lcCli) << "RunCommand::execute: computing container allocation and path metrics...";
-    const auto allocation = Backend::Scenario::ContainerAllocator::allocate(
-        rt.document(), rt.paths());
-    for (auto *p : rt.paths())
-    {
-        if (!p)
-            continue;
-        p->setEffectiveContainerCount(
-            allocation.effectiveContainerCountForPath(p));
-    }
-
-    QHash<QString, Backend::Scenario::PathMetrics> metrics;
-    auto *cfg = ctl.getConfigController();
-    auto *veh = ctl.getVehicleController();
-    if (cfg)
-    {
-        for (auto *p : rt.paths())
-        {
-            if (!p || p->getSegments().isEmpty())
-                continue;
-            const auto mode =
-                p->getSegments().first()->getMode();
-            const auto inputs =
-                Backend::Scenario::PathMetricsCalculator::gatherInputs(
-                    mode, *cfg, veh);
-            const int count =
-                p->getEffectiveContainerCount();
-            metrics.insert(
-                p->canonicalPathKey(),
-                Backend::Scenario::PathMetricsCalculator::compute(
-                    p->totalEstimatedLength(),
-                    p->totalEstimatedTravelTime(),
-                    mode, inputs, count));
-        }
-        qCDebug(lcCli) << "RunCommand::execute: computed metrics for"
-                       << metrics.size() << "paths";
-    }
-    else
-    {
-        qCWarning(lcCli) << "RunCommand::execute: ConfigController is null — skipping per-path metrics";
-    }
-
-    QHash<QString, Backend::Scenario::PathKey> displayKeysByPathKey;
-    for (auto *p : rt.paths())
-    {
-        if (!p)
-            continue;
-        displayKeysByPathKey.insert(
-            p->canonicalPathKey(),
-            Backend::Scenario::PathKey{
-                p->getOriginId().isEmpty() ? p->getStartTerminal()
-                                           : p->getOriginId(),
-                p->getDestinationId().isEmpty()
-                    ? p->getEndTerminal()
-                    : p->getDestinationId(),
-                p->getRank()});
-    }
-
-    for (const auto &fmt : rt.document().output.formats)
-    {
-        QString werr;
-        bool    okWrite = true;
-        if (fmt == QLatin1String("json"))
-        {
-            const QString filePath =
-                QDir(outDir).filePath(QStringLiteral("results.json"));
-            qCDebug(lcCli) << "RunCommand::execute: writing JSON results to" << filePath;
-            JsonResultsWriter jw;
-            okWrite = jw.write(filePath, results, &werr,
-                               metrics, displayKeysByPathKey,
-                               rt.paths());
-        }
-        else if (fmt == QLatin1String("csv"))
-        {
-            const QString filePath =
-                QDir(outDir).filePath(QStringLiteral("results.csv"));
-            qCDebug(lcCli) << "RunCommand::execute: writing CSV results to" << filePath;
-            CsvResultsWriter cw;
-            okWrite = cw.write(filePath, results, &werr);
-        }
-        else
-        {
-            qCWarning(lcCli) << "RunCommand::execute: unknown output format" << fmt;
-            streamToOr(m_err, stderr,
-                       QStringLiteral(
-                           "run: ignoring unknown output format '%1'\n")
-                           .arg(fmt));
-            continue;
-        }
-        if (!okWrite)
-        {
-            qCCritical(lcCli) << "RunCommand::execute: writer" << fmt
-                              << "failed —" << werr;
-            streamToOr(m_err, stderr,
-                       QStringLiteral("run: writer '%1': %2\n")
-                           .arg(fmt, werr));
-        }
-        else
-        {
-            qCInfo(lcCli) << "RunCommand::execute: results written, format =" << fmt;
-        }
-    }
+    const int writeCode =
+        writeOutputs(rt.document(), results, rt.paths(),
+                     predictedMetricsByCanonicalPath,
+                     pathKeysByCanonicalPath);
+    if (writeCode != static_cast<int>(ExitCode::Success))
+        return writeCode;
 
     qCInfo(lcCli) << "RunCommand::execute: finished — exit code = Success";
     return static_cast<int>(ExitCode::Success);

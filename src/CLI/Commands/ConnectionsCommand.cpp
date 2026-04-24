@@ -9,6 +9,7 @@
 #include <cstdio>
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Scenario/SimulatorCommandAvailability.h"
 #include "CLI/Commands/CommandOutput.h"
 #include "CLI/ExitCodes.h"
 
@@ -70,10 +71,11 @@ int ConnectionsCommand::execute(const QStringList &args)
         for (const auto &s : statuses)
         {
             buffer += formatStatus(s);
-            if (!s.connected)
+            if (!s.commandAvailable)
             {
                 qCDebug(lcCli) << "ConnectionsCommand::renderOnce: server"
-                               << s.server << "is disconnected";
+                               << s.server
+                               << "is not command-available";
                 allGood = false;
             }
         }
