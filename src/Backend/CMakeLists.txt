@@ -168,6 +168,8 @@ set(Backend_SOURCES
     Scenario/PathMetricsInputs.h
     Scenario/PathMetricsCalculator.h
     Scenario/PathMetricsCalculator.cpp
+    Scenario/ScenarioExecutionResult.h
+    Scenario/ScenarioExecutionResult.cpp
     Scenario/ResultsExtractor.h
     Scenario/ResultsExtractor.cpp
     Scenario/ScenarioApplier.h

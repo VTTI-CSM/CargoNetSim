@@ -5,6 +5,7 @@
 #include <QString>
 #include <QVariantMap>
 
+#include "ScenarioExecutionResult.h"
 #include "PathSimulationResult.h"
 
 namespace CargoNetSim
@@ -183,6 +184,21 @@ computePathCosts(
     CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
     CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
     CargoNetSim::Backend::Path                                *path,
+    const QVariantMap                                         &costFunctionWeights,
+    const QVariantMap                                         &transportModes,
+    int                                                        containerCount);
+
+/**
+ * @brief Computes the full typed execution result for a path without
+ *        mutating PathSegment actual attributes.
+ */
+CargoNetSim::Backend::Scenario::PathExecutionResult
+computePathExecutionResult(
+    CargoNetSim::Backend::ShipClient::ShipSimulationClient    *shipClient,
+    CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
+    CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
+    CargoNetSim::Backend::Path                                *path,
+    const QString                                             &pathIdentity,
     const QVariantMap                                         &costFunctionWeights,
     const QVariantMap                                         &transportModes,
     int                                                        containerCount);

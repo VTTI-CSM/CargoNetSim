@@ -10,12 +10,16 @@
 #include "Backend/Models/Path.h"
 #include "Backend/Scenario/PathMetrics.h"
 #include "Backend/Scenario/PreparedPathStatus.h"
+#include "Backend/Scenario/ScenarioExecutionResult.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "GUI/Widgets/ShortestPathTable.h"
 
 using CargoNetSim::Backend::Path;
 using CargoNetSim::Backend::Scenario::PathMetrics;
 using CargoNetSim::Backend::Scenario::PreparedPathEligibility;
+using CargoNetSim::Backend::Scenario::ScenarioExecutionResultSet;
+using CargoNetSim::Backend::Scenario::PathExecutionResult;
+using CargoNetSim::Backend::Scenario::SegmentExecutionResult;
 using CargoNetSim::Backend::Scenario::ScenarioDocument;
 using CargoNetSim::GUI::ShortestPathsTable;
 
@@ -220,6 +224,69 @@ private slots:
         QVERIFY(tableWidget->item(0, 1)->toolTip().contains(
             QStringLiteral("Blocked")));
         QVERIFY(table.getCheckedPathKeys().isEmpty());
+    }
+
+    void test_execution_results_round_trip_through_comparison_snapshots()
+    {
+        ShortestPathsTable table;
+
+        const QString pathKey = QStringLiteral("uid-O1-D1-r0");
+        table.addPaths({makePath(1, pathKey, QStringLiteral("O1"),
+                                 QStringLiteral("D1"), 10.0)},
+                       {{pathKey, predictedMetric(10.0, 3)}});
+
+        SegmentExecutionResult segmentResult;
+        segmentResult.segmentIndex = 0;
+        segmentResult.segmentId = QStringLiteral("seg-0");
+        segmentResult.startTerminalId = QStringLiteral("O1");
+        segmentResult.endTerminalId = QStringLiteral("D1");
+        segmentResult.mode =
+            CargoNetSim::Backend::TransportationTypes::
+                TransportationMode::Truck;
+        segmentResult.actualMetrics.available = true;
+        segmentResult.actualMetrics.distance = 12345.0;
+        segmentResult.actualMetrics.travelTime = 7200.0;
+        segmentResult.actualMetrics.energyConsumption = 44.0;
+        segmentResult.actualMetrics.carbonEmissions = 3.5;
+        segmentResult.actualMetrics.risk = 0.02;
+        segmentResult.actualCosts.available = true;
+        segmentResult.actualCosts.distance = 9.0;
+        segmentResult.actualCosts.travelTime = 7.0;
+
+        PathExecutionResult pathResult;
+        pathResult.pathIdentity = pathKey;
+        pathResult.pathId = 1;
+        pathResult.canonicalPathKey = pathKey;
+        pathResult.pathUid = pathKey;
+        pathResult.originId = QStringLiteral("O1");
+        pathResult.destinationId = QStringLiteral("D1");
+        pathResult.effectiveContainerCount = 4;
+        pathResult.totalCost = 33.0;
+        pathResult.edgeCosts = 11.0;
+        pathResult.terminalCosts = 22.0;
+        pathResult.segmentResults.append(segmentResult);
+
+        ScenarioExecutionResultSet results;
+        results.addPathResult(pathResult);
+        table.setExecutionResults(results);
+
+        ScenarioDocument doc;
+        const auto snapshots = table.buildComparisonSnapshots(doc);
+        QCOMPARE(snapshots.size(), 1);
+        QVERIFY(snapshots.first().contains(QStringLiteral("execution_result")));
+
+        ShortestPathsTable reloaded;
+        reloaded.loadComparisonSnapshots(snapshots);
+
+        const auto *reloadedData =
+            reloaded.getDataByPathKey(pathKey);
+        QVERIFY(reloadedData != nullptr);
+        QVERIFY(reloadedData->executionResult.has_value());
+        QCOMPARE(reloadedData->executionResult->effectiveContainerCount, 4);
+        QCOMPARE(reloadedData->executionResult->segmentResults.size(), 1);
+        QCOMPARE(
+            reloadedData->executionResult->segmentResults.first().actualMetrics.distance,
+            12345.0);
     }
 };
 

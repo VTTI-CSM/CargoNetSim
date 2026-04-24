@@ -16,6 +16,7 @@
 #include "Backend/Models/Path.h"
 #include "Backend/Scenario/PathMetrics.h"
 #include "Backend/Scenario/PathPreparationService.h"
+#include "Backend/Scenario/ScenarioExecutionResult.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include <QBrush>
 #include <QCheckBox>
@@ -34,6 +35,7 @@
 #include <QtCore/qcoreevent.h>
 #include <QtGui/qevent.h>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace CargoNetSim
@@ -198,6 +200,12 @@ public:
          */
         bool isVisible;
 
+        /**
+         * @brief Backend-owned typed execution result for comparison/export.
+         */
+        std::optional<Backend::Scenario::PathExecutionResult>
+            executionResult;
+
         // Deleted copy constructor and assignment operator
         // to prevent accidental copying
         PathData(const PathData &)            = delete;
@@ -262,6 +270,10 @@ public:
     /// Post-run update. Calls refreshRow for each path identity present.
     void setActualMetrics(
         const QHash<PathIdentity, Backend::Scenario::PathMetrics> &actual);
+
+    /// Store the backend-owned typed execution results for comparison/export.
+    void setExecutionResults(
+        const Backend::Scenario::ScenarioExecutionResultSet &results);
 
     /**
      * @brief Gets the size of the paths in the table

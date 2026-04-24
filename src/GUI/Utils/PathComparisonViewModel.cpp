@@ -7,6 +7,96 @@ namespace CargoNetSim
 namespace GUI
 {
 
+namespace
+{
+
+const CargoNetSim::Backend::Scenario::PathExecutionResult *
+executionResultFor(
+    const PathComparisonViewModel::PathData *pathData)
+{
+    if (!pathData || !pathData->executionResult.has_value())
+        return nullptr;
+    return &pathData->executionResult.value();
+}
+
+CargoNetSim::Backend::PathSegment::SegmentMetricSnapshot
+actualMetricsForSegment(
+    const PathComparisonViewModel::PathData *pathData,
+    int                                      segmentIndex)
+{
+    if (const auto *result = executionResultFor(pathData))
+    {
+        if (segmentIndex >= 0
+            && segmentIndex < result->segmentResults.size())
+        {
+            return result->segmentResults[segmentIndex].actualMetrics;
+        }
+    }
+
+    if (!pathData || !pathData->path)
+        return {};
+
+    const auto &segments = pathData->path->getSegments();
+    if (segmentIndex < 0 || segmentIndex >= segments.size()
+        || !segments[segmentIndex])
+    {
+        return {};
+    }
+    return segments[segmentIndex]->actualValues();
+}
+
+CargoNetSim::Backend::PathSegment::SegmentCostSnapshot
+actualCostsForSegment(
+    const PathComparisonViewModel::PathData *pathData,
+    int                                      segmentIndex)
+{
+    if (const auto *result = executionResultFor(pathData))
+    {
+        if (segmentIndex >= 0
+            && segmentIndex < result->segmentResults.size())
+        {
+            return result->segmentResults[segmentIndex].actualCosts;
+        }
+    }
+
+    if (!pathData || !pathData->path)
+        return {};
+
+    const auto &segments = pathData->path->getSegments();
+    if (segmentIndex < 0 || segmentIndex >= segments.size()
+        || !segments[segmentIndex])
+    {
+        return {};
+    }
+    return segments[segmentIndex]->actualCosts();
+}
+
+CargoNetSim::Backend::PathSegment::SegmentCostSnapshot
+sumExecutionCosts(
+    const QList<CargoNetSim::Backend::Scenario::SegmentExecutionResult>
+        &segments)
+{
+    CargoNetSim::Backend::PathSegment::SegmentCostSnapshot total;
+    for (const auto &segment : segments)
+    {
+        if (!segment.actualCosts.available)
+            continue;
+
+        total.available = true;
+        total.travelTime += segment.actualCosts.travelTime;
+        total.distance += segment.actualCosts.distance;
+        total.carbonEmissions +=
+            segment.actualCosts.carbonEmissions;
+        total.energyConsumption +=
+            segment.actualCosts.energyConsumption;
+        total.risk += segment.actualCosts.risk;
+        total.directCost += segment.actualCosts.directCost;
+    }
+    return total;
+}
+
+} // namespace
+
 PathComparisonViewModel::PathComparisonViewModel(
     const QList<const PathData *> &paths)
     : m_paths(paths)
@@ -131,7 +221,7 @@ PathComparisonViewModel::segmentValues(
     out.predictedEnergyConsumption = predicted.energyConsumption;
     out.predictedRisk = predicted.risk;
 
-    const auto actual = segment->actualValues();
+    const auto actual = actualMetricsForSegment(pathData, segmentIndex);
     out.actualAvailable = actual.available;
     out.actualDistanceKm = actual.distance / 1000.0;
     out.actualTravelTimeHours = actual.travelTime / 3600.0;
@@ -161,16 +251,7 @@ Backend::PathSegment::SegmentCostSnapshot
 PathComparisonViewModel::segmentActualCosts(
     const PathData *pathData, int segmentIndex) const
 {
-    if (!pathData || !pathData->path)
-        return {};
-
-    const auto &segments = pathData->path->getSegments();
-    if (segmentIndex < 0 || segmentIndex >= segments.size()
-        || !segments[segmentIndex])
-    {
-        return {};
-    }
-    return segments[segmentIndex]->actualCosts();
+    return actualCostsForSegment(pathData, segmentIndex);
 }
 
 PathComparisonViewModel::PathCostTotals
@@ -183,7 +264,10 @@ PathComparisonViewModel::pathCostTotals(
 
     const auto segments = pathData->path->getSegments();
     out.predicted = sumCostSnapshots(segments, false);
-    out.actual = sumCostSnapshots(segments, true);
+    if (const auto *result = executionResultFor(pathData))
+        out.actual = sumExecutionCosts(result->segmentResults);
+    else
+        out.actual = sumCostSnapshots(segments, true);
     return out;
 }
 

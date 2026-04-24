@@ -2,8 +2,10 @@
 
 #include <QList>
 #include <QObject>
+#include <QVector>
 #include <QString>
 
+#include "ScenarioExecutionResult.h"
 #include "PathSimulationResult.h"
 
 namespace CargoNetSim
@@ -49,6 +51,9 @@ public:
     /** @brief Set the per-path Path objects to simulate. Caller-owned. */
     void setPaths(const QList<CargoNetSim::Backend::Path *> &paths);
 
+    /** @brief Set the stable prepared-path identities aligned to setPaths(). */
+    void setPathIdentities(const QVector<QString> &pathIdentities);
+
     /**
      * @brief Lifecycle entry point. Validates inputs, runs the
      *        builder/orchestrator/extractor pipeline, emits status,
@@ -60,7 +65,15 @@ public:
     Q_INVOKABLE bool run();
 
     /** @brief Returns the per-path results from the last run(). */
-    QList<PathSimulationResult> results() const { return m_results; }
+    QList<PathSimulationResult> results() const
+    {
+        return m_executionResults.summaryResults();
+    }
+
+    const ScenarioExecutionResultSet &executionResults() const
+    {
+        return m_executionResults;
+    }
 
 signals:
     void statusMessage(const QString &msg);
@@ -81,7 +94,8 @@ private:
     const ScenarioDocument             *m_document = nullptr;
     const ScenarioRegistry             *m_registry = nullptr;
     QList<CargoNetSim::Backend::Path *> m_paths;
-    QList<PathSimulationResult>         m_results;
+    QVector<QString>                    m_pathIdentities;
+    ScenarioExecutionResultSet          m_executionResults;
 };
 
 } // namespace Scenario

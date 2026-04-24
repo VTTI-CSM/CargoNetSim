@@ -1,0 +1,388 @@
+#include "ScenarioExecutionResult.h"
+
+#include "Backend/Commons/TransportationMode.h"
+#include "Backend/Controllers/ConfigController.h"
+#include "PathMetricsCalculator.h"
+#include "PropertyKeys.h"
+
+namespace CargoNetSim
+{
+namespace Backend
+{
+namespace Scenario
+{
+
+namespace
+{
+
+namespace PK = PropertyKeys;
+
+QJsonObject metricSnapshotToJson(
+    const PathSegment::SegmentMetricSnapshot &snapshot)
+{
+    QJsonObject json;
+    json[QStringLiteral("available")] = snapshot.available;
+    json[QStringLiteral("travel_time_seconds")] =
+        snapshot.travelTime;
+    json[QStringLiteral("distance_meters")] = snapshot.distance;
+    json[QStringLiteral("carbon_emissions")] =
+        snapshot.carbonEmissions;
+    json[QStringLiteral("energy_consumption")] =
+        snapshot.energyConsumption;
+    json[QStringLiteral("risk")] = snapshot.risk;
+    return json;
+}
+
+PathSegment::SegmentMetricSnapshot metricSnapshotFromJson(
+    const QJsonObject &json)
+{
+    PathSegment::SegmentMetricSnapshot snapshot;
+    snapshot.available =
+        json.value(QStringLiteral("available")).toBool(false);
+    snapshot.travelTime =
+        json.value(QStringLiteral("travel_time_seconds"))
+            .toDouble(0.0);
+    snapshot.distance =
+        json.value(QStringLiteral("distance_meters")).toDouble(0.0);
+    snapshot.carbonEmissions =
+        json.value(QStringLiteral("carbon_emissions"))
+            .toDouble(0.0);
+    snapshot.energyConsumption =
+        json.value(QStringLiteral("energy_consumption"))
+            .toDouble(0.0);
+    snapshot.risk = json.value(QStringLiteral("risk")).toDouble(0.0);
+    return snapshot;
+}
+
+QJsonObject costSnapshotToJson(
+    const PathSegment::SegmentCostSnapshot &snapshot)
+{
+    QJsonObject json;
+    json[QStringLiteral("available")] = snapshot.available;
+    json[QStringLiteral("travel_time_cost")] =
+        snapshot.travelTime;
+    json[QStringLiteral("distance_cost")] = snapshot.distance;
+    json[QStringLiteral("carbon_cost")] =
+        snapshot.carbonEmissions;
+    json[QStringLiteral("energy_cost")] =
+        snapshot.energyConsumption;
+    json[QStringLiteral("risk_cost")] = snapshot.risk;
+    json[QStringLiteral("direct_cost")] = snapshot.directCost;
+    return json;
+}
+
+PathSegment::SegmentCostSnapshot costSnapshotFromJson(
+    const QJsonObject &json)
+{
+    PathSegment::SegmentCostSnapshot snapshot;
+    snapshot.available =
+        json.value(QStringLiteral("available")).toBool(false);
+    snapshot.travelTime =
+        json.value(QStringLiteral("travel_time_cost")).toDouble(0.0);
+    snapshot.distance =
+        json.value(QStringLiteral("distance_cost")).toDouble(0.0);
+    snapshot.carbonEmissions =
+        json.value(QStringLiteral("carbon_cost")).toDouble(0.0);
+    snapshot.energyConsumption =
+        json.value(QStringLiteral("energy_cost")).toDouble(0.0);
+    snapshot.risk =
+        json.value(QStringLiteral("risk_cost")).toDouble(0.0);
+    snapshot.directCost =
+        json.value(QStringLiteral("direct_cost")).toDouble(0.0);
+    return snapshot;
+}
+
+int capacityForMode(ConfigController                         *config,
+                    TransportationTypes::TransportationMode mode)
+{
+    if (!config)
+        return 1;
+
+    const QVariantMap modeConfig =
+        config->getTransportModes()
+            .value(transportationModeToString(mode))
+            .toMap();
+    return modeConfig
+        .value(PK::Mode::AverageContainerNumber, 1)
+        .toInt();
+}
+
+} // namespace
+
+QJsonObject SegmentExecutionResult::toJson() const
+{
+    QJsonObject json;
+    json[QStringLiteral("segment_index")] = segmentIndex;
+    json[QStringLiteral("segment_id")] = segmentId;
+    json[QStringLiteral("start_terminal_id")] = startTerminalId;
+    json[QStringLiteral("end_terminal_id")] = endTerminalId;
+    json[QStringLiteral("mode")] =
+        TransportationTypes::toInt(mode);
+    json[QStringLiteral("actual_metrics")] =
+        metricSnapshotToJson(actualMetrics);
+    json[QStringLiteral("actual_costs")] =
+        costSnapshotToJson(actualCosts);
+    return json;
+}
+
+SegmentExecutionResult SegmentExecutionResult::fromJson(
+    const QJsonObject &json)
+{
+    SegmentExecutionResult result;
+    result.segmentIndex =
+        json.value(QStringLiteral("segment_index")).toInt(-1);
+    result.segmentId =
+        json.value(QStringLiteral("segment_id")).toString();
+    result.startTerminalId =
+        json.value(QStringLiteral("start_terminal_id")).toString();
+    result.endTerminalId =
+        json.value(QStringLiteral("end_terminal_id")).toString();
+    result.mode = TransportationTypes::fromInt(
+        json.value(QStringLiteral("mode")).toInt(-1));
+    result.actualMetrics = metricSnapshotFromJson(
+        json.value(QStringLiteral("actual_metrics")).toObject());
+    result.actualCosts = costSnapshotFromJson(
+        json.value(QStringLiteral("actual_costs")).toObject());
+    return result;
+}
+
+PathSimulationResult PathExecutionResult::toSimulationResult() const
+{
+    PathSimulationResult result;
+    result.pathId = pathId;
+    result.canonicalPathKey = canonicalPathKey;
+    result.pathUid = pathUid;
+    result.originId = originId;
+    result.destinationId = destinationId;
+    result.rank = rank;
+    result.effectiveContainerCount = effectiveContainerCount;
+    result.totalCost = totalCost;
+    result.edgeCosts = edgeCosts;
+    result.terminalCosts = terminalCosts;
+    return result;
+}
+
+PathSegment::SegmentMetricSnapshot
+PathExecutionResult::totalActualMetrics() const
+{
+    PathSegment::SegmentMetricSnapshot total;
+    for (const auto &segment : segmentResults)
+    {
+        if (!segment.actualMetrics.available)
+            continue;
+
+        total.available = true;
+        total.travelTime += segment.actualMetrics.travelTime;
+        total.distance += segment.actualMetrics.distance;
+        total.carbonEmissions +=
+            segment.actualMetrics.carbonEmissions;
+        total.energyConsumption +=
+            segment.actualMetrics.energyConsumption;
+        total.risk += segment.actualMetrics.risk;
+    }
+    return total;
+}
+
+PathSegment::SegmentCostSnapshot
+PathExecutionResult::totalActualCosts() const
+{
+    PathSegment::SegmentCostSnapshot total;
+    for (const auto &segment : segmentResults)
+    {
+        if (!segment.actualCosts.available)
+            continue;
+
+        total.available = true;
+        total.travelTime += segment.actualCosts.travelTime;
+        total.distance += segment.actualCosts.distance;
+        total.carbonEmissions +=
+            segment.actualCosts.carbonEmissions;
+        total.energyConsumption +=
+            segment.actualCosts.energyConsumption;
+        total.risk += segment.actualCosts.risk;
+        total.directCost += segment.actualCosts.directCost;
+    }
+    return total;
+}
+
+PathMetrics PathExecutionResult::toActualMetrics(
+    ConfigController *config) const
+{
+    PathMetrics metrics;
+    const auto totals = totalActualMetrics();
+    if (!totals.available)
+        return metrics;
+
+    metrics.valid = true;
+    metrics.distanceKm = totals.distance / 1000.0;
+    metrics.travelTimeHours = totals.travelTime / 3600.0;
+    metrics.energyPerVehicle = totals.energyConsumption;
+    metrics.carbonPerVehicle = totals.carbonEmissions;
+    metrics.riskPerVehicle = totals.risk;
+
+    if (effectiveContainerCount > 0)
+    {
+        const auto mode = segmentResults.isEmpty()
+            ? TransportationTypes::TransportationMode::Any
+            : segmentResults.first().mode;
+        PathMetricsCalculator::projectPerContainer(
+            metrics, effectiveContainerCount,
+            capacityForMode(config, mode));
+    }
+
+    return metrics;
+}
+
+QJsonObject PathExecutionResult::toJson() const
+{
+    QJsonObject json;
+    json[QStringLiteral("path_identity")] = pathIdentity;
+    json[QStringLiteral("path_id")] = pathId;
+    json[QStringLiteral("canonical_path_key")] = canonicalPathKey;
+    json[QStringLiteral("path_uid")] = pathUid;
+    json[QStringLiteral("origin_id")] = originId;
+    json[QStringLiteral("destination_id")] = destinationId;
+    json[QStringLiteral("rank")] = rank;
+    json[QStringLiteral("effective_container_count")] =
+        effectiveContainerCount;
+    json[QStringLiteral("total_cost")] = totalCost;
+    json[QStringLiteral("edge_costs")] = edgeCosts;
+    json[QStringLiteral("terminal_costs")] = terminalCosts;
+
+    QJsonArray segments;
+    for (const auto &segment : segmentResults)
+        segments.append(segment.toJson());
+    json[QStringLiteral("segment_results")] = segments;
+    return json;
+}
+
+PathExecutionResult PathExecutionResult::fromJson(
+    const QJsonObject &json)
+{
+    PathExecutionResult result;
+    result.pathIdentity =
+        json.value(QStringLiteral("path_identity")).toString();
+    result.pathId =
+        json.value(QStringLiteral("path_id")).toInt(-1);
+    result.canonicalPathKey =
+        json.value(QStringLiteral("canonical_path_key")).toString();
+    result.pathUid =
+        json.value(QStringLiteral("path_uid")).toString();
+    result.originId =
+        json.value(QStringLiteral("origin_id")).toString();
+    result.destinationId =
+        json.value(QStringLiteral("destination_id")).toString();
+    result.rank = json.value(QStringLiteral("rank")).toInt(0);
+    result.effectiveContainerCount =
+        json.value(QStringLiteral("effective_container_count"))
+            .toInt(0);
+    result.totalCost =
+        json.value(QStringLiteral("total_cost")).toDouble(0.0);
+    result.edgeCosts =
+        json.value(QStringLiteral("edge_costs")).toDouble(0.0);
+    result.terminalCosts =
+        json.value(QStringLiteral("terminal_costs")).toDouble(0.0);
+
+    const QJsonArray segments =
+        json.value(QStringLiteral("segment_results")).toArray();
+    for (const auto &segmentValue : segments)
+    {
+        if (!segmentValue.isObject())
+            continue;
+        result.segmentResults.append(
+            SegmentExecutionResult::fromJson(
+                segmentValue.toObject()));
+    }
+    return result;
+}
+
+int ScenarioExecutionResultSet::size() const
+{
+    return m_pathResults.size();
+}
+
+bool ScenarioExecutionResultSet::isEmpty() const
+{
+    return m_pathResults.isEmpty();
+}
+
+const QList<PathExecutionResult> &
+ScenarioExecutionResultSet::pathResults() const
+{
+    return m_pathResults;
+}
+
+void ScenarioExecutionResultSet::addPathResult(
+    const PathExecutionResult &result)
+{
+    for (auto it = m_pathResults.begin(); it != m_pathResults.end(); ++it)
+    {
+        if (it->pathIdentity == result.pathIdentity)
+        {
+            *it = result;
+            return;
+        }
+    }
+    m_pathResults.append(result);
+}
+
+const PathExecutionResult *
+ScenarioExecutionResultSet::findByPathIdentity(
+    const QString &pathIdentity) const
+{
+    for (int i = 0; i < m_pathResults.size(); ++i)
+    {
+        if (m_pathResults[i].pathIdentity == pathIdentity)
+            return &m_pathResults[i];
+    }
+    return nullptr;
+}
+
+QList<PathSimulationResult>
+ScenarioExecutionResultSet::summaryResults() const
+{
+    QList<PathSimulationResult> results;
+    results.reserve(m_pathResults.size());
+    for (const auto &result : m_pathResults)
+        results.append(result.toSimulationResult());
+    return results;
+}
+
+QHash<QString, PathMetrics>
+ScenarioExecutionResultSet::actualMetricsByPathIdentity(
+    ConfigController *config) const
+{
+    QHash<QString, PathMetrics> metrics;
+    for (const auto &result : m_pathResults)
+    {
+        metrics.insert(result.pathIdentity,
+                       result.toActualMetrics(config));
+    }
+    return metrics;
+}
+
+QJsonArray ScenarioExecutionResultSet::toJson() const
+{
+    QJsonArray array;
+    for (const auto &result : m_pathResults)
+        array.append(result.toJson());
+    return array;
+}
+
+ScenarioExecutionResultSet ScenarioExecutionResultSet::fromJson(
+    const QJsonArray &json)
+{
+    ScenarioExecutionResultSet results;
+    for (const auto &value : json)
+    {
+        if (!value.isObject())
+            continue;
+        results.addPathResult(
+            PathExecutionResult::fromJson(value.toObject()));
+    }
+    return results;
+}
+
+} // namespace Scenario
+} // namespace Backend
+} // namespace CargoNetSim

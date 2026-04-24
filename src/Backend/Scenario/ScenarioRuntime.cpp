@@ -7,6 +7,7 @@
 
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Controllers/ConfigController.h"
 #include "PreparedPathEligibilityService.h"
 #include "ScenarioApplier.h"
 #include "ScenarioDocument.h"
@@ -85,7 +86,7 @@ bool ScenarioRuntime::load()
     m_preparedPathEligibility.clear();
     m_paths.clear();
     m_selectedPathKeys.clear();
-    m_lastResults.clear();
+    m_lastExecutionResults = ScenarioExecutionResultSet();
     m_loaded = true;
     qCInfo(lcScenario) << "ScenarioRuntime::load: succeeded, endTime:" << m_endTime;
     return true;
@@ -98,6 +99,7 @@ void ScenarioRuntime::setPreparedPaths(
     refreshPreparedPathEligibility();
     m_paths.clear();
     m_selectedPathKeys.clear();
+    m_lastExecutionResults = ScenarioExecutionResultSet();
     qCDebug(lcScenario)
         << "ScenarioRuntime::setPreparedPaths: prepared"
         << m_preparedPaths.size() << "path(s)";
@@ -198,13 +200,14 @@ bool ScenarioRuntime::startSimulation()
     m_terminalOutcome  = TerminalOutcome::None;
     m_failureMessage.clear();
     m_terminalSignaled = false;
-    m_lastResults.clear();
+    m_lastExecutionResults = ScenarioExecutionResultSet();
 
     // Plan-deviation: Task 23 decoupled the executor from the runtime.
     // Inject inputs directly instead of setContext(this).
     m_executor->setDocument(m_document.get());
     m_executor->setRegistry(&m_registry);
     m_executor->setPaths(m_paths);
+    m_executor->setPathIdentities(m_selectedPathKeys);
 
     m_executor->moveToThread(m_workerThread);
 
@@ -250,9 +253,9 @@ void ScenarioRuntime::onExecutorFinished()
 {
     qCInfo(lcScenario) << "ScenarioRuntime::onExecutorFinished: executor done";
     if (m_executor)
-        m_lastResults = m_executor->results();
+        m_lastExecutionResults = m_executor->executionResults();
     qCDebug(lcScenario) << "ScenarioRuntime::onExecutorFinished: collected"
-                        << m_lastResults.size() << "results";
+                        << m_lastExecutionResults.size() << "results";
     cleanupWorker();
 
     switch (m_terminalOutcome)
@@ -348,6 +351,14 @@ double ScenarioRuntime::progress() const
 bool ScenarioRuntime::isRunning() const
 {
     return m_workerThread && m_workerThread->isRunning();
+}
+
+QHash<QString, PathMetrics> ScenarioRuntime::actualPathMetrics() const
+{
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    return m_lastExecutionResults.actualMetricsByPathIdentity(
+        controller.getConfigController());
 }
 
 const ScenarioDocument &ScenarioRuntime::document() const

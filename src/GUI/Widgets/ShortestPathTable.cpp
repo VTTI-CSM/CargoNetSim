@@ -1596,7 +1596,7 @@ QList<QJsonObject> ShortestPathsTable::buildComparisonSnapshots(
             continue;
 
         QJsonObject snapshot;
-        snapshot[QStringLiteral("schema_version")] = 1;
+        snapshot[QStringLiteral("schema_version")] = 2;
         snapshot[QStringLiteral("path_identity")] =
             pathData->pathKey;
         snapshot[QStringLiteral("canonical_path_key")] =
@@ -1660,9 +1660,16 @@ QList<QJsonObject> ShortestPathsTable::buildComparisonSnapshots(
         simulation[QStringLiteral("terminal_costs")] =
             pathData->m_totalSimulationTerminalCosts;
         simulation[QStringLiteral("effective_container_count")] =
-            pathData->path->getEffectiveContainerCount();
+            pathData->executionResult.has_value()
+                ? pathData->executionResult->effectiveContainerCount
+                : pathData->path->getEffectiveContainerCount();
         snapshot[QStringLiteral("simulation")] =
             simulation;
+        if (pathData->executionResult.has_value())
+        {
+            snapshot[QStringLiteral("execution_result")] =
+                pathData->executionResult->toJson();
+        }
 
         snapshot[QStringLiteral("path")] =
             buildPathSnapshotJson(*pathData);
@@ -1712,6 +1719,14 @@ void ShortestPathsTable::loadComparisonSnapshots(
             simulation.value(QStringLiteral("total_cost")).toDouble(-1.0),
             simulation.value(QStringLiteral("edge_costs")).toDouble(-1.0),
             simulation.value(QStringLiteral("terminal_costs")).toDouble(-1.0));
+        const QJsonObject executionResult =
+            snapshot.value(QStringLiteral("execution_result")).toObject();
+        if (!executionResult.isEmpty())
+        {
+            pathData->executionResult =
+                Backend::Scenario::PathExecutionResult::fromJson(
+                    executionResult);
+        }
         pathData->isVisible =
             selection.value(QStringLiteral("is_visible")).toBool(true);
         m_pathData.insert(storedKey, pathData);
@@ -2073,6 +2088,33 @@ void ShortestPathsTable::setActualMetrics(
     {
         m_actual.insert(it.key(), it.value());
         refreshRow(it.key());
+    }
+}
+
+void ShortestPathsTable::setExecutionResults(
+    const Backend::Scenario::ScenarioExecutionResultSet &results)
+{
+    for (const auto &result : results.pathResults())
+    {
+        PathData *pathData =
+            m_pathData.value(result.pathIdentity, nullptr);
+        if (!pathData && !result.canonicalPathKey.isEmpty())
+        {
+            pathData = m_pathData.value(result.canonicalPathKey, nullptr);
+        }
+        if (!pathData)
+        {
+            qCWarning(lcGuiPathTable)
+                << "Path key" << result.pathIdentity
+                << "not found for execution result update";
+            continue;
+        }
+
+        pathData->executionResult = result;
+        updateSimulationCosts(pathData->pathKey,
+                              result.totalCost,
+                              result.edgeCosts,
+                              result.terminalCosts);
     }
 }
 

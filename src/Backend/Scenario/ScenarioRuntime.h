@@ -7,7 +7,7 @@
 
 #include "PreparedPathStatus.h"
 #include "PathPreparationService.h"
-#include "PathSimulationResult.h"
+#include "ScenarioExecutionResult.h"
 #include "ScenarioRegistry.h"
 
 class QThread;
@@ -109,7 +109,17 @@ public:
     bool validateCurrentSelectionForSimulation(
         QString *err = nullptr) const;
 
-    QList<PathSimulationResult> results() const { return m_lastResults; }
+    QList<PathSimulationResult> results() const
+    {
+        return m_lastExecutionResults.summaryResults();
+    }
+
+    const ScenarioExecutionResultSet &executionResults() const
+    {
+        return m_lastExecutionResults;
+    }
+
+    QHash<QString, PathMetrics> actualPathMetrics() const;
 
     /** @brief Backend-owned selected path view used by executor and post-run
      *         completion handlers. */
@@ -149,7 +159,7 @@ private:
     ScenarioExecutor                   *m_executor     = nullptr;
     QList<CargoNetSim::Backend::Path *> m_paths;
     QVector<QString>                    m_selectedPathKeys;
-    QList<PathSimulationResult>         m_lastResults;
+    ScenarioExecutionResultSet          m_lastExecutionResults;
     bool                                m_loaded       = false;
     bool                                m_terminalSignaled = false;
     TerminalOutcome                     m_terminalOutcome = TerminalOutcome::None;

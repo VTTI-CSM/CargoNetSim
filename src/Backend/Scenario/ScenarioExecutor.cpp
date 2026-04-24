@@ -42,6 +42,12 @@ void ScenarioExecutor::setPaths(
     m_paths = paths;
 }
 
+void ScenarioExecutor::setPathIdentities(
+    const QVector<QString> &pathIdentities)
+{
+    m_pathIdentities = pathIdentities;
+}
+
 bool ScenarioExecutor::validateInputs(QString *err)
 {
     qCDebug(lcScenario) << "ScenarioExecutor::validateInputs: entry";
@@ -82,7 +88,7 @@ bool ScenarioExecutor::validateInputs(QString *err)
 bool ScenarioExecutor::run()
 {
     qCInfo(lcScenario) << "ScenarioExecutor::run: started";
-    m_results.clear();
+    m_executionResults = ScenarioExecutionResultSet();
 
     QString err;
     try
@@ -110,13 +116,6 @@ bool ScenarioExecutor::run()
         SimulationRequestBundle bundle;
         const auto allocation =
             ContainerAllocator::allocate(*m_document, m_paths);
-        for (auto *path : m_paths)
-        {
-            if (!path)
-                continue;
-            path->setEffectiveContainerCount(
-                allocation.effectiveContainerCountForPath(path));
-        }
         if (!builder.build(m_paths, allocation, bundle, &err))
         {
             qCWarning(lcScenario) << "ScenarioExecutor::run: build failed:" << err;
@@ -161,9 +160,12 @@ bool ScenarioExecutor::run()
         connect(&extractor, &ResultsExtractor::errorMessage,
                 this, &ScenarioExecutor::errorMessage);
 
-        m_results = extractor.extract(m_paths);
-        qCDebug(lcScenario) << "ScenarioExecutor::run: extracted" << m_results.size() << "path results";
-        for (const auto &r : m_results)
+        m_executionResults = extractor.extractExecutionResults(
+            m_paths, m_pathIdentities, &allocation);
+        const auto summaries = m_executionResults.summaryResults();
+        qCDebug(lcScenario) << "ScenarioExecutor::run: extracted"
+                            << summaries.size() << "path results";
+        for (const auto &r : summaries)
             emit pathResultReady(r);
 
         emit statusMessage(QStringLiteral(

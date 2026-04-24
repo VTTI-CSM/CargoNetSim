@@ -30,9 +30,17 @@ ResultsExtractor::ResultsExtractor(
 QList<PathSimulationResult> ResultsExtractor::extract(
     const QList<CargoNetSim::Backend::Path *> &paths)
 {
+    return extractExecutionResults(paths).summaryResults();
+}
+
+ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
+    const QList<CargoNetSim::Backend::Path *> &paths,
+    const QVector<QString>                    &pathIdentities,
+    const PathAllocation                      *allocation)
+{
     qCInfo(lcScenario) << "ResultsExtractor::extract: paths:" << paths.size()
                        << "(per-path container counts carried on Path snapshots)";
-    QList<PathSimulationResult> results;
+    ScenarioExecutionResultSet results;
     if (!m_config)
     {
         qCWarning(lcScenario) << "ResultsExtractor::extract: config is null, returning empty";
@@ -44,20 +52,17 @@ QList<PathSimulationResult> ResultsExtractor::extract(
     const QVariantMap transportModes =
         m_config->getTransportModes();
 
-    // Clear prior segment attributes — single source of truth in
-    // SegmentCostMath::clearPathAttributes (shared with SVW).
-    for (auto *path : paths)
-        SegmentCostMath::clearPathAttributes(path);
-
     emit statusMessage(
         QStringLiteral("Extracting simulation results..."));
 
-    for (auto *path : paths)
+    for (int index = 0; index < paths.size(); ++index)
     {
+        auto *path = paths[index];
         if (!path)
             continue;
-        const int containerCount =
-            path->getEffectiveContainerCount();
+        const int containerCount = allocation
+            ? allocation->effectiveContainerCountForPath(path)
+            : path->getEffectiveContainerCount();
         if (containerCount == 0)
         {
             qCWarning(lcScenario)
@@ -66,27 +71,33 @@ QList<PathSimulationResult> ResultsExtractor::extract(
             continue;
         }
 
-        // Single source of truth: same composition SVW uses.
-        const auto r = SegmentCostMath::computePathCosts(
+        const QString pathIdentity =
+            (index < pathIdentities.size()
+             && !pathIdentities[index].isEmpty())
+            ? pathIdentities[index]
+            : path->canonicalPathKey();
+
+        const auto result = SegmentCostMath::computePathExecutionResult(
             m_shipClient, m_trainClient, m_truckManager, path,
-            costWeights, transportModes, containerCount);
-        results.append(r);
-        qCDebug(lcScenario) << "ResultsExtractor::extract: pathId:" << r.pathId
-                            << "pathKey:" << r.canonicalPathKey
-                            << "totalCost:" << r.totalCost
-                            << "edgeCosts:" << r.edgeCosts
-                            << "terminalCosts:" << r.terminalCosts;
+            pathIdentity, costWeights, transportModes, containerCount);
+        const auto summary = result.toSimulationResult();
+        results.addPathResult(result);
+        qCDebug(lcScenario) << "ResultsExtractor::extractExecutionResults: pathId:" << summary.pathId
+                            << "pathKey:" << summary.canonicalPathKey
+                            << "totalCost:" << summary.totalCost
+                            << "edgeCosts:" << summary.edgeCosts
+                            << "terminalCosts:" << summary.terminalCosts;
 
         emit statusMessage(QString("Path %1 simulation cost: "
                                    "$%2 (edges: $%3, "
                                    "terminals: $%4)")
-                               .arg(r.pathId)
-                               .arg(r.totalCost,     0, 'f', 2)
-                               .arg(r.edgeCosts,     0, 'f', 2)
-                               .arg(r.terminalCosts, 0, 'f', 2));
+                               .arg(summary.pathId)
+                               .arg(summary.totalCost,     0, 'f', 2)
+                               .arg(summary.edgeCosts,     0, 'f', 2)
+                               .arg(summary.terminalCosts, 0, 'f', 2));
     }
 
-    qCInfo(lcScenario) << "ResultsExtractor::extract: completed, results:" << results.size();
+    qCInfo(lcScenario) << "ResultsExtractor::extractExecutionResults: completed, results:" << results.size();
     emit statusMessage(QStringLiteral(
         "Results extraction completed successfully"));
     return results;

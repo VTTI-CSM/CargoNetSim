@@ -467,6 +467,43 @@ private slots:
         delete pathA;
         delete pathB;
     }
+
+    void test_extract_execution_results_keeps_actuals_off_prepared_path_segments()
+    {
+        using namespace CargoNetSim::Backend;
+
+        auto *segment = new PathSegment(
+            "seg0", "A", "B",
+            TransportationTypes::TransportationMode::Truck);
+        auto *path = new Path(9, 0.0, 0.0, 0.0,
+                              QList<PathTerminal>{},
+                              QList<PathSegment *>{segment});
+        path->setEffectiveContainerCount(10);
+
+        auto &ctl =
+            CargoNetSim::CargoNetSimController::getInstance();
+        CargoNetSim::Backend::Scenario::ResultsExtractor ex(
+            nullptr, nullptr, nullptr, ctl.getConfigController());
+
+        const auto results =
+            ex.extractExecutionResults({path},
+                                       {QStringLiteral("prepared-A-B-r0")});
+        QCOMPARE(results.size(), 1);
+
+        const auto *result = results.findByPathIdentity(
+            QStringLiteral("prepared-A-B-r0"));
+        QVERIFY(result != nullptr);
+        QCOMPARE(result->pathId, 9);
+        QCOMPARE(result->segmentResults.size(), 1);
+        QVERIFY(result->segmentResults.first().actualMetrics.available);
+        QVERIFY(result->segmentResults.first().actualCosts.available);
+
+        const QJsonObject attrs = segment->getAttributes();
+        QVERIFY(!attrs.contains("actual_values"));
+        QVERIFY(!attrs.contains("actual_cost"));
+
+        delete path;
+    }
 };
 
 QTEST_MAIN(ResultsExtractorTest)

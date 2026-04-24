@@ -4,11 +4,14 @@
 #include <QList>
 #include <QMap>
 #include <QObject>
+#include <QVector>
 #include <QString>
 #include <QVariantMap>
 
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Models/Path.h" // for PathTerminal value type
+#include "PathAllocation.h"
+#include "ScenarioExecutionResult.h"
 #include "PathSimulationResult.h"
 
 // Forward-declared in global namespace so ResultsExtractor's friend decl
@@ -69,15 +72,19 @@ public:
         QObject                                                   *parent = nullptr);
 
     /**
-     * @brief For each path, computes total / edge / terminal costs and
-     *        writes per-segment actual_values + actual_cost attributes
-     *        via PathSegment::setAttributes.
-     *
-     * Mirrors SimulationValidationWorker.cpp:1901-1979 at the driver
-     * level; per-mode cost math lives in the private calculate* methods.
+     * @brief Compatibility summary view over the typed execution result set.
      */
     QList<PathSimulationResult>
     extract(const QList<CargoNetSim::Backend::Path *> &paths);
+
+    /**
+     * @brief Computes typed execution results without mutating the input
+     *        paths' segment actual attributes.
+     */
+    ScenarioExecutionResultSet extractExecutionResults(
+        const QList<CargoNetSim::Backend::Path *> &paths,
+        const QVector<QString>                    &pathIdentities = {},
+        const PathAllocation                      *allocation = nullptr);
 
 signals:
     void statusMessage(const QString &msg);

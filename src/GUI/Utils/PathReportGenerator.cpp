@@ -741,7 +741,7 @@ void PathReportGenerator::addPathSegments(
 
         report->addVerticalSpacing(5);
 
-        const auto values = segments[i]->actualValues();
+        const auto values = m_viewModel.segmentValues(pathData, i);
         const auto predictedValues = segments[i]->estimatedValues();
 
         // Create table for segment attributes
@@ -773,9 +773,9 @@ void PathReportGenerator::addPathSegments(
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            values.available
+            values.actualAvailable
                 ? QString::number(
-                      values.carbonEmissions,
+                      values.actualCarbonEmissions,
                       'f', 3)
                 : tr("N/A"));
         rowIndex++;
@@ -799,9 +799,9 @@ void PathReportGenerator::addPathSegments(
                       predictedValues.distance / 1000.0, 'f', 2)
                 : tr("N/A"));
         styleTableCell(attrTable, rowIndex, 2,
-                       values.available
+                       values.actualAvailable
                            ? QString::number(
-                                 values.distance / 1000.0,
+                                 values.actualDistanceKm,
                                  'f', 2)
                            : tr("N/A"));
         rowIndex++;
@@ -818,9 +818,9 @@ void PathReportGenerator::addPathSegments(
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            values.available
+            values.actualAvailable
                 ? QString::number(
-                      values.energyConsumption,
+                      values.actualEnergyConsumption,
                       'f', 2)
                 : tr("N/A"));
         rowIndex++;
@@ -835,8 +835,8 @@ void PathReportGenerator::addPathSegments(
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            values.available
-                ? QString::number(values.risk, 'f', 6)
+            values.actualAvailable
+                ? QString::number(values.actualRisk, 'f', 6)
                 : tr("N/A"));
         rowIndex++;
 
@@ -852,8 +852,8 @@ void PathReportGenerator::addPathSegments(
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            values.available
-                ? QString::number(values.travelTime / 3600.0,
+            values.actualAvailable
+                ? QString::number(values.actualTravelTimeHours,
                                   'f', 2)
                 : tr("N/A"));
 
@@ -1158,8 +1158,9 @@ void PathReportGenerator::addPathCosts(
     bool hasActualData = false;
 
     // Sum up costs across all segments
-    for (const auto &segment : segments)
+    for (int i = 0; i < segments.size(); ++i)
     {
+        const auto *segment = segments[i];
         if (segment)
         {
             const auto estimatedCostObj = segment->estimatedCosts();
@@ -1174,7 +1175,8 @@ void PathReportGenerator::addPathCosts(
                 predictedTimeCost += estimatedCostObj.travelTime;
             }
 
-            const auto actualCostObj = segment->actualCosts();
+            const auto actualCostObj =
+                m_viewModel.segmentActualCosts(pathData, i);
             if (actualCostObj.available)
             {
                 actualCarbonEmissionsCost +=
@@ -1701,7 +1703,7 @@ void PathReportGenerator::addPathCosts(
                     const auto estimatedCostObj =
                         segments[i]->estimatedCosts();
                     const auto actualCostObj =
-                        segments[i]->actualCosts();
+                        m_viewModel.segmentActualCosts(pathData, i);
                     const double segPredictedCost =
                         estimatedCostObj.available
                             ? estimatedCostObj.directCost

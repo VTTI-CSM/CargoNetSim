@@ -1088,11 +1088,6 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                      Qt::QueuedConnection);
     QObject::connect(rt, &RT::completed, mainWindow,
                      [mainWindow, rt, teardown] {
-                         using namespace CargoNetSim::Backend::Scenario;
-
-                         auto &ctl =
-                             CargoNetSim::CargoNetSimController::getInstance();
-
                          // Monetary costs — pre-existing behavior.
                          for (const auto &r : rt->results())
                              mainWindow->shortestPathTable_
@@ -1101,52 +1096,12 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                                      r.totalCost,
                                      r.edgeCosts, r.terminalCosts);
 
-                         // Plan 8.2: actual per-vehicle metrics come
-                         // from direct aggregation of simulator-written
-                         // segment attributes. No calculator on actuals
-                         // — running measurements through the estimation
-                         // formula would discard simulator truth.
-                         // Plan 10: per-container projection in-place.
-                         QHash<QString, PathMetrics> actual;
-                         for (auto *p : rt->paths())
-                         {
-                             if (!p || p->getSegments().isEmpty())
-                                 continue;
-                             PathMetrics m;
-                             m.valid            = true;
-                             m.distanceKm       =
-                                 p->totalActualLength() / 1000.0;
-                             m.travelTimeHours  =
-                                 p->totalActualTravelTime() / 3600.0;
-                             m.riskPerVehicle   = p->totalActualRisk();
-                             m.energyPerVehicle =
-                                 p->totalActualEnergyConsumption();
-                             m.carbonPerVehicle =
-                                 p->totalActualCarbonEmissions();
-                             // fuelPerVehicle stays zero — SegmentCostMath
-                             // folds fuel into energyConsumption.
-
-                             const int count =
-                                 p->getEffectiveContainerCount();
-                             if (count <= 0)
-                                 continue;
-                             const auto mode =
-                                 p->getSegments().first()->getMode();
-                             int capacity = 1;
-                             if (auto *cfg = ctl.getConfigController())
-                                 capacity =
-                                     cfg->getTransportModes()
-                                        .value(CargoNetSim::Backend::transportationModeToString(mode)).toMap()
-                                        .value(PK::Mode::AverageContainerNumber, 1)
-                                        .toInt();
-                             PathMetricsCalculator::projectPerContainer(
-                                 m, count, capacity);
-
-                             actual.insert(p->canonicalPathKey(),
-                                           m);
-                         }
                          mainWindow->shortestPathTable_
-                             ->setActualMetrics(actual);
+                             ->setExecutionResults(
+                                 rt->executionResults());
+                         mainWindow->shortestPathTable_
+                             ->setActualMetrics(
+                                 rt->actualPathMetrics());
 
                          teardown();
                      },
