@@ -5,6 +5,7 @@
 #include "Backend/Models/Path.h"
 #include "Backend/Models/PathSegment.h"
 #include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Scenario/PathDemandResolver.h"
 #include "Backend/Scenario/SegmentPhysicsEstimator.h"
 
 namespace CargoNetSim
@@ -52,29 +53,9 @@ void EstimatedPhysicsPopulator::populate(
 int EstimatedPhysicsPopulator::resolveContainerCount(
     const Path *path, const ScenarioDocument &document) const
 {
-    const auto segs = path->getSegments();
-    if (segs.isEmpty())
+    if (!path)
         return 0;
-
-    const QString originId = segs.first()->getStart();
-    const QString destId   = segs.last()->getEnd();
-
-    const int total = document.originContainerCount(originId);
-    if (total <= 0)
-        return 0;
-
-    const auto routes = document.destinationsFor(originId);
-    for (const auto &r : routes)
-    {
-        if (r.terminal == destId)
-            return qRound(total * r.fraction);
-    }
-
-    qCDebug(lcScenario)
-        << "EstimatedPhysicsPopulator: destination" << destId
-        << "not in destinations for" << originId
-        << "— using full container count" << total;
-    return total;
+    return PathDemandResolver::previewContainerCount(document, *path);
 }
 
 } // namespace Scenario

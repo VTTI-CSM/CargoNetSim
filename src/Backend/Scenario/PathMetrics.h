@@ -1,6 +1,9 @@
 // src/Backend/Scenario/PathMetrics.h
 #pragma once
 
+#include "Backend/Commons/TransportationMode.h"
+
+#include <QList>
 #include <QString>
 
 namespace CargoNetSim {
@@ -10,8 +13,8 @@ namespace Scenario {
 /// Output value of PathMetricsCalculator::compute.
 ///
 /// Per-vehicle quantities. Per-container projections are added
-/// by Plan 10's container-aware overload once ContainerAllocator
-/// establishes how many containers flow through each path.
+/// by the container-aware overload once the caller chooses the
+/// demand basis for this metrics snapshot.
 ///
 /// Units:
 ///   distanceKm         — km
@@ -23,6 +26,14 @@ namespace Scenario {
 ///   carbonPerVehicle   — tonnes CO₂ per vehicle per trip
 struct PathMetrics
 {
+    struct VehicleRequirement
+    {
+        int segmentIndex = -1;
+        TransportationTypes::TransportationMode mode =
+            TransportationTypes::TransportationMode::Any;
+        int vehiclesNeeded = 0;
+    };
+
     bool    valid             = false;
     double  distanceKm        = 0.0;
     double  travelTimeHours   = 0.0;
@@ -32,9 +43,12 @@ struct PathMetrics
     double  carbonPerVehicle  = 0.0;
     QString fuelType;  // human-facing label (e.g. "diesel_1")
 
-    /// Number of containers assigned to this path by the allocator.
-    /// Zero when no allocator has been consulted (e.g., a headless
-    /// per-vehicle-only preview).
+    /// Container count associated with this metrics snapshot.
+    ///
+    /// For predicted/discovery metrics this is the authored OD-demand
+    /// preview for the path's origin/destination pair. For actual
+    /// metrics this is the executed container count recorded by the
+    /// runtime result.
     int containerCount = 0;
 
     /// Per-container projections. These are populated by
@@ -48,10 +62,19 @@ struct PathMetrics
     double carbonPerContainer  = 0.0;
     double riskPerContainer    = 0.0;
 
-    /// Vehicles the allocator's pool size requires at this mode's
-    /// capacity (ceil division). Surfaced for display and as an
-    /// intermediate product of the per-container math.
+    /// Legacy single-scalar vehicle count.
+    ///
+    /// This remains for compatibility with older snapshot / JSON
+    /// consumers that expected one integer. For multimodal paths the
+    /// authoritative preview is `previewVehicleBreakdown`.
     int    vehiclesNeeded      = 0;
+
+    /// Authoritative per-segment preview vehicle requirements for the
+    /// current metrics snapshot. For single-mode paths this will
+    /// usually contain one repeated-mode entry per segment; for
+    /// multimodal paths it preserves the segment order instead of
+    /// collapsing the path onto the first segment's mode.
+    QList<VehicleRequirement> previewVehicleBreakdown;
 };
 
 } // namespace Scenario

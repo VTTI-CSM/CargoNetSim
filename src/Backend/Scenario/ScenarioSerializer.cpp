@@ -1,6 +1,7 @@
 #include "ScenarioSerializer.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
+#include "RouteMetricUnits.h"
 #include "TerminalTypeDefaults.h"
 
 #include <QDir>
@@ -409,7 +410,9 @@ QJsonObject connectionToJson(const Connection &c)
     o["to"]         = c.toTerminalId;
     o["mode"]       = transportationModeToString(c.mode);
     o["region"]     = c.region;
-    o["properties"] = variantMapToJson(c.properties);
+    o["properties"] = variantMapToJson(
+        RouteMetricUnits::serializedPropertiesFromCanonical(
+            c.properties));
     o["source"]     = (c.source == LinkageSource::Auto) ? "auto" : "manual";
     return o;
 }
@@ -422,7 +425,10 @@ Connection connectionFromJson(const QJsonObject &o)
     c.mode           =
         transportationModeFromString(o.value("mode").toString());
     c.region         = o.value("region").toString();
-    c.properties     = jsonToVariantMap(o.value("properties").toObject());
+    c.properties     =
+        RouteMetricUnits::canonicalPropertiesFromSerialized(
+            jsonToVariantMap(o.value("properties").toObject()),
+            ScenarioSerializer::kSchemaVersion);
     c.source         = (o.value("source").toString() == "auto")
                            ? LinkageSource::Auto : LinkageSource::Manual;
     return c;
@@ -434,7 +440,9 @@ QJsonObject globalLinkToJson(const GlobalLink &g)
     o["from"]       = g.fromTerminalId;
     o["to"]         = g.toTerminalId;
     o["mode"]       = transportationModeToString(g.mode);
-    o["properties"] = variantMapToJson(g.properties);
+    o["properties"] = variantMapToJson(
+        RouteMetricUnits::serializedPropertiesFromCanonical(
+            g.properties));
     o["source"]     = (g.source == LinkageSource::Auto) ? "auto" : "manual";
     return o;
 }
@@ -446,7 +454,10 @@ GlobalLink globalLinkFromJson(const QJsonObject &o)
     g.toTerminalId   = o.value("to").toString();
     g.mode           =
         transportationModeFromString(o.value("mode").toString());
-    g.properties     = jsonToVariantMap(o.value("properties").toObject());
+    g.properties     =
+        RouteMetricUnits::canonicalPropertiesFromSerialized(
+            jsonToVariantMap(o.value("properties").toObject()),
+            ScenarioSerializer::kSchemaVersion);
     g.source         = (o.value("source").toString() == "auto")
                            ? LinkageSource::Auto : LinkageSource::Manual;
     return g;

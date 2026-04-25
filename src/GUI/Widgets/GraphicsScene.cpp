@@ -24,9 +24,11 @@ GraphicsScene::GraphicsScene(QObject *parent)
 
 GraphicsScene::~GraphicsScene()
 {
-    qCInfo(lcGuiScene) << "[DIAG] GraphicsScene::~GraphicsScene:"
-                       << "typeCount=" << itemsByType.size()
-                       << "sceneItemCount=" << items().size();
+    // Tear down tracked items while the registry is still alive. If we
+    // let QGraphicsScene::~QGraphicsScene() delete items after the
+    // derived members are already gone, destroyed() callbacks would
+    // touch dead registry state.
+    clearAll();
 }
 
 void GraphicsScene::addItemWithId(GraphicsObjectBase *item,
@@ -36,8 +38,6 @@ void GraphicsScene::addItemWithId(GraphicsObjectBase *item,
                         << "id=" << id
                         << "type=" << typeid(*item).name();
     QGraphicsScene::addItem(item);
-
-    item->setParent(this);
 
     const QString className = QString(typeid(*item).name());
     itemsByType[className][id] = item;

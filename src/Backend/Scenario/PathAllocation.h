@@ -24,9 +24,10 @@ namespace Scenario {
 /// rewrite IDs internally).
 ///
 /// Rank-0 only: paths with rank >= 1 will NOT appear in
-/// `byCanonicalPath` (they carry zero containers). They DO appear in
-/// `keyByCanonicalPath` for display purposes. See ContainerAllocator.h
-/// for the policy rationale.
+/// `byCanonicalPath` (they carry zero allocated containers). They DO
+/// appear in `keyByCanonicalPath` for display purposes. Preview-demand
+/// metrics for those alternatives are resolved elsewhere. See
+/// ContainerAllocator.h for the policy rationale.
 struct PathAllocation
 {
     QHash<QString /*canonicalPathKey*/,

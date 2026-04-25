@@ -47,7 +47,8 @@ double dwellTime(const QJsonObject &config)
             dwellParams[it.key()] = it.value().toDouble();
         }
 
-        // Use the mean/expected value for each distribution
+        // Use the mean/expected value for each distribution.
+        // Stored/runtime terminal delay is canonical seconds.
         if (method.compare("gamma", Qt::CaseInsensitive)
             == 0)
         {
@@ -56,9 +57,7 @@ double dwellTime(const QJsonObject &config)
             double scale =
                 dwellParams.value("scale", 24.0 * 3600.0)
                     .toDouble();
-            terminalDelay =
-                shape * scale
-                / 3600.0; // Convert seconds to hours
+            terminalDelay = shape * scale;
         }
         else if (method.compare("exponential",
                                 Qt::CaseInsensitive)
@@ -68,8 +67,7 @@ double dwellTime(const QJsonObject &config)
                 dwellParams
                     .value("scale", 2.0 * 24.0 * 3600.0)
                     .toDouble();
-            terminalDelay =
-                scale / 3600.0; // Convert seconds to hours
+            terminalDelay = scale;
         }
         else if (method.compare("normal",
                                 Qt::CaseInsensitive)
@@ -79,8 +77,7 @@ double dwellTime(const QJsonObject &config)
                 dwellParams
                     .value("mean", 2.0 * 24.0 * 3600.0)
                     .toDouble();
-            terminalDelay =
-                mean / 3600.0; // Convert seconds to hours
+            terminalDelay = mean;
         }
         else if (method.compare("lognormal",
                                 Qt::CaseInsensitive)
@@ -94,8 +91,7 @@ double dwellTime(const QJsonObject &config)
             double sigma =
                 dwellParams.value("sigma", 0.25).toDouble();
             terminalDelay =
-                std::exp(mean + sigma * sigma / 2.0)
-                / 3600.0; // Convert seconds to hours
+                std::exp(mean + sigma * sigma / 2.0);
         }
         else
         {
@@ -103,14 +99,12 @@ double dwellTime(const QJsonObject &config)
             // value
             double shape = 2.0;
             double scale = 24.0 * 3600.0;
-            terminalDelay =
-                shape * scale
-                / 3600.0; // Convert seconds to hours
+            terminalDelay = shape * scale;
         }
     }
 
     qCDebug(lcScenario) << "TerminalCostMath::dwellTime:"
-                        << "computed =" << terminalDelay << "hours";
+                        << "computed =" << terminalDelay << "seconds";
     return terminalDelay;
 }
 
@@ -135,11 +129,10 @@ bool customs(const QJsonObject &config,
         double delayMean =
             customsObj["delay_mean"].toDouble(0.0);
 
-        // Apply expected customs delay (probability * mean
-        // delay)
+        // Apply expected customs delay (probability * mean delay).
         if (probability > 0.0 && delayMean > 0.0)
         {
-            customsDelay   = probability * delayMean / 3600.0; // delay_mean in seconds → hours
+            customsDelay   = probability * delayMean;
             customsApplied = true;
         }
     }
@@ -226,7 +219,7 @@ double singleTerminalCost(
             : costFunctionWeights["default"].toMap();
 
     // Process terminal costs - per container
-    double terminalDelayPerContainer = 0.0; // Hours
+    double terminalDelayPerContainer = 0.0; // Seconds
     double terminalCostPerContainer  = 0.0; // Direct cost
     bool   customsApplied            = false;
 
@@ -260,7 +253,7 @@ double singleTerminalCost(
     qCDebug(lcScenario) << "TerminalCostMath::singleTerminalCost:"
                         << "terminal" << terminal->getNames().value(0)
                         << "-> dwellDelay =" << terminalDelayPerContainer
-                        << "h, directCost =" << terminalCostPerContainer
+                        << "s, directCost =" << terminalCostPerContainer
                         << ", totalCost =" << terminalTotalCost;
 
     return terminalTotalCost;

@@ -13,6 +13,7 @@
 
 #include "PathReportGenerator.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Scenario/MetricDisplayUnits.h"
 #include "Backend/Scenario/PropertyKeys.h"
 #include <KDReportsPreviewDialog.h>
 #include <KDReportsPreviewWidget.h>
@@ -743,6 +744,10 @@ void PathReportGenerator::addPathSegments(
 
         const auto values = m_viewModel.segmentValues(pathData, i);
         const auto predictedValues = segments[i]->estimatedValues();
+        const auto predictedCosts =
+            m_viewModel.segmentPredictedCosts(pathData, i);
+        const auto actualCosts =
+            m_viewModel.segmentActualCosts(pathData, i);
 
         // Create table for segment attributes
         KDReports::TableElement attrTable;
@@ -780,13 +785,19 @@ void PathReportGenerator::addPathSegments(
                 : tr("N/A"));
         rowIndex++;
 
-        // Cost
-        styleTableCell(attrTable, rowIndex, 0, tr("Cost"),
+        // Direct Cost
+        styleTableCell(attrTable, rowIndex, 0, tr("Direct Cost"),
                        false, true);
-        styleTableCell(attrTable, rowIndex, 1, tr("N/A"));
+        styleTableCell(
+            attrTable, rowIndex, 1,
+            predictedCosts.available
+                ? QString::number(predictedCosts.directCost, 'f', 2)
+                : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            tr("N/A"));
+            actualCosts.available
+                ? QString::number(actualCosts.directCost, 'f', 2)
+                : tr("N/A"));
         rowIndex++;
 
         // Distance
@@ -796,7 +807,10 @@ void PathReportGenerator::addPathSegments(
             attrTable, rowIndex, 1,
             predictedValues.available
                 ? QString::number(
-                      predictedValues.distance / 1000.0, 'f', 2)
+                      Backend::Scenario::MetricDisplayUnits::
+                          distanceKmFromMetres(
+                              predictedValues.distance),
+                      'f', 2)
                 : tr("N/A"));
         styleTableCell(attrTable, rowIndex, 2,
                        values.actualAvailable
@@ -847,7 +861,9 @@ void PathReportGenerator::addPathSegments(
             attrTable, rowIndex, 1,
             predictedValues.available
                 ? QString::number(
-                      predictedValues.travelTime / 3600.0,
+                      Backend::Scenario::MetricDisplayUnits::
+                          travelTimeHoursFromSeconds(
+                              predictedValues.travelTime),
                       'f', 2)
                 : tr("N/A"));
         styleTableCell(

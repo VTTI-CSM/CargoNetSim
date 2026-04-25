@@ -2,6 +2,7 @@
 
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/ConfigController.h"
+#include "MetricDisplayUnits.h"
 #include "PathMetricsCalculator.h"
 #include "PropertyKeys.h"
 
@@ -326,8 +327,12 @@ PathMetrics PathExecutionResult::toActualMetrics(
         return metrics;
 
     metrics.valid = true;
-    metrics.distanceKm = totals.distance / 1000.0;
-    metrics.travelTimeHours = totals.travelTime / 3600.0;
+    metrics.distanceKm =
+        MetricDisplayUnits::distanceKmFromMetres(
+            totals.distance);
+    metrics.travelTimeHours =
+        MetricDisplayUnits::travelTimeHoursFromSeconds(
+            totals.travelTime);
     metrics.energyPerVehicle = totals.energyConsumption;
     metrics.carbonPerVehicle = totals.carbonEmissions;
     metrics.riskPerVehicle = totals.risk;

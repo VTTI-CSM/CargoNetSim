@@ -89,7 +89,8 @@ namespace Cli {
  * emitted when the caller passes populated `metrics` / `keys` maps
  * keyed by canonical path identity. This avoids collisions when
  * multiple origin/destination pairs legitimately reuse the same local
- * `path_id`.
+ * `path_id`. The `metrics` block is the preview/discovery view of a
+ * path; execution allocation stays in `effective_container_count`.
  *
  * Stateless: one instance per invocation. No thread-safety concerns —
  * writers do not share state.

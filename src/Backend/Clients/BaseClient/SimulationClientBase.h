@@ -386,7 +386,7 @@ protected:
     }
 
     // RabbitMQ handler
-    RabbitMQHandler *m_rabbitMQHandler;
+    RabbitMQHandler *m_rabbitMQHandler = nullptr;
 
     // Client type identification
     ClientType m_clientType;
@@ -411,10 +411,10 @@ protected:
     LoggerInterface *m_logger = nullptr;
 
     // SimulationTime interface
-    SimulationTime *m_simulationTime;
+    SimulationTime *m_simulationTime = nullptr;
 
     // Terminal client reference
-    TerminalSimulationClient *m_terminalClient;
+    TerminalSimulationClient *m_terminalClient = nullptr;
 
     // Controller
     CargoNetSimController *m_controller = nullptr;

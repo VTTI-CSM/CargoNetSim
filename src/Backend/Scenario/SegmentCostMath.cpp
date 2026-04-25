@@ -30,15 +30,15 @@ namespace
 using Mode = TransportationTypes::TransportationMode;
 namespace PK = PropertyKeys;
 
-// Mode-agnostic aggregated vehicle metrics. Populated by per-mode state
-// loops, then consumed by applyVehicleMetricsAndWriteback.
+// Mode-agnostic aggregated vehicle metrics in canonical units. Populated by
+// per-mode state loops, then consumed by computeVehicleSegmentData.
 struct VehicleSegmentMetrics
 {
-    double travelTime        = 0.0;
-    double distance          = 0.0;
-    double carbonEmissions   = 0.0;
-    double energyConsumption = 0.0;
-    double risk              = 0.0;
+    double travelTime        = 0.0; // seconds
+    double distance          = 0.0; // metres
+    double carbonEmissions   = 0.0; // tonnes CO2
+    double energyConsumption = 0.0; // kWh
+    double risk              = 0.0; // fraction
     int    vehicleCount      = 0;
 };
 
@@ -93,7 +93,7 @@ ComputedSegmentData computeVehicleSegmentData(
         m.distance * modeWeights[PK::Segment::Distance].toDouble();
     simulatedCost[PK::Segment::CarbonEmissions] =
         m.carbonEmissions
-        * modeWeights[PK::Segment::CarbonEmissions].toDouble(); // kg
+        * modeWeights[PK::Segment::CarbonEmissions].toDouble(); // tonnes
     simulatedCost[PK::Segment::EnergyConsumption] =
         m.energyConsumption
         * modeWeights[PK::Segment::EnergyConsumption]
@@ -104,9 +104,9 @@ ComputedSegmentData computeVehicleSegmentData(
 
     out.actualMetrics.available = true;
     out.actualMetrics.travelTime =
-        simulatedValues[PK::Segment::TravelTime] * 3600.0;
+        simulatedValues[PK::Segment::TravelTime];
     out.actualMetrics.distance =
-        simulatedValues[PK::Segment::Distance] * 1000.0;
+        simulatedValues[PK::Segment::Distance];
     out.actualMetrics.carbonEmissions =
         simulatedValues[PK::Segment::CarbonEmissions];
     out.actualMetrics.energyConsumption =
@@ -192,9 +192,9 @@ ComputedSegmentData computeShipSegmentData(
             {
                 metrics.vehicleCount++;
                 metrics.travelTime +=
-                    shipState->getTripTime() / 3600.0;
+                    shipState->getTripTime();
                 metrics.distance +=
-                    shipState->getTravelledDistance() / 1000.0;
+                    shipState->getTravelledDistance();
                 metrics.carbonEmissions +=
                     shipState->getCarbonEmissions() / 1000.0;
                 metrics.energyConsumption +=
@@ -248,9 +248,9 @@ ComputedSegmentData computeTrainSegmentData(
             {
                 metrics.vehicleCount++;
                 metrics.travelTime +=
-                    trainState->getTripTime() / 3600.0;
+                    trainState->getTripTime();
                 metrics.distance +=
-                    trainState->getTravelledDistance() / 1000.0;
+                    trainState->getTravelledDistance();
                 metrics.carbonEmissions +=
                     trainState->getTotalCarbonDioxideEmitted()
                     / 1000.0;
@@ -380,11 +380,8 @@ double trainSegmentCost(
 // results API lands. For now, truckCount is a ceiling-divide of
 // containerCount by capacity, and all metrics except risk remain zero.
 //
-// Note the unit-conversion divisors (`/3600.0`, `/1000.0`) on travelTime
-// and distance weighting: they are quirks of the SVW placeholder formula
-// preserved here for behavior parity. Since travelTime/distance remain
-// zero in the heuristic path, the divisors have no observable effect.
-// Truck cost — now delegates to the same shared helper as ship/train.
+// Truck cost — now delegates to the same shared helper as ship/train using
+// the canonical seconds/metres/tonnes contract.
 // Heuristic-only: estimates truckCount from ceiling-divide of
 // containerCount by capacity. All metrics except risk remain zero until
 // TruckSimulationManager's results API lands and the aggregation loop

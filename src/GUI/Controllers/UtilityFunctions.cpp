@@ -19,6 +19,7 @@
 #include "Backend/Scenario/NetworkLookup.h"
 #include "Backend/Scenario/PathMetricsCalculator.h"
 #include "Backend/Scenario/PathPreparationService.h"
+#include "Backend/Scenario/RouteMetricUnits.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 
@@ -739,16 +740,26 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
 
     if (!m.valid) return false;
 
-    connection->setProperty("distance",
-        QString::number(m.distanceKm, 'f', 2));
-    connection->setProperty("travelTime",
-        QString::number(m.travelTimeHours, 'f', 2));
-    connection->setProperty("risk",
-        QString::number(m.riskPerVehicle, 'f', 4));
-    connection->setProperty("energyConsumption",
-        QString::number(m.energyPerVehicle, 'f', 2));
-    connection->setProperty("carbonEmissions",
-        QString::number(m.carbonPerVehicle, 'f', 4));
+    QVariantMap displayRouteProperties;
+    displayRouteProperties.insert("distance", m.distanceKm);
+    displayRouteProperties.insert("travelTime",
+                                  m.travelTimeHours);
+    displayRouteProperties.insert("risk", m.riskPerVehicle);
+    displayRouteProperties.insert("energyConsumption",
+                                  m.energyPerVehicle);
+    displayRouteProperties.insert("carbonEmissions",
+                                  m.carbonPerVehicle);
+
+    const QVariantMap canonicalRouteProperties =
+        CargoNetSim::Backend::Scenario::RouteMetricUnits::
+            canonicalPropertiesFromDisplay(
+                displayRouteProperties);
+
+    for (auto it = canonicalRouteProperties.constBegin();
+         it != canonicalRouteProperties.constEnd(); ++it)
+    {
+        connection->setProperty(it.key(), it.value());
+    }
     return true;
 }
 

@@ -44,58 +44,67 @@ namespace Backend
  * This function should be called once at application
  * startup before using any backend components, especially
  * those that use signals/slots across thread boundaries.
+ *
+ * When @p startController is false, only the metatype
+ * registration portion runs. Tests can use that mode to
+ * exercise standalone clients without booting the full
+ * controller stack.
  */
 inline void
 initializeBackend(const QString   &integrationExePath = "",
-                  LoggerInterface *logger = nullptr)
+                  LoggerInterface *logger = nullptr,
+                  bool startController = true)
 {
-    // Container class
-    qRegisterMetaType<ContainerCore::Package>(
-        "ContainerCore::Package");
-    qRegisterMetaType<ContainerCore::Package *>(
-        "ContainerCore::Package *");
-    qRegisterMetaType<ContainerCore::Container>(
-        "ContainerCore::Container");
-    qRegisterMetaType<ContainerCore::Container *>(
-        "ContainerCore::Container*");
-    qRegisterMetaType<QList<ContainerCore::Container>>(
-        "QList<ContainerCore::Container>");
-    qRegisterMetaType<QList<ContainerCore::Container *>>(
-        "QList<ContainerCore::Container*>");
+    static bool metatypesRegistered = false;
+    if (!metatypesRegistered)
+    {
+        // Container class
+        qRegisterMetaType<ContainerCore::Package>(
+            "ContainerCore::Package");
+        qRegisterMetaType<ContainerCore::Package *>(
+            "ContainerCore::Package *");
+        qRegisterMetaType<ContainerCore::Container>(
+            "ContainerCore::Container");
+        qRegisterMetaType<ContainerCore::Container *>(
+            "ContainerCore::Container*");
+        qRegisterMetaType<QList<ContainerCore::Container>>(
+            "QList<ContainerCore::Container>");
+        qRegisterMetaType<QList<ContainerCore::Container *>>(
+            "QList<ContainerCore::Container*>");
 
-    // Base classes
-    qRegisterMetaType<RabbitMQHandler>(
-        "CargoNetSim::Backend::RabbitMQHandler");
-    qRegisterMetaType<RabbitMQHandler *>(
-        "CargoNetSim::Backend::RabbitMQHandler*");
-    qRegisterMetaType<SimulationClientBase>(
-        "CargoNetSim::Backend::SimulationClientBase");
-    qRegisterMetaType<SimulationClientBase *>(
-        "CargoNetSim::Backend::SimulationClientBase*");
+        // Base classes
+        qRegisterMetaType<RabbitMQHandler>(
+            "CargoNetSim::Backend::RabbitMQHandler");
+        qRegisterMetaType<RabbitMQHandler *>(
+            "CargoNetSim::Backend::RabbitMQHandler*");
+        qRegisterMetaType<SimulationClientBase>(
+            "CargoNetSim::Backend::SimulationClientBase");
+        qRegisterMetaType<SimulationClientBase *>(
+            "CargoNetSim::Backend::SimulationClientBase*");
 
-    // ShipClient classes
-    qRegisterMetaType<ShipClient::ShipState>(
-        "CargoNetSim::Backend::ShipClient::ShipState");
-    qRegisterMetaType<ShipClient::ShipState *>(
-        "CargoNetSim::Backend::ShipClient::ShipState*");
-    qRegisterMetaType<ShipClient::SimulationSummaryData>(
-        "CargoNetSim::Backend::ShipClient::"
-        "SimulationSummaryData");
-    qRegisterMetaType<ShipClient::SimulationSummaryData *>(
-        "CargoNetSim::Backend::ShipClient::"
-        "SimulationSummaryData*");
-    qRegisterMetaType<ShipClient::SimulationResults>(
-        "CargoNetSim::Backend::ShipClient::"
-        "SimulationResults");
-    qRegisterMetaType<ShipClient::SimulationResults *>(
-        "CargoNetSim::Backend::ShipClient::"
-        "SimulationResults*");
-    qRegisterMetaType<ShipClient::ShipSimulationClient>(
-        "CargoNetSim::Backend::ShipClient::"
-        "ShipSimulationClient");
-    qRegisterMetaType<ShipClient::ShipSimulationClient *>(
-        "CargoNetSim::Backend::ShipClient::"
-        "ShipSimulationClient*");
+        // ShipClient classes
+        qRegisterMetaType<ShipClient::ShipState>(
+            "CargoNetSim::Backend::ShipClient::ShipState");
+        qRegisterMetaType<ShipClient::ShipState *>(
+            "CargoNetSim::Backend::ShipClient::ShipState*");
+        qRegisterMetaType<ShipClient::SimulationSummaryData>(
+            "CargoNetSim::Backend::ShipClient::"
+            "SimulationSummaryData");
+        qRegisterMetaType<ShipClient::SimulationSummaryData *>(
+            "CargoNetSim::Backend::ShipClient::"
+            "SimulationSummaryData*");
+        qRegisterMetaType<ShipClient::SimulationResults>(
+            "CargoNetSim::Backend::ShipClient::"
+            "SimulationResults");
+        qRegisterMetaType<ShipClient::SimulationResults *>(
+            "CargoNetSim::Backend::ShipClient::"
+            "SimulationResults*");
+        qRegisterMetaType<ShipClient::ShipSimulationClient>(
+            "CargoNetSim::Backend::ShipClient::"
+            "ShipSimulationClient");
+        qRegisterMetaType<ShipClient::ShipSimulationClient *>(
+            "CargoNetSim::Backend::ShipClient::"
+            "ShipSimulationClient*");
 
     // Terminal classes
     qRegisterMetaType<CargoNetSim::Backend::Terminal>(
@@ -324,7 +333,14 @@ initializeBackend(const QString   &integrationExePath = "",
         CargoNetSim::Backend::SimulationTime *>(
         "CargoNetSim::Backend::SimulationTime*");
 
-    qCInfo(lcInit) << "Backend metatypes registered successfully";
+        qCInfo(lcInit) << "Backend metatypes registered successfully";
+        metatypesRegistered = true;
+    }
+
+    if (!startController)
+    {
+        return;
+    }
 
     // Tier 1: the controller must have been constructed by main()
     // (or by test setup) before initializeBackend is called. We do

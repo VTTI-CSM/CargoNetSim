@@ -1,5 +1,6 @@
 #include "PathPreparationService.h"
 
+#include "Backend/Commons/TransportationMode.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Controllers/NetworkController.h"
@@ -9,8 +10,10 @@
 #include "ContainerAllocator.h"
 #include "EstimatedPhysicsPopulator.h"
 #include "PathAllocation.h"
+#include "PathDemandResolver.h"
 #include "PathDiscovery.h"
 #include "PathDistancePopulator.h"
+#include "PropertyKeys.h"
 #include "PreparedPathEligibilityService.h"
 #include "PathMetricsCalculator.h"
 #include "ScenarioDocument.h"
@@ -80,6 +83,51 @@ PathKey pathKeyFor(const CargoNetSim::Backend::Path &path)
                                           : path.getDestinationId();
     key.rank = path.getRank();
     return key;
+}
+
+int capacityForMode(const QVariantMap &transportModes,
+                    TransportationTypes::TransportationMode mode)
+{
+    return qMax(
+        1,
+        transportModes
+            .value(transportationModeToString(mode))
+            .toMap()
+            .value(PropertyKeys::Mode::AverageContainerNumber, 1)
+            .toInt());
+}
+
+QList<PathMetrics::VehicleRequirement>
+previewVehicleBreakdownForPath(
+    const CargoNetSim::Backend::Path &path,
+    const ConfigController           &config,
+    int                               containerCount)
+{
+    QList<PathMetrics::VehicleRequirement> requirements;
+    if (containerCount <= 0)
+        return requirements;
+
+    const auto transportModes = config.getTransportModes();
+    const auto segments = path.getSegments();
+    requirements.reserve(segments.size());
+    for (int i = 0; i < segments.size(); ++i)
+    {
+        const auto *segment = segments.at(i);
+        if (!segment)
+            continue;
+
+        PathMetrics::VehicleRequirement requirement;
+        requirement.segmentIndex =
+            segment->sequenceIndex() >= 0 ? segment->sequenceIndex()
+                                          : i;
+        requirement.mode = segment->getMode();
+        const int capacity =
+            capacityForMode(transportModes, requirement.mode);
+        requirement.vehiclesNeeded =
+            qMax(1, (containerCount + capacity - 1) / capacity);
+        requirements.append(requirement);
+    }
+    return requirements;
 }
 
 } // namespace
@@ -243,12 +291,17 @@ PreparedPathSet PathPreparationService::prepareDiscoveredPaths(
         const auto inputs =
             PathMetricsCalculator::gatherInputs(mode, *config,
                                                 vehicles);
+        const int previewContainerCount =
+            PathDemandResolver::previewContainerCount(doc, *path);
         record.predictedMetrics =
             PathMetricsCalculator::compute(
                 path->totalEstimatedLength(),
                 path->totalEstimatedTravelTime(),
                 mode, inputs,
-                path->getEffectiveContainerCount());
+                previewContainerCount);
+        record.predictedMetrics.previewVehicleBreakdown =
+            previewVehicleBreakdownForPath(
+                *path, *config, previewContainerCount);
         prepared.m_predictedByPathIdentity.insert(
             record.pathIdentity, record.predictedMetrics);
         if (!record.canonicalPathKey.isEmpty())

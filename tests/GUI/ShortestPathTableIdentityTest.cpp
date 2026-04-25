@@ -90,6 +90,15 @@ PathMetrics predictedMetric(double distanceKm, int containers)
     return m;
 }
 
+PathMetrics predictedMetricWithBreakdown(
+    double distanceKm, int containers,
+    const QList<PathMetrics::VehicleRequirement> &breakdown)
+{
+    PathMetrics m = predictedMetric(distanceKm, containers);
+    m.previewVehicleBreakdown = breakdown;
+    return m;
+}
+
 QCheckBox *rowCheckbox(ShortestPathsTable &table, int row)
 {
     auto *tableWidget = table.findChild<QTableWidget *>();
@@ -336,6 +345,73 @@ private slots:
         QCOMPARE(
             reloadedData->executionResult->terminalResults.first().actualWeightedTotalContribution,
             6.5);
+    }
+
+    void test_preview_vehicle_breakdown_displays_and_round_trips()
+    {
+        ShortestPathsTable table;
+
+        const QString pathKey = QStringLiteral("uid-O1-M1-D1-r0");
+        const QList<PathMetrics::VehicleRequirement> breakdown{
+            PathMetrics::VehicleRequirement{
+                0,
+                CargoNetSim::Backend::TransportationTypes::
+                    TransportationMode::Truck,
+                3},
+            PathMetrics::VehicleRequirement{
+                1,
+                CargoNetSim::Backend::TransportationTypes::
+                    TransportationMode::Train,
+                1}};
+
+        table.addPaths({makePath(1, pathKey, QStringLiteral("O1"),
+                                 QStringLiteral("D1"), 10.0)},
+                       {{pathKey, predictedMetricWithBreakdown(
+                                      10.0, 3, breakdown)}});
+
+        auto *tableWidget = table.findChild<QTableWidget *>();
+        QVERIFY(tableWidget != nullptr);
+        QCOMPARE(tableWidget->item(0, 18)->text(),
+                 QStringLiteral("Truck x3 | Train x1"));
+        QVERIFY(tableWidget->item(0, 18)->toolTip().contains(
+            QStringLiteral("Truck x3 | Train x1")));
+
+        ScenarioDocument doc;
+        const auto snapshots = table.buildComparisonSnapshots(doc);
+        QCOMPARE(snapshots.size(), 1);
+        const auto metrics =
+            snapshots.first()
+                .value(QStringLiteral("predicted_metrics"))
+                .toObject();
+        const auto serializedBreakdown =
+            metrics.value(QStringLiteral("preview_vehicle_breakdown"))
+                .toArray();
+        QCOMPARE(serializedBreakdown.size(), 2);
+        QCOMPARE(serializedBreakdown.first()
+                     .toObject()
+                     .value(QStringLiteral("vehicles_needed"))
+                     .toInt(),
+                 3);
+
+        ShortestPathsTable reloaded;
+        reloaded.loadComparisonSnapshots(snapshots);
+        const auto reloadedSnapshots =
+            reloaded.buildComparisonSnapshots(doc);
+        QCOMPARE(reloadedSnapshots.size(), 1);
+        const auto reloadedBreakdown =
+            reloadedSnapshots.first()
+                .value(QStringLiteral("predicted_metrics"))
+                .toObject()
+                .value(QStringLiteral("preview_vehicle_breakdown"))
+                .toArray();
+        QCOMPARE(reloadedBreakdown.size(), 2);
+        QCOMPARE(reloadedBreakdown.at(1)
+                     .toObject()
+                     .value(QStringLiteral("mode"))
+                     .toInt(),
+                 static_cast<int>(
+                     CargoNetSim::Backend::TransportationTypes::
+                         TransportationMode::Train));
     }
 };
 

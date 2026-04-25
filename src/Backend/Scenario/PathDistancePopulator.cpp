@@ -163,6 +163,14 @@ int populate(const QList<Path *>                &paths,
         for (auto *seg : segments)
         {
             if (!seg) continue;
+            if (seg->estimatedDistance() > 0.0
+                && seg->estimatedTravelTime() > 0.0)
+            {
+                ++count;
+                ++segOk;
+                totalDistance += seg->estimatedDistance();
+                continue;
+            }
             bool ok = false;
             switch (seg->getMode())
             {

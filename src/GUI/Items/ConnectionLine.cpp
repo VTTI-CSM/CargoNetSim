@@ -17,6 +17,7 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Scenario/Connection.h"
 #include "Backend/Scenario/GlobalLink.h"
+#include "Backend/Scenario/RouteMetricUnits.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "GUI/Input/ClickContext.h"
 #include "GUI/Input/Commands/DeleteItemCommand.h"
@@ -83,6 +84,18 @@ ConnectionLine::ConnectionLine(
     }
     else
     {
+        const auto defaults =
+            Backend::Scenario::RouteMetricUnits::
+                defaultCanonicalProperties();
+        for (auto it = defaults.constBegin();
+             it != defaults.constEnd(); ++it)
+        {
+            if (!m_properties.contains(it.key()))
+                m_properties[it.key()] = it.value();
+        }
+        m_properties["Type"] = "Connection";
+        m_properties["Connection type"] =
+            Backend::transportationModeToString(m_connectionType);
         m_properties["Region"] = region;
     }
 
@@ -287,18 +300,13 @@ void ConnectionLine::initializeProperties(QString region)
 {
     qCDebug(lcGuiScene) << "ConnectionLine::initializeProperties:"
                         << "id=" << m_id << "region=" << region;
-    m_properties = {
-        {"Type", "Connection"},
-        {"Connection type",
-         Backend::transportationModeToString(m_connectionType)},
-        {"Region", region},
-        {"cost", "0.0"},             // USD
-        {"travelTime", "0.0"},       // Hours
-        {"distance", "0.0"},         // Km
-        {"carbonEmissions", "0.0"},  // ton CO2
-        {"risk", "0.0"},             // percentage [0-100]
-        {"energyConsumption", "0.0"} // kWh
-    };
+    m_properties =
+        Backend::Scenario::RouteMetricUnits::
+            defaultCanonicalProperties();
+    m_properties["Type"] = "Connection";
+    m_properties["Connection type"] =
+        Backend::transportationModeToString(m_connectionType);
+    m_properties["Region"] = region;
 }
 
 void ConnectionLine::onStartItemPositionChanged(
@@ -933,14 +941,30 @@ void ConnectionLine::refreshFromModel()
     // raw pointer) simply surfaces here as a nullptr and a no-op.
     if (auto *c = connectionModel())
     {
-        m_properties = c->properties;
+        m_properties =
+            Backend::Scenario::RouteMetricUnits::
+                defaultCanonicalProperties();
+        for (auto it = c->properties.constBegin();
+             it != c->properties.constEnd(); ++it)
+        {
+            m_properties[it.key()] = it.value();
+        }
+        m_properties["Type"] = "Connection";
         m_properties["Connection type"] =
             Backend::transportationModeToString(c->mode);
         m_properties["Region"] = c->region;
     }
     else if (auto *g = globalLinkModel())
     {
-        m_properties = g->properties;
+        m_properties =
+            Backend::Scenario::RouteMetricUnits::
+                defaultCanonicalProperties();
+        for (auto it = g->properties.constBegin();
+             it != g->properties.constEnd(); ++it)
+        {
+            m_properties[it.key()] = it.value();
+        }
+        m_properties["Type"] = "Connection";
         m_properties["Connection type"] =
             Backend::transportationModeToString(g->mode);
     }

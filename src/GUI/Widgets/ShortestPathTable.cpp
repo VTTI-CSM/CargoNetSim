@@ -132,6 +132,77 @@ PathIdentity snapshotPathKey(const QJsonObject &snapshot,
     return basePathKey(path);
 }
 
+QJsonArray vehicleBreakdownToJson(
+    const QList<Backend::Scenario::PathMetrics::VehicleRequirement>
+        &requirements)
+{
+    QJsonArray json;
+    for (const auto &requirement : requirements)
+    {
+        QJsonObject entry;
+        entry[QStringLiteral("segment_index")] =
+            requirement.segmentIndex;
+        entry[QStringLiteral("mode")] =
+            static_cast<int>(requirement.mode);
+        entry[QStringLiteral("vehicles_needed")] =
+            requirement.vehiclesNeeded;
+        json.append(entry);
+    }
+    return json;
+}
+
+QList<Backend::Scenario::PathMetrics::VehicleRequirement>
+vehicleBreakdownFromJson(const QJsonValue &value)
+{
+    QList<Backend::Scenario::PathMetrics::VehicleRequirement>
+        requirements;
+    if (!value.isArray())
+        return requirements;
+
+    const auto json = value.toArray();
+    requirements.reserve(json.size());
+    for (const auto &entryValue : json)
+    {
+        if (!entryValue.isObject())
+            continue;
+        const auto entry = entryValue.toObject();
+        Backend::Scenario::PathMetrics::VehicleRequirement requirement;
+        requirement.segmentIndex =
+            entry.value(QStringLiteral("segment_index")).toInt(-1);
+        requirement.mode = static_cast<
+            Backend::TransportationTypes::TransportationMode>(
+            entry.value(QStringLiteral("mode")).toInt(
+                static_cast<int>(
+                    Backend::TransportationTypes::TransportationMode::Any)));
+        requirement.vehiclesNeeded =
+            entry.value(QStringLiteral("vehicles_needed")).toInt(0);
+        requirements.append(requirement);
+    }
+    return requirements;
+}
+
+QString vehicleBreakdownLabel(
+    const Backend::Scenario::PathMetrics &metrics)
+{
+    if (metrics.previewVehicleBreakdown.isEmpty())
+    {
+        return metrics.valid
+            ? QString::number(metrics.vehiclesNeeded)
+            : QStringLiteral("—");
+    }
+
+    QStringList parts;
+    parts.reserve(metrics.previewVehicleBreakdown.size());
+    for (const auto &requirement : metrics.previewVehicleBreakdown)
+    {
+        parts.append(QStringLiteral("%1 x%2")
+                         .arg(Backend::TransportationTypes::toString(
+                             requirement.mode))
+                         .arg(requirement.vehiclesNeeded));
+    }
+    return parts.join(QStringLiteral(" | "));
+}
+
 QJsonObject metricsToJson(
     const Backend::Scenario::PathMetrics &metrics)
 {
@@ -144,6 +215,12 @@ QJsonObject metricsToJson(
     o[QStringLiteral("energy_per_vehicle")] = metrics.energyPerVehicle;
     o[QStringLiteral("carbon_per_vehicle")] = metrics.carbonPerVehicle;
     o[QStringLiteral("fuel_type")] = metrics.fuelType;
+    o[QStringLiteral("preview_container_count")] =
+        metrics.containerCount;
+    o[QStringLiteral("preview_vehicles_needed")] =
+        metrics.vehiclesNeeded;
+    o[QStringLiteral("preview_vehicle_breakdown")] =
+        vehicleBreakdownToJson(metrics.previewVehicleBreakdown);
     o[QStringLiteral("container_count")] = metrics.containerCount;
     o[QStringLiteral("fuel_per_container")] = metrics.fuelPerContainer;
     o[QStringLiteral("energy_per_container")] = metrics.energyPerContainer;
@@ -173,6 +250,10 @@ Backend::Scenario::PathMetrics metricsFromJson(
     metrics.fuelType =
         o.value(QStringLiteral("fuel_type")).toString();
     metrics.containerCount =
+        o.contains(QStringLiteral("preview_container_count"))
+            ? o.value(QStringLiteral("preview_container_count"))
+                  .toInt(0)
+            :
         o.value(QStringLiteral("container_count")).toInt(0);
     metrics.fuelPerContainer =
         o.value(QStringLiteral("fuel_per_container")).toDouble(0.0);
@@ -183,7 +264,14 @@ Backend::Scenario::PathMetrics metricsFromJson(
     metrics.riskPerContainer =
         o.value(QStringLiteral("risk_per_container")).toDouble(0.0);
     metrics.vehiclesNeeded =
+        o.contains(QStringLiteral("preview_vehicles_needed"))
+            ? o.value(QStringLiteral("preview_vehicles_needed"))
+                  .toInt(0)
+            :
         o.value(QStringLiteral("vehicles_needed")).toInt(0);
+    metrics.previewVehicleBreakdown =
+        vehicleBreakdownFromJson(
+            o.value(QStringLiteral("preview_vehicle_breakdown")));
     return metrics;
 }
 
@@ -613,8 +701,8 @@ void ShortestPathsTable::createTableWidget()
         tr("A. Distance (km)"),      tr("A. Time (h)"),
         tr("A. Energy/Veh (kWh)"),   tr("A. CO₂/Veh (t)"),
         tr("A. Risk/Veh"),
-        // Allocator counts and per-container metrics (cols 17-23)
-        tr("Containers"),            tr("Vehicles"),
+        // Preview-demand counts and per-container metrics (cols 17-23)
+        tr("OD Containers"),         tr("Preview Vehicle Plan"),
         tr("P. Fuel/Cont"),          tr("P. Energy/Cont (kWh)"),
         tr("P. CO₂/Cont (t)"),
         tr("A. Energy/Cont (kWh)"),  tr("A. CO₂/Cont (t)"),
@@ -2346,11 +2434,18 @@ void ShortestPathsTable::refreshRow(
     m_table->setItem(row, ColumnActualRiskPerVehicle,
                      cell(a.valid, a.riskPerVehicle));
 
-    // Allocator counts and per-container metrics (cols 17..23)
+    // Preview-demand counts and per-container metrics (cols 17..23)
     m_table->setItem(row, ColumnContainers, new QTableWidgetItem(
         p.valid ? QString::number(p.containerCount) : dash));
-    m_table->setItem(row, ColumnVehicles, new QTableWidgetItem(
-        p.valid ? QString::number(p.vehiclesNeeded) : dash));
+    auto *vehicleItem = new QTableWidgetItem(
+        p.valid ? vehicleBreakdownLabel(p) : dash);
+    if (p.valid && !p.previewVehicleBreakdown.isEmpty())
+    {
+        vehicleItem->setToolTip(
+            tr("Per-segment preview vehicle requirements for the path: %1")
+                .arg(vehicleBreakdownLabel(p)));
+    }
+    m_table->setItem(row, ColumnVehicles, vehicleItem);
 
     m_table->setItem(row, ColumnPredictedFuelPerContainer,
                      cell(p.valid, p.fuelPerContainer));

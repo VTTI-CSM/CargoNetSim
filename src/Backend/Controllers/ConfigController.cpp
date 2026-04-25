@@ -1,6 +1,7 @@
 #include "ConfigController.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Scenario/CostWeightUnits.h"
 #include "Backend/Scenario/PropertyKeys.h"
 #include <QDebug>
 #include <QFile>
@@ -503,24 +504,9 @@ QVariantMap ConfigController::getCostFunctionWeights() const
     double carbonTaxRate =
         carbonTaxes.value("rate", 65.0).toDouble();
 
-    // Create default weights
-    QVariantMap defaultWeights;
-    defaultWeights[PK::Segment::Cost] =
-        1.0; // USD per USD (direct cost multiplier)
-    defaultWeights[PK::Segment::TravelTime] =
-        averageTimeValue; // USD per hour
-    defaultWeights[PK::Segment::Distance] =
-        0.0; // USD per km (not counting directly)
-    defaultWeights[PK::Segment::CarbonEmissions] =
-        carbonTaxRate / 1000.0; // USD per kg of CO2
-    defaultWeights[PK::Segment::Risk] =
-        100.0; // USD per risk unit (percentage * 100)
-    defaultWeights[PK::Segment::EnergyConsumption] =
-        1.0; // USD per kWh (default)
-    defaultWeights[PK::Segment::TerminalDelay] =
-        averageTimeValue; // USD per hour
-    defaultWeights[PK::Segment::TerminalCost] =
-        1.0; // USD per USD (direct cost multiplier)
+    QVariantMap defaultWeights =
+        Scenario::CostWeightUnits::defaultCanonicalWeights(
+            averageTimeValue, carbonTaxRate);
 
     // Create mode-specific weights by copying default
     // weights
@@ -535,14 +521,12 @@ QVariantMap ConfigController::getCostFunctionWeights() const
         double tvmRail  = timeValueOfMoney.value("rail",  kDefaultRailTVM).toDouble();
         double tvmTruck = timeValueOfMoney.value("truck", kDefaultTruckTVM).toDouble();
 
-        shipWeights[PK::Segment::TravelTime]    = tvmShip;
-        shipWeights[PK::Segment::TerminalDelay] = tvmShip;
-
-        railWeights[PK::Segment::TravelTime]    = tvmRail;
-        railWeights[PK::Segment::TerminalDelay] = tvmRail;
-
-        truckWeights[PK::Segment::TravelTime]    = tvmTruck;
-        truckWeights[PK::Segment::TerminalDelay] = tvmTruck;
+        Scenario::CostWeightUnits::applyTimeValueUsdPerHour(
+            shipWeights, tvmShip);
+        Scenario::CostWeightUnits::applyTimeValueUsdPerHour(
+            railWeights, tvmRail);
+        Scenario::CostWeightUnits::applyTimeValueUsdPerHour(
+            truckWeights, tvmTruck);
     }
 
     // Set carbon emission multipliers

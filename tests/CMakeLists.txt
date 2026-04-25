@@ -11,32 +11,34 @@ set(TEST_INCLUDE_DIRS
     ${CMAKE_BINARY_DIR}/src
 )
 
-add_executable(TerminalClientTest TerminalClientTest.cpp)
-
-target_include_directories(TerminalClientTest PRIVATE ${TEST_INCLUDE_DIRS})
-
-target_link_libraries(TerminalClientTest PRIVATE
-    Qt6::Core
-    Qt6::Test
-    Qt6::Network
-    CargoNetSimBackend
-)
-
-set_target_properties(TerminalClientTest PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-
-# Minimal arrival_mode test (no Qt Test framework, just runs and exits)
-add_executable(ArrivalModeTest ArrivalModeTest.cpp)
-target_include_directories(ArrivalModeTest PRIVATE ${TEST_INCLUDE_DIRS})
-target_link_libraries(ArrivalModeTest PRIVATE
-    CargoNetSimBackend
-    Qt6::Core
-    Qt6::Network
-)
-set_target_properties(ArrivalModeTest PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
+# Live TerminalSim integration tests. Keep the sources in-repo, but do not
+# build them as part of the normal CargoNetSim test suite because they depend
+# on an external RabbitMQ + TerminalSim runtime and a shared durable response
+# queue.
+# add_executable(TerminalClientTest TerminalClientTest.cpp)
+# target_include_directories(TerminalClientTest PRIVATE ${TEST_INCLUDE_DIRS})
+# target_link_libraries(TerminalClientTest PRIVATE
+#     Qt6::Core
+#     Qt6::Test
+#     Qt6::Network
+#     CargoNetSimBackend
+# )
+# set_target_properties(TerminalClientTest PROPERTIES
+#     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+# )
+#
+# Minimal arrival_mode integration test (no Qt Test framework, just runs and
+# exits against a live TerminalSim server).
+# add_executable(ArrivalModeTest ArrivalModeTest.cpp)
+# target_include_directories(ArrivalModeTest PRIVATE ${TEST_INCLUDE_DIRS})
+# target_link_libraries(ArrivalModeTest PRIVATE
+#     CargoNetSimBackend
+#     Qt6::Core
+#     Qt6::Network
+# )
+# set_target_properties(ArrivalModeTest PROPERTIES
+#     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+# )
 
 # Scenario model + serializer + validator unit tests
 add_executable(ScenarioTest ScenarioTest.cpp)

@@ -106,8 +106,7 @@ private slots:
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             nullptr, nullptr, nullptr, nullptr, nullptr);
-        // shape * scale / 3600 = 2.0 * 3600 / 3600 = 2.0 hours
-        QCOMPARE(ex.calculateTerminalDwellTime(config), 2.0);
+        QCOMPARE(ex.calculateTerminalDwellTime(config), 7200.0);
     }
 
     void test_dwell_time_exponential()
@@ -122,8 +121,7 @@ private slots:
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             nullptr, nullptr, nullptr, nullptr, nullptr);
-        // scale / 3600 = 7200 / 3600 = 2.0 hours
-        QCOMPARE(ex.calculateTerminalDwellTime(config), 2.0);
+        QCOMPARE(ex.calculateTerminalDwellTime(config), 7200.0);
     }
 
     void test_dwell_time_normal()
@@ -138,8 +136,7 @@ private slots:
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             nullptr, nullptr, nullptr, nullptr, nullptr);
-        // mean / 3600 = 3600 / 3600 = 1.0 hour
-        QCOMPARE(ex.calculateTerminalDwellTime(config), 1.0);
+        QCOMPARE(ex.calculateTerminalDwellTime(config), 3600.0);
     }
 
     void test_dwell_time_lognormal()
@@ -157,10 +154,8 @@ private slots:
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             nullptr, nullptr, nullptr, nullptr, nullptr);
-        // exp(mean + sigma^2 / 2) / 3600 = exp(ln(3600) + 0.03125) / 3600
-        //                                = 3600 * exp(0.03125) / 3600
-        //                                = exp(0.03125) ≈ 1.0317434...
-        const double expected = std::exp(sigma * sigma / 2.0);
+        const double expected =
+            3600.0 * std::exp(sigma * sigma / 2.0);
         QCOMPARE(ex.calculateTerminalDwellTime(config), expected);
     }
 
@@ -176,8 +171,7 @@ private slots:
             nullptr, nullptr, nullptr, nullptr, nullptr);
         double delay = 0.0, cost = 0.0;
         QVERIFY(ex.calculateTerminalCustoms(config, delay, cost));
-        // delay_mean is seconds; result is hours: 0.5 * 100.0 / 3600.0
-        QCOMPARE(delay, 0.5 * 100.0 / 3600.0);
+        QCOMPARE(delay, 50.0);
         QCOMPARE(cost,   0.0);  // customs method doesn't set cost
     }
 
@@ -222,8 +216,8 @@ private slots:
     {
         using namespace CargoNetSim::Backend;
 
-        // Config: gamma dwell (shape=2, scale=3600 → 2 hours/container),
-        //         customs (prob=0.5, delay_mean=100 s → 100*0.5/3600 h/container),
+        // Config: gamma dwell (shape=2, scale=3600 → 7200 s/container),
+        //         customs (prob=0.5, delay_mean=100 s → 50 s/container),
         //         cost (fixed=400, customs_fees=100, risk=0.015 → 500.015/container).
         QJsonObject dwellParams;
         dwellParams["shape"] = 2.0;
@@ -262,11 +256,10 @@ private slots:
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             nullptr, nullptr, nullptr, nullptr, nullptr);
 
-        // Per-container: dwell=2.0 h (gamma shape=2, scale=3600),
-        //   customs=0.5*100/3600 h, direct=500.015.
-        // 10 containers: delay=10*(2.0 + 50.0/3600), cost=5000.15.
-        // Final = (20.0 + 500.0/3600.0)*1.0 + 5000.15*1.0.
-        const double expected = 5020.15 + 500.0 / 3600.0;
+        // Per-container: dwell=7200 s, customs=50 s, direct=500.015.
+        // 10 containers: delay=72500 s, cost=5000.15.
+        // Final = 72500 * 1.0 + 5000.15 * 1.0.
+        const double expected = 72500.0 + 5000.15;
         QCOMPARE(ex.calculateSingleTerminalCost(&terminal, weights, 10),
                  expected);
     }

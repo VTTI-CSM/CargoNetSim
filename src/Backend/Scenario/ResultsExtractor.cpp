@@ -78,7 +78,7 @@ loadTerminalExecutionResults(
         const QVariantMap weights = terminalWeightsForMode(
             costWeights, terminalResult.arrivalMode);
         terminalResult.actualWeightedDelayContribution =
-            (terminalResult.actualTotalHandlingSeconds / 3600.0)
+            terminalResult.actualTotalHandlingSeconds
             * weights.value(PK::Segment::TerminalDelay)
                   .toDouble();
         terminalResult.actualWeightedCostContribution =

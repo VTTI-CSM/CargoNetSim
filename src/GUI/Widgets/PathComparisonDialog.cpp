@@ -790,8 +790,8 @@ QWidget *PathComparisonDialog::createSegmentsTab()
         QStringList attributeRowLabels = {
             tr("Carbon Emissions (Predicted)"),
             tr("Carbon Emissions (t, Actual)"),
-            tr("Cost (Predicted)"),
-            tr("Cost (Actual)"),
+            tr("Direct Cost (Predicted)"),
+            tr("Direct Cost (Actual)"),
             tr("Distance (Predicted)"),
             tr("Distance (km, Actual)"),
             tr("Energy Consumption (Predicted)"),
@@ -818,6 +818,12 @@ QWidget *PathComparisonDialog::createSegmentsTab()
                 {
                     const auto displayValues =
                         m_viewModel.segmentValues(path, segmentIdx);
+                    const auto predictedCosts =
+                        m_viewModel.segmentPredictedCosts(
+                            path, segmentIdx);
+                    const auto actualCosts =
+                        m_viewModel.segmentActualCosts(
+                            path, segmentIdx);
 
                     // Carbon Emissions
                     pathAttributeData
@@ -835,9 +841,19 @@ QWidget *PathComparisonDialog::createSegmentsTab()
                                       'f', 3)
                                 : tr("N/A"));
 
-                    // Cost
-                    pathAttributeData << tr("N/A");
-                    pathAttributeData << tr("N/A");
+                    // Direct Cost
+                    pathAttributeData
+                        << (predictedCosts.available
+                                ? QString::number(
+                                      predictedCosts.directCost,
+                                      'f', 2)
+                                : tr("N/A"));
+                    pathAttributeData
+                        << (actualCosts.available
+                                ? QString::number(
+                                      actualCosts.directCost,
+                                      'f', 2)
+                                : tr("N/A"));
 
                     // Distance
                     pathAttributeData

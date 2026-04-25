@@ -1220,19 +1220,8 @@ void TerminalSimulationClient::onTerminalAdded(
     Commons::ScopedWriteLock locker(m_dataMutex);
     Terminal                *existing =
         m_terminalStatus.value(name, nullptr);
-    qCInfo(lcClientTerminal).nospace()
-        << "[DIAG] onTerminalAdded name=" << name
-        << " existing=" << static_cast<const void *>(existing)
-        << " thread=" << QThread::currentThread();
     if (existing)
     {
-        connect(existing, &QObject::destroyed, this,
-                [name](QObject *o) {
-                    qCInfo(lcClientTerminal).nospace()
-                        << "[DIAG] Terminal destroyed ptr="
-                        << static_cast<const void *>(o)
-                        << " name=" << name;
-                }, Qt::DirectConnection);
         delete existing;
     }
     Terminal *terminal = Terminal::fromJson(result);
@@ -1243,17 +1232,6 @@ void TerminalSimulationClient::onTerminalAdded(
         return;
     }
     terminal->setParent(this);
-    connect(terminal, &QObject::destroyed, this,
-            [name](QObject *o) {
-                qCInfo(lcClientTerminal).nospace()
-                    << "[DIAG] Terminal destroyed ptr="
-                    << static_cast<const void *>(o)
-                    << " name=" << name;
-            }, Qt::DirectConnection);
-    qCInfo(lcClientTerminal).nospace()
-        << "[DIAG] onTerminalAdded allocated ptr="
-        << static_cast<const void *>(terminal)
-        << " name=" << name;
 
     m_terminalStatus[name] = terminal;
 
@@ -1280,11 +1258,6 @@ void TerminalSimulationClient::onTerminalsAdded(
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
 
-    qCInfo(lcClientTerminal).nospace()
-        << "[DIAG] onTerminalsAdded BEGIN count="
-        << terminalsArray.size()
-        << " thread=" << QThread::currentThread();
-
     // Process each terminal in the array
     for (const QJsonValue &terminalValue : terminalsArray)
     {
@@ -1295,18 +1268,8 @@ void TerminalSimulationClient::onTerminalsAdded(
         // Clean up existing terminal if present
         Terminal *existing =
             m_terminalStatus.value(name, nullptr);
-        qCInfo(lcClientTerminal).nospace()
-            << "[DIAG] onTerminalsAdded name=" << name
-            << " existing=" << static_cast<const void *>(existing);
         if (existing)
         {
-            connect(existing, &QObject::destroyed, this,
-                    [name](QObject *o) {
-                        qCInfo(lcClientTerminal).nospace()
-                            << "[DIAG] Terminal destroyed ptr="
-                            << static_cast<const void *>(o)
-                            << " name=" << name;
-                    }, Qt::DirectConnection);
             delete existing;
         }
 
@@ -1320,17 +1283,6 @@ void TerminalSimulationClient::onTerminalsAdded(
             continue;
         }
         terminal->setParent(this);
-        connect(terminal, &QObject::destroyed, this,
-                [name](QObject *o) {
-                    qCInfo(lcClientTerminal).nospace()
-                        << "[DIAG] Terminal destroyed ptr="
-                        << static_cast<const void *>(o)
-                        << " name=" << name;
-                }, Qt::DirectConnection);
-        qCInfo(lcClientTerminal).nospace()
-            << "[DIAG] onTerminalsAdded allocated ptr="
-            << static_cast<const void *>(terminal)
-            << " name=" << name;
 
         // Store in map
         m_terminalStatus[name] = terminal;
@@ -1467,19 +1419,10 @@ void TerminalSimulationClient::onServerReset(
 {
     // Lock mutex for thread-safe cleanup
     Commons::ScopedWriteLock locker(m_dataMutex);
-
-    qCInfo(lcClientTerminal).nospace()
-        << "[DIAG] onServerReset BEGIN terminalCount="
-        << m_terminalStatus.size()
-        << " thread=" << QThread::currentThread();
     // Clean up all terminal status objects
     for (auto it = m_terminalStatus.constBegin();
          it != m_terminalStatus.constEnd(); ++it)
     {
-        qCInfo(lcClientTerminal).nospace()
-            << "[DIAG] onServerReset deleting ptr="
-            << static_cast<const void *>(it.value())
-            << " name=" << it.key();
         delete it.value();
     }
     m_terminalStatus.clear();
@@ -1557,10 +1500,6 @@ void TerminalSimulationClient::onTerminalRemoved(
 
     // Remove and delete terminal if exists
     Terminal *terminal = m_terminalStatus.take(terminalId);
-    qCInfo(lcClientTerminal).nospace()
-        << "[DIAG] onTerminalRemoved name=" << terminalId
-        << " ptr=" << static_cast<const void *>(terminal)
-        << " thread=" << QThread::currentThread();
     if (terminal)
     {
         delete terminal;

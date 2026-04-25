@@ -47,16 +47,16 @@ namespace TerminalCostMath
 {
 
 /**
- * @brief Mean/expected dwell time in hours for a terminal, based on the
+ * @brief Mean/expected dwell time in seconds for a terminal, based on the
  *        `dwell_time.method` and `dwell_time.parameters` fields of the
  *        per-terminal JSON config.
  *
  * Supported methods (case-insensitive):
- *   - "gamma"       → shape * scale / 3600
- *   - "exponential" → scale / 3600
- *   - "normal"      → mean / 3600
- *   - "lognormal"   → exp(mean + sigma^2 / 2) / 3600
- *   - any other     → gamma with shape=2.0, scale=86400.0 (≈48 hours)
+ *   - "gamma"       → shape * scale
+ *   - "exponential" → scale
+ *   - "normal"      → mean
+ *   - "lognormal"   → exp(mean + sigma^2 / 2)
+ *   - any other     → gamma with shape=2.0, scale=86400.0
  *
  * Missing `dwell_time` section → 0.0. Defaults mirror the original
  * SimulationValidationWorker body exactly.

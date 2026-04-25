@@ -61,7 +61,8 @@ ConnectionLine *ConnectionLineFactory::fromConnection(
     }
 
     auto *line = new ConnectionLine(startItem, endItem, connection->mode,
-                                    {}, startItem->getRegion());
+                                    connection->properties,
+                                    startItem->getRegion());
     line->bindToConnection(doc, connection->fromTerminalId,
                            connection->toTerminalId, connection->mode);
     addAndBindLine(line, regionScene, mainWindow);
@@ -156,7 +157,8 @@ ConnectionLine *ConnectionLineFactory::fromGlobalLink(
     qCDebug(lcGuiScene)
         << "ConnectionLineFactory::fromGlobalLink:"
         << "constructing ConnectionLine";
-    auto *line = new ConnectionLine(startItem, endItem, link->mode, {},
+    auto *line = new ConnectionLine(startItem, endItem, link->mode,
+                                    link->properties,
                                     QStringLiteral("Global"));
     qCDebug(lcGuiScene)
         << "ConnectionLineFactory::fromGlobalLink:"

@@ -17,6 +17,32 @@ namespace Cli {
 
 namespace PK = Backend::Scenario::PropertyKeys;
 
+namespace
+{
+
+QJsonArray previewVehicleBreakdownToJson(
+    const QList<Backend::Scenario::PathMetrics::VehicleRequirement>
+        &requirements)
+{
+    QJsonArray json;
+    for (const auto &requirement : requirements)
+    {
+        QJsonObject entry;
+        entry[QStringLiteral("segment_index")] =
+            requirement.segmentIndex;
+        entry[QStringLiteral("mode")] =
+            static_cast<int>(requirement.mode);
+        entry[QStringLiteral("mode_name")] =
+            Backend::TransportationTypes::toString(requirement.mode);
+        entry[QStringLiteral("vehicles_needed")] =
+            requirement.vehiclesNeeded;
+        json.append(entry);
+    }
+    return json;
+}
+
+} // namespace
+
 bool JsonResultsWriter::write(
     const QString &outputPath,
     const QList<Backend::Scenario::PathSimulationResult> &results,
@@ -95,6 +121,13 @@ bool JsonResultsWriter::write(
                 perCont[QStringLiteral("risk")]       = m.riskPerContainer;
 
                 QJsonObject mo;
+                mo[QStringLiteral("preview_container_count")] =
+                    m.containerCount;
+                mo[QStringLiteral("preview_vehicles_needed")] =
+                    m.vehiclesNeeded;
+                mo[QStringLiteral("preview_vehicle_breakdown")] =
+                    previewVehicleBreakdownToJson(
+                        m.previewVehicleBreakdown);
                 mo[QStringLiteral("container_count")] = m.containerCount;
                 mo[QStringLiteral("vehicles_needed")] = m.vehiclesNeeded;
                 mo[QStringLiteral("distance_km")]     = m.distanceKm;

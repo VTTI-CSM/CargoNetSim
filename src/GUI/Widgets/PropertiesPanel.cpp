@@ -13,6 +13,7 @@
 #include "Backend/Scenario/RegionSpec.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/PropertyKeys.h"
+#include "Backend/Scenario/RouteMetricUnits.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "DestinationListEditor.h"
@@ -349,10 +350,6 @@ void PropertiesPanel::displayConnectionProperties(
 {
     qCDebug(lcGuiUtil) << "PropertiesPanel::displayConnectionProperties:"
                        << "id=" << item->sceneRegistryKey();
-    QDoubleValidator *validator =
-        new QDoubleValidator(this);
-    validator->setBottom(0.0); // Ensure non-negative values
-
     static const QMap<QString, QPair<QString, QString>>
         propertiesWithUnits = {
             {"cost", {tr("Cost (USD)"), ""}},
@@ -360,20 +357,33 @@ void PropertiesPanel::displayConnectionProperties(
             {"distance", {tr("Distance (Km)"), ""}},
             {"carbonEmissions",
              {tr("Carbon Emissions (ton CO₂)"), ""}},
-            {"risk", {tr("Risk (%)"), ""}},
+            {"risk", {tr("Risk (Fraction)"), ""}},
             {"energyConsumption",
              {tr("Energy Consumption (kWh)"), ""}}};
 
     qCDebug(lcGuiUtil) << "PropertiesPanel::displayConnectionProperties: setting" << propertiesWithUnits.size() << "fields";
 
-    const QMap<QString, QVariant> &props =
-        item->getProperties();
+    const QMap<QString, QVariant> props =
+        Backend::Scenario::RouteMetricUnits::
+            displayPropertiesFromCanonical(
+                item->getProperties());
     for (auto it = propertiesWithUnits.constBegin();
          it != propertiesWithUnits.constEnd(); ++it)
     {
+        auto *fieldValidator = new QDoubleValidator(this);
+        fieldValidator->setBottom(0.0);
+        if (it.key() == QStringLiteral("risk"))
+            fieldValidator->setTop(1.0);
+
+        const int decimals =
+            (it.key() == QStringLiteral("carbonEmissions")) ? 4
+            : (it.key() == QStringLiteral("risk")) ? 6
+                                                   : 2;
         QLineEdit *lineEdit = new QLineEdit(
-            props.value(it.key(), "0.0").toString());
-        lineEdit->setValidator(validator);
+            QString::number(
+                props.value(it.key(), 0.0).toDouble(), 'f',
+                decimals));
+        lineEdit->setValidator(fieldValidator);
         editFields[it.key()] = lineEdit;
         layout->addRow(it.value().first + ":", lineEdit);
     }
@@ -1665,6 +1675,9 @@ void PropertiesPanel::saveConnectionProperties(
     QMap<QString, QVariant> newProperties =
         connection->getProperties();
     processEditFields(newProperties);
+    newProperties =
+        Backend::Scenario::RouteMetricUnits::
+            canonicalPropertiesFromDisplay(newProperties);
 
     // Route through ScenarioMutator if bound to backend
     // (handles both regional Connections and GlobalLinks)

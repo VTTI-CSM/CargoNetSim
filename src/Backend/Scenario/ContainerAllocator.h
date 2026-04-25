@@ -17,13 +17,13 @@ class ScenarioDocument;
 /// Policy: given the document's per-origin pools + the discovered
 /// paths, return a partition of the pools across paths.
 ///
-/// Rank policy: only **rank-0** paths receive containers. When
+/// Rank policy: only **rank-0** paths receive allocated containers. When
 /// `shortest_paths_n > 1`, PathDiscovery returns multiple paths per
 /// (origin, destination) pair; paths with rank >= 1 are kept for
-/// comparison display but carry zero containers. This is intentional:
-/// the system dispatches all traffic on the best route, not across
-/// alternatives. Higher-rank paths appear in the ShortestPathsTable
-/// with per-vehicle metrics but `containerCount = 0`.
+/// comparison display but receive zero dispatch allocation here. This is
+/// intentional: the system dispatches all traffic on the best route, not
+/// across alternatives. Preview demand metrics for those alternatives are
+/// computed separately from this allocator.
 ///
 /// Unreachable destinations: if a declared destination has no
 /// discovered rank-0 path, the allocator logs a warning and

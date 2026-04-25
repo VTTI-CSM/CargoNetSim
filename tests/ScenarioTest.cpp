@@ -93,7 +93,7 @@ private slots:
 
     void test_system_dynamics_defaults_match_terminalsim()
     {
-        // Mirrors TerminalSim terminal.h:43-61 exactly.
+        // Mirrors TerminalSim::SystemDynamicsParams defaults.
         CargoNetSim::Backend::Scenario::SystemDynamicsSpec sd;
         QCOMPARE(sd.enabled, false);
         QCOMPARE(sd.criticalUtilization,   0.7);
@@ -101,8 +101,8 @@ private slots:
         QCOMPARE(sd.congestionSensitivity, 1.0);
         QCOMPARE(sd.delaySensitivity,      0.5);
         QCOMPARE(sd.maxServiceRate,      100.0);
-        QCOMPARE(sd.shipDelay.alpha,  0.5); QCOMPARE(sd.shipDelay.beta,  2.0);
-        QCOMPARE(sd.truckDelay.alpha, 0.3); QCOMPARE(sd.truckDelay.beta, 2.5);
+        QCOMPARE(sd.shipDelay.alpha,  0.5); QCOMPARE(sd.shipDelay.beta,  2.5);
+        QCOMPARE(sd.truckDelay.alpha, 0.3); QCOMPARE(sd.truckDelay.beta, 2.0);
         QCOMPARE(sd.trainDelay.alpha, 0.8); QCOMPARE(sd.trainDelay.beta, 3.0);
         QCOMPARE(sd.shipArrivalPenalty,  14400.0);
         QCOMPARE(sd.truckArrivalPenalty,  1800.0);
@@ -1270,6 +1270,80 @@ private slots:
         QVERIFY(back != nullptr);
         QVERIFY(back->simulation.endTime.has_value());
         QCOMPARE(back->simulation.endTime.value(), 3600.0);
+    }
+
+    void test_serializer_route_properties_convert_between_display_and_canonical_units()
+    {
+        using namespace CargoNetSim::Backend;
+        using namespace CargoNetSim::Backend::Scenario;
+
+        ScenarioDocument src;
+
+        RegionSpec usa; usa.name = "USA"; src.addRegion(usa);
+        RegionSpec can; can.name = "CAN"; src.addRegion(can);
+
+        TerminalPlacement a; a.id = "A"; a.type = "Sea Port Terminal"; a.region = "USA";
+        TerminalPlacement b; b.id = "B"; b.type = "Sea Port Terminal"; b.region = "USA";
+        TerminalPlacement c; c.id = "C"; c.type = "Sea Port Terminal"; c.region = "CAN";
+        QVERIFY(src.addTerminal(a));
+        QVERIFY(src.addTerminal(b));
+        QVERIFY(src.addTerminal(c));
+
+        Connection regional;
+        regional.fromTerminalId = "A";
+        regional.toTerminalId = "B";
+        regional.mode = TransportationTypes::TransportationMode::Train;
+        regional.region = "USA";
+        regional.properties["distance"] = 120000.0;
+        regional.properties["travelTime"] = 7200.0;
+        regional.properties["carbonEmissions"] = 3.5;
+        regional.properties["energyConsumption"] = 44.0;
+        regional.properties["risk"] = 0.25;
+        regional.properties["cost"] = 91.0;
+        QVERIFY(src.addConnection(regional));
+
+        GlobalLink global;
+        global.fromTerminalId = "A";
+        global.toTerminalId = "C";
+        global.mode = TransportationTypes::TransportationMode::Ship;
+        global.properties["distance"] = 500000.0;
+        global.properties["travelTime"] = 18000.0;
+        global.properties["carbonEmissions"] = 6.0;
+        global.properties["energyConsumption"] = 70.0;
+        global.properties["risk"] = 0.4;
+        global.properties["cost"] = 150.0;
+        QVERIFY(src.addGlobalLink(global));
+
+        QJsonObject j = ScenarioSerializer::toJson(src);
+        const QJsonObject connectionProps =
+            j.value("connections").toArray().at(0).toObject()
+                .value("properties").toObject();
+        QCOMPARE(connectionProps.value("distance").toDouble(), 120.0);
+        QCOMPARE(connectionProps.value("travelTime").toDouble(), 2.0);
+        QCOMPARE(connectionProps.value("risk").toDouble(), 0.25);
+        QCOMPARE(connectionProps.value("carbonEmissions").toDouble(), 3.5);
+
+        const QJsonObject globalProps =
+            j.value("global_links").toArray().at(0).toObject()
+                .value("properties").toObject();
+        QCOMPARE(globalProps.value("distance").toDouble(), 500.0);
+        QCOMPARE(globalProps.value("travelTime").toDouble(), 5.0);
+        QCOMPARE(globalProps.value("risk").toDouble(), 0.4);
+
+        auto back = ScenarioSerializer::fromJson(j);
+        QVERIFY(back);
+        QCOMPARE(back->connections.at(0).properties.value("distance").toDouble(),
+                 120000.0);
+        QCOMPARE(back->connections.at(0).properties.value("travelTime").toDouble(),
+                 7200.0);
+        QCOMPARE(back->connections.at(0).properties.value("risk").toDouble(),
+                 0.25);
+        QCOMPARE(back->globalLinks.at(0).properties.value("distance").toDouble(),
+                 500000.0);
+        QCOMPARE(back->globalLinks.at(0).properties.value("travelTime").toDouble(),
+                 18000.0);
+        QCOMPARE(back->globalLinks.at(0).properties.value("risk").toDouble(),
+                 0.4);
     }
 
     void test_serializer_region_round_trip()

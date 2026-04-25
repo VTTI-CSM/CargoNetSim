@@ -142,6 +142,8 @@ set(Backend_SOURCES
     Scenario/LinkageSource.h
     Scenario/LinkageStrategy.h
     Scenario/ModeDelayParams.h
+    Scenario/CostWeightUnits.h
+    Scenario/MetricDisplayUnits.h
     Scenario/NetworkLookup.h
     Scenario/NetworkLookup.cpp
     Scenario/NetworkSpec.h
@@ -150,12 +152,16 @@ set(Backend_SOURCES
     Scenario/PathSimulationResult.h
     Scenario/Point2D.h
     Scenario/PropertyKeys.h
+    Scenario/RouteMetricUnits.h
+    Scenario/RouteMetricUnits.cpp
     Scenario/RegionSpec.h
     Scenario/RuntimeArtifactIdentity.h
     Scenario/RuntimeArtifactIdentity.cpp
     Scenario/PathAllocation.h
     Scenario/PathDiscovery.h
     Scenario/PathDiscovery.cpp
+    Scenario/PathDemandResolver.h
+    Scenario/PathDemandResolver.cpp
     Scenario/PathDistancePopulator.h
     Scenario/PathDistancePopulator.cpp
     Scenario/PathKey.h

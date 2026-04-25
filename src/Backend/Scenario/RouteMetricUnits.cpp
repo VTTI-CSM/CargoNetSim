@@ -1,0 +1,154 @@
+#include "RouteMetricUnits.h"
+
+#include <QString>
+#include <QStringList>
+
+namespace CargoNetSim
+{
+namespace Backend
+{
+namespace Scenario
+{
+namespace RouteMetricUnits
+{
+
+namespace
+{
+
+constexpr double kSecondsPerHour = 3600.0;
+constexpr double kMetresPerKm    = 1000.0;
+
+const QStringList &keys()
+{
+    static const QStringList kKeys = {
+        QStringLiteral("cost"),
+        QStringLiteral("travelTime"),
+        QStringLiteral("distance"),
+        QStringLiteral("carbonEmissions"),
+        QStringLiteral("risk"),
+        QStringLiteral("energyConsumption")};
+    return kKeys;
+}
+
+double toCanonicalValue(const QString &key, double value,
+                        bool riskSerializedAsPercent)
+{
+    if (key == QStringLiteral("travelTime"))
+        return value * kSecondsPerHour;
+    if (key == QStringLiteral("distance"))
+        return value * kMetresPerKm;
+    if (key == QStringLiteral("risk") && riskSerializedAsPercent)
+        return value / 100.0;
+    return value;
+}
+
+double toDisplayValue(const QString &key, double value)
+{
+    if (key == QStringLiteral("travelTime"))
+        return value / kSecondsPerHour;
+    if (key == QStringLiteral("distance"))
+        return value / kMetresPerKm;
+    return value;
+}
+
+QVariantMap remapNumericValues(const QVariantMap &properties,
+                               bool               toCanonical,
+                               bool riskSerializedAsPercent)
+{
+    QVariantMap out = properties;
+    for (const QString &key : keys())
+    {
+        auto it = out.find(key);
+        if (it == out.end() || !it.value().canConvert<double>())
+            continue;
+
+        const double raw = it.value().toDouble();
+        it.value() = toCanonical
+            ? toCanonicalValue(key, raw, riskSerializedAsPercent)
+            : toDisplayValue(key, raw);
+    }
+    return out;
+}
+
+} // namespace
+
+QStringList routeMetricKeys()
+{
+    return keys();
+}
+
+QStringList missingCanonicalRouteMetricKeys(
+    const QVariantMap &properties)
+{
+    QStringList missing;
+    for (const QString &key : keys())
+    {
+        if (!properties.contains(key)
+            || !properties.value(key).canConvert<double>())
+        {
+            missing.append(key);
+        }
+    }
+    return missing;
+}
+
+QVariantMap defaultCanonicalProperties()
+{
+    QVariantMap props;
+    for (const QString &key : keys())
+        props.insert(key, 0.0);
+    return props;
+}
+
+QVariantMap canonicalPropertiesFromDisplay(
+    const QVariantMap &displayProperties)
+{
+    return remapNumericValues(displayProperties, true, false);
+}
+
+QVariantMap displayPropertiesFromCanonical(
+    const QVariantMap &canonicalProperties)
+{
+    return remapNumericValues(canonicalProperties, false, false);
+}
+
+QVariantMap canonicalPropertiesFromSerialized(
+    const QVariantMap &serializedProperties,
+    int                schemaVersion)
+{
+    Q_UNUSED(schemaVersion);
+    return remapNumericValues(serializedProperties, true, false);
+}
+
+QVariantMap serializedPropertiesFromCanonical(
+    const QVariantMap &canonicalProperties)
+{
+    return remapNumericValues(canonicalProperties, false, false);
+}
+
+QJsonObject routeAttributesFromCanonical(
+    const QVariantMap &canonicalProperties)
+{
+    QJsonObject attrs;
+    for (const QString &key : keys())
+    {
+        const auto it = canonicalProperties.constFind(key);
+        if (it == canonicalProperties.constEnd()
+            || !it.value().canConvert<double>())
+        {
+            continue;
+        }
+        attrs.insert(key, it.value().toDouble());
+    }
+    return attrs;
+}
+
+bool isRouteMetricKey(const QString &key)
+{
+    return keys().contains(key);
+}
+
+} // namespace RouteMetricUnits
+} // namespace Scenario
+} // namespace Backend
+} // namespace CargoNetSim

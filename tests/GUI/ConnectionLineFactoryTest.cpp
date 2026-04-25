@@ -35,7 +35,11 @@ struct BoundTerminal
         item = new TerminalItem(px, {}, region, nullptr, "Origin");
         item->setPlacement(&placement);
     }
-    ~BoundTerminal() { delete item; }
+    ~BoundTerminal()
+    {
+        if (item != nullptr && item->scene() == nullptr)
+            delete item;
+    }
 };
 
 } // namespace

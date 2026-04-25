@@ -7,6 +7,7 @@
 #include "Backend/Scenario/NodeLinkage.h"
 #include "Backend/Scenario/PropertyKeys.h"
 #include "Backend/Scenario/RegionSpec.h"
+#include "Backend/Scenario/RouteMetricUnits.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 #include "Backend/Scenario/TerminalTypeDefaults.h"
@@ -254,6 +255,9 @@ bool ScenarioMutator::createConnection(
     c.toTerminalId   = toId;
     c.mode           = mode;
     c.region         = fromRegion;  // invariant: matches both endpoints
+    c.properties     =
+        Backend::Scenario::RouteMetricUnits::
+            defaultCanonicalProperties();
     c.source         = LinkageSource::Manual;
     return doc->addConnection(c);
 }
@@ -306,6 +310,9 @@ bool ScenarioMutator::createGlobalLink(
     g.fromTerminalId = fromId;
     g.toTerminalId   = toId;
     g.mode           = mode;
+    g.properties     =
+        Backend::Scenario::RouteMetricUnits::
+            defaultCanonicalProperties();
     g.source         = LinkageSource::Manual;
     return doc->addGlobalLink(g);
 }

@@ -163,6 +163,12 @@ private slots:
         m.valid               = true;
         m.containerCount      = 6;
         m.vehiclesNeeded      = 1;
+        m.previewVehicleBreakdown = {
+            PathMetrics::VehicleRequirement{
+                0,
+                CargoNetSim::Backend::TransportationTypes::
+                    TransportationMode::Train,
+                1}};
         m.distanceKm          = 120.0;
         m.travelTimeHours     = 2.0;
         m.fuelPerVehicle      = 2.5;
@@ -199,6 +205,17 @@ private slots:
         QCOMPARE(pObj.value(QStringLiteral("path_uid")).toString(),
                  r.pathUid);
         const auto mo = pObj.value(QStringLiteral("metrics")).toObject();
+        QCOMPARE(mo.value(QStringLiteral("preview_container_count")).toInt(), 6);
+        QCOMPARE(mo.value(QStringLiteral("preview_vehicles_needed")).toInt(), 1);
+        const auto breakdown =
+            mo.value(QStringLiteral("preview_vehicle_breakdown"))
+                .toArray();
+        QCOMPARE(breakdown.size(), 1);
+        QCOMPARE(breakdown.first()
+                     .toObject()
+                     .value(QStringLiteral("mode_name"))
+                     .toString(),
+                 QStringLiteral("Train"));
         QCOMPARE(mo.value(QStringLiteral("container_count")).toInt(), 6);
         QCOMPARE(mo.value(QStringLiteral("vehicles_needed")).toInt(), 1);
         QCOMPARE(mo.value(QStringLiteral("per_vehicle")).toObject()

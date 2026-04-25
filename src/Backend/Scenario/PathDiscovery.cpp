@@ -11,6 +11,7 @@
 #include "Backend/Models/Terminal.h"
 #include "Backend/Scenario/Connection.h"
 #include "Backend/Scenario/GlobalLink.h"
+#include "Backend/Scenario/RouteMetricUnits.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRegistry.h"
 #include "Backend/Scenario/SimulatorCommandAvailability.h"
@@ -176,15 +177,43 @@ QList<CargoNetSim::Backend::Path *> PathDiscovery::findTopPaths(
     routes.reserve(doc.connections.size() + doc.globalLinks.size());
     for (const auto &c : doc.connections)
     {
+        const QStringList missingKeys =
+            RouteMetricUnits::missingCanonicalRouteMetricKeys(
+                c.properties);
+        if (!missingKeys.isEmpty())
+        {
+            qCWarning(lcScenario)
+                << "PathDiscovery::findTopPaths:"
+                << "regional connection" << c.fromTerminalId
+                << "->" << c.toTerminalId
+                << "is missing canonical route metrics"
+                << missingKeys;
+        }
         routes.append(new PathSegment(
             makeSegmentId(c.fromTerminalId, c.toTerminalId, c.mode),
-            c.fromTerminalId, c.toTerminalId, c.mode));
+            c.fromTerminalId, c.toTerminalId, c.mode,
+            RouteMetricUnits::routeAttributesFromCanonical(
+                c.properties)));
     }
     for (const auto &gl : doc.globalLinks)
     {
+        const QStringList missingKeys =
+            RouteMetricUnits::missingCanonicalRouteMetricKeys(
+                gl.properties);
+        if (!missingKeys.isEmpty())
+        {
+            qCWarning(lcScenario)
+                << "PathDiscovery::findTopPaths:"
+                << "global link" << gl.fromTerminalId
+                << "->" << gl.toTerminalId
+                << "is missing canonical route metrics"
+                << missingKeys;
+        }
         routes.append(new PathSegment(
             makeSegmentId(gl.fromTerminalId, gl.toTerminalId, gl.mode),
-            gl.fromTerminalId, gl.toTerminalId, gl.mode));
+            gl.fromTerminalId, gl.toTerminalId, gl.mode,
+            RouteMetricUnits::routeAttributesFromCanonical(
+                gl.properties)));
     }
     qCDebug(lcScenario) << "PathDiscovery::findTopPaths:"
                         << "pushing" << routes.size() << "routes to server"
