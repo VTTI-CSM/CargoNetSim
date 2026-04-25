@@ -264,30 +264,6 @@ PathSegment::SegmentMetricSnapshot PathSegment::estimatedValues() const
     return metricSnapshot(m_attributes, PK::Segment::Estimated, false);
 }
 
-double PathSegment::actualDistance() const
-{
-    // SegmentCostMath stores distance in km (ship/train clients report
-    // m; the cost-math layer converts at aggregation). Multiply back
-    // to SI so the typed accessor matches the estimated side's metres.
-    return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::Distance) * 1000.0;
-}
-
-double PathSegment::actualTravelTime() const
-{
-    // Stored in hours (see shipSegmentCost / trainSegmentCost).
-    // Return seconds for SI consistency with estimatedTravelTime().
-    return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::TravelTime) * 3600.0;
-}
-
-double PathSegment::actualEnergyConsumption() const
-{ return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::EnergyConsumption); }
-
-double PathSegment::actualCarbonEmissions() const
-{ return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::CarbonEmissions); }
-
-double PathSegment::actualRisk() const
-{ return subValue(m_attributes, PK::Segment::ActualValues, PK::Segment::Risk); }
-
 PathSegment::SegmentMetricSnapshot PathSegment::actualValues() const
 {
     return metricSnapshot(m_attributes, PK::Segment::ActualValues, true);

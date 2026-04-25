@@ -5,7 +5,7 @@
 #   cargonetsim-cli-lib  STATIC library
 #       │   all CLI implementation .cpp + headers
 #       │   (Subcommand base, dispatcher, exit codes, later commands,
-#       │    IPC, writers, progress reporter, ...)
+#       │    writers, progress reporter, ...)
 #       │
 #       ├── cargonetsim-cli  executable  (main.cpp only)
 #       └── tests/CLI/*Test  executables (link the lib to test units
@@ -23,7 +23,6 @@
 #                           PUBLIC so tests and the executable both
 #                           see it transitively.
 #   * Qt6::Core           — QCoreApplication, QString, QFile, QDir, …
-#   * Qt6::Network        — QLocalServer / QLocalSocket (Task 9 IPC).
 #   * yaml-cpp            — propagated transitively via
 #                           CargoNetSimBackend.
 #
@@ -41,10 +40,6 @@ set(CLI_LIB_SOURCES
     Output/CsvResultsWriter.cpp
     Progress/ProgressReporter.h
     Progress/ProgressReporter.cpp
-    Ipc/ControlChannel.h
-    Ipc/ControlChannel.cpp
-    Ipc/RuntimeStateFile.h
-    Ipc/RuntimeStateFile.cpp
     Commands/CommandOutput.h
     Commands/IssueFormatter.h
     Commands/HelpVersion.h
@@ -55,10 +50,6 @@ set(CLI_LIB_SOURCES
     Commands/ConnectionsCommand.cpp
     Commands/PreviewCommand.h
     Commands/PreviewCommand.cpp
-    Commands/StatusCommand.h
-    Commands/StatusCommand.cpp
-    Commands/StopCommand.h
-    Commands/StopCommand.cpp
     Commands/RunCommand.h
     Commands/RunCommand.cpp
     # AUTORCC (enabled at root) compiles this into the library so
@@ -72,7 +63,6 @@ add_library(cargonetsim-cli-lib STATIC ${CLI_LIB_SOURCES})
 target_link_libraries(cargonetsim-cli-lib PUBLIC
     CargoNetSimBackend
     Qt6::Core
-    Qt6::Network
 )
 
 # Both CLI and Backend headers live under src/ — a single include

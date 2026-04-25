@@ -362,6 +362,11 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
+    /// Re-evaluate live prepared-path eligibility after backend availability
+    /// changes. No-op when the shortest-path table is showing archived
+    /// comparison snapshots instead of a live prepared-path set.
+    void refreshPreparedPathAvailability();
+
     /// Owned ScenarioRuntime (null in legacy GUI mode — no scenario
     /// opened). Lifetime tied to MainWindow. See Task 20 / Task 21.
     std::unique_ptr<Backend::Scenario::ScenarioRuntime> m_runtime;

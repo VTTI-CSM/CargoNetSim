@@ -144,17 +144,32 @@ void HeartbeatController::checkQueueConsumers()
 
     CargoNetSim::Backend::Scenario::ServerStatusProbe probe;
     const auto statuses = probe.pollAll();
+    QStringList changedServers;
     qCDebug(lcGuiHeartbeat) << "HeartbeatController::checkQueueConsumers:"
                             << "serversPolled=" << statuses.size();
 
     for (const auto &status : statuses)
     {
         const bool ok = status.commandAvailable;
+        const bool hadPrevious =
+            activeConsumers.contains(status.server);
+        const bool previous =
+            activeConsumers.value(status.server, false);
         qCDebug(lcGuiHeartbeat) << "HeartbeatController::checkQueueConsumers:"
                                 << "server=" << status.server
                                 << "connected=" << ok;
         updateServerStatus(status.server, ok);
+        if (!hadPrevious || previous != ok)
+            changedServers.append(status.server);
         activeConsumers[status.server] = ok;
+    }
+
+    if (!changedServers.isEmpty())
+    {
+        qCInfo(lcGuiHeartbeat)
+            << "HeartbeatController::checkQueueConsumers:"
+            << "availability changed for" << changedServers;
+        emit backendAvailabilityChanged();
     }
 }
 

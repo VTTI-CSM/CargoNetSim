@@ -358,12 +358,6 @@ public:
     double totalEstimatedCarbonEmissions()   const;  // tonnes CO₂
     double totalEstimatedRisk()              const;  // dimensionless
 
-    double totalActualLength()            const;   // metres (via PathSegment::actualDistance)
-    double totalActualTravelTime()        const;   // seconds (via PathSegment::actualTravelTime)
-    double totalActualEnergyConsumption() const;   // kWh
-    double totalActualCarbonEmissions()   const;   // tonnes CO2
-    double totalActualRisk()              const;
-
 private:
     /**
      * @brief Unique identifier for the path

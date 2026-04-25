@@ -215,15 +215,9 @@ public:
     double estimatedTravelTime() const;  // seconds
     SegmentMetricSnapshot estimatedValues() const;
 
-    // Post-simulation (SegmentCostMath writes these in km/hours/tons/kWh;
-    // typed accessors below convert distance→metres and time→seconds so
-    // callers see one unit convention across estimated and actual phases.
-    // Dialogs that read the raw sub-object directly still see km/hours.)
-    double actualDistance()          const;  // metres (stored km × 1000)
-    double actualTravelTime()        const;  // seconds (stored hours × 3600)
-    double actualEnergyConsumption() const;  // kWh (direct)
-    double actualCarbonEmissions()   const;  // tonnes CO2 (direct)
-    double actualRisk()              const;  // risk-factor units (direct)
+    // Post-simulation compatibility accessors over the legacy
+    // `actual_values` / `actual_cost` sub-objects. New execution flow
+    // uses ScenarioExecutionResult as the primary source of truth.
     SegmentMetricSnapshot actualValues() const;
     SegmentCostSnapshot estimatedCosts() const;
     SegmentCostSnapshot actualCosts() const;

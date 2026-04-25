@@ -221,9 +221,18 @@ private slots:
 
         auto *tableWidget = table.findChild<QTableWidget *>();
         QVERIFY(tableWidget != nullptr);
-        QVERIFY(tableWidget->item(0, 1)->toolTip().contains(
-            QStringLiteral("Blocked")));
+        QVERIFY(!tableWidget->item(0, 2)->icon().isNull());
+        QVERIFY(tableWidget->item(0, 2)->toolTip().contains(
+            QStringLiteral("Simulation unavailable")));
+        QVERIFY(!tableWidget->item(0, 2)->toolTip().contains(pathKey));
         QVERIFY(table.getCheckedPathKeys().isEmpty());
+
+        auto *banner = table.findChild<QLabel *>(
+            QStringLiteral("pathAvailabilityBanner"));
+        QVERIFY(banner != nullptr);
+        QVERIFY(!banner->isHidden());
+        QVERIFY(banner->text().contains(
+            QStringLiteral("Affected backends: NeTrainSim")));
     }
 
     void test_execution_results_round_trip_through_comparison_snapshots()

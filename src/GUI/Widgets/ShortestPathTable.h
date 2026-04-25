@@ -568,6 +568,8 @@ private:
     bool isSelectable(const PathData *pathData) const;
     int  selectablePathCount() const;
     QString eligibilityTooltip(const PathData *pathData) const;
+    QString availabilityBannerText() const;
+    void updateAvailabilityBanner();
 
     /**
      * @brief Refreshes the table display with current path
@@ -622,6 +624,7 @@ private:
      * costs.
      */
     QTableWidget *m_table;
+    QLabel       *m_availabilityBanner = nullptr;
 
     /**
      * @brief Storage for path data indexed by stable path identity

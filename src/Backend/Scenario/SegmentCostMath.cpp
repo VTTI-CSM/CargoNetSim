@@ -575,35 +575,6 @@ void deleteActualDetails(
     }
 }
 
-void clearPathAttributes(CargoNetSim::Backend::Path *path)
-{
-    if (!path)
-        return;
-    for (auto *segment : path->getSegments())
-    {
-        deleteActualDetails(segment, PK::Segment::ActualValues);
-        deleteActualDetails(segment, PK::Segment::ActualCost);
-    }
-}
-
-CargoNetSim::Backend::Scenario::PathSimulationResult
-computePathCosts(
-    CargoNetSim::Backend::ShipClient::ShipSimulationClient    *shipClient,
-    CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
-    CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
-    CargoNetSim::Backend::Path                                *path,
-    const QVariantMap                                         &costFunctionWeights,
-    const QVariantMap                                         &transportModes,
-    int                                                        containerCount)
-{
-    return computePathExecutionResult(
-               shipClient, trainClient, truckManager, path,
-               path ? path->canonicalPathKey() : QString(),
-               costFunctionWeights, transportModes,
-               containerCount)
-        .toSimulationResult();
-}
-
 CargoNetSim::Backend::Scenario::PathExecutionResult
 computePathExecutionResult(
     CargoNetSim::Backend::ShipClient::ShipSimulationClient    *shipClient,

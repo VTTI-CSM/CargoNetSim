@@ -23,6 +23,7 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QFileDialog>
+#include <QIcon>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -48,6 +49,35 @@ namespace
 {
 
 using PathIdentity = ShortestPathsTable::PathIdentity;
+
+enum TableColumn : int
+{
+    ColumnSelect = 0,
+    ColumnPathId,
+    ColumnStatus,
+    ColumnTerminalPath,
+    ColumnPredictedCost,
+    ColumnActualCost,
+    ColumnPredictedDistance,
+    ColumnPredictedTime,
+    ColumnPredictedFuelPerVehicle,
+    ColumnPredictedEnergyPerVehicle,
+    ColumnPredictedCarbonPerVehicle,
+    ColumnPredictedRiskPerVehicle,
+    ColumnActualDistance,
+    ColumnActualTime,
+    ColumnActualEnergyPerVehicle,
+    ColumnActualCarbonPerVehicle,
+    ColumnActualRiskPerVehicle,
+    ColumnContainers,
+    ColumnVehicles,
+    ColumnPredictedFuelPerContainer,
+    ColumnPredictedEnergyPerContainer,
+    ColumnPredictedCarbonPerContainer,
+    ColumnActualEnergyPerContainer,
+    ColumnActualCarbonPerContainer,
+    ColumnCount
+};
 
 PathIdentity basePathKey(const Backend::Path *path)
 {
@@ -165,6 +195,70 @@ QString sha256Hex(const QJsonObject &o)
         QCryptographicHash::hash(
             payload, QCryptographicHash::Sha256)
             .toHex());
+}
+
+QString statusMessage(
+    const Backend::Scenario::PreparedPathEligibility &eligibility)
+{
+    if (!eligibility.simulatable)
+        return QObject::tr("Simulation unavailable");
+
+    if (!eligibility.warningReason.isEmpty())
+        return QObject::tr("Ready with warning");
+
+    return QObject::tr("Ready");
+}
+
+QPixmap statusIcon(
+    const Backend::Scenario::PreparedPathEligibility &eligibility)
+{
+    constexpr int kStatusIconSize = 16;
+
+    if (!eligibility.simulatable)
+    {
+        return IconFactory::createStatusUnavailableIcon(
+            kStatusIconSize);
+    }
+
+    if (!eligibility.warningReason.isEmpty())
+    {
+        return IconFactory::createStatusWarningIcon(
+            kStatusIconSize);
+    }
+
+    return IconFactory::createStatusReadyIcon(kStatusIconSize);
+}
+
+void styleStatusItem(
+    QTableWidgetItem                                 *item,
+    const Backend::Scenario::PreparedPathEligibility &eligibility)
+{
+    if (!item)
+        return;
+
+    item->setTextAlignment(Qt::AlignCenter);
+    item->setText(QString());
+    item->setIcon(QIcon(statusIcon(eligibility)));
+
+    if (!eligibility.simulatable)
+    {
+        item->setBackground(QColor(253, 236, 234));
+        item->setForeground(QBrush(QColor(145, 33, 54)));
+        QFont font = item->font();
+        font.setBold(true);
+        item->setFont(font);
+        return;
+    }
+
+    if (!eligibility.warningReason.isEmpty())
+    {
+        item->setBackground(QColor(255, 245, 224));
+        item->setForeground(QBrush(QColor(133, 87, 0)));
+        return;
+    }
+
+    item->setBackground(QColor(232, 245, 236));
+    item->setForeground(QBrush(QColor(31, 101, 58)));
 }
 
 QJsonObject buildPathSnapshotJson(const ShortestPathsTable::PathData &pathData)
@@ -296,7 +390,7 @@ void TerminalPathDelegate::paint(
 {
     // Check if we're in the terminals column (column index
     // 2)
-    if (index.column() == 2)
+    if (index.column() == ColumnTerminalPath)
     {
         // Try to extract the widget from user data
         QWidget *widget = qvariant_cast<QWidget *>(
@@ -353,7 +447,7 @@ QSize TerminalPathDelegate::sizeHint(
     const QModelIndex          &index) const
 {
     // Check if we're in the terminals column
-    if (index.column() == 2)
+    if (index.column() == ColumnTerminalPath)
     {
         // Try to extract the widget from user data
         QWidget *widget = qvariant_cast<QWidget *>(
@@ -451,6 +545,22 @@ void ShortestPathsTable::initUI()
     createTableWidget();
     layout->addWidget(m_table);
 
+    m_availabilityBanner = new QLabel(this);
+    m_availabilityBanner->setObjectName(
+        QStringLiteral("pathAvailabilityBanner"));
+    m_availabilityBanner->setWordWrap(true);
+    m_availabilityBanner->setVisible(false);
+    m_availabilityBanner->setStyleSheet(
+        QStringLiteral(
+            "QLabel#pathAvailabilityBanner {"
+            " background-color: #fff3f3;"
+            " color: #7f1d2d;"
+            " border: 1px solid #e6b7c0;"
+            " border-radius: 4px;"
+            " padding: 6px 8px;"
+            "}"));
+    layout->addWidget(m_availabilityBanner);
+
     // Create panel for buttons
     auto buttonPanel = new QHBoxLayout();
 
@@ -486,27 +596,24 @@ void ShortestPathsTable::createTableWidget()
 
     // Configure table structure.
     //
-    // Plan 8.2: 16 columns total — the original 5 plus 6 predicted
-    // per-vehicle metrics (cols 5..10) and 5 actual per-vehicle
-    // metrics (cols 11..15). Actual lacks a dedicated fuel column
-    // because SegmentCostMath does not surface a fuel key during
-    // post-simulation extraction; its energy value already reflects
-    // the actual fuel burn.
-    m_table->setColumnCount(23);
+    // Plan 8.2/A2: add a dedicated status column near the front of
+    // the table so backend eligibility is visible without drowning the
+    // metric columns in warning colors.
+    m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
         tr("Select"),                tr("Path ID"),
-        tr("Terminal Path"),         tr("Predicted Cost"),
-        tr("Actual Cost"),
-        // Predicted per-vehicle (cols 5-10)
+        tr("Status"),                tr("Terminal Path"),
+        tr("Predicted Cost"),        tr("Actual Cost"),
+        // Predicted per-vehicle (cols 6-11)
         tr("P. Distance (km)"),      tr("P. Time (h)"),
         tr("P. Fuel/Veh"),           tr("P. Energy/Veh (kWh)"),
-        tr("P. CO₂/Veh (t)"), tr("P. Risk/Veh"),
-        // Actual per-vehicle (cols 11-15 — no fuel key from
+        tr("P. CO₂/Veh (t)"),        tr("P. Risk/Veh"),
+        // Actual per-vehicle (cols 12-16 — no fuel key from
         // SegmentCostMath)
         tr("A. Distance (km)"),      tr("A. Time (h)"),
         tr("A. Energy/Veh (kWh)"),   tr("A. CO₂/Veh (t)"),
         tr("A. Risk/Veh"),
-        // Allocator counts and per-container metrics (cols 16-22)
+        // Allocator counts and per-container metrics (cols 17-23)
         tr("Containers"),            tr("Vehicles"),
         tr("P. Fuel/Cont"),          tr("P. Energy/Cont (kWh)"),
         tr("P. CO₂/Cont (t)"),
@@ -527,25 +634,27 @@ void ShortestPathsTable::createTableWidget()
 
     // Set column sizing policies
     header->setSectionResizeMode(
-        0, QHeaderView::Fixed); // Fixed width for checkbox
+        ColumnSelect, QHeaderView::Fixed); // Fixed width for checkbox
     m_table->setColumnWidth(
-        0, 50); // 50 pixels for checkbox column
+        ColumnSelect, 50); // 50 pixels for checkbox column
 
     header->setSectionResizeMode(
-        1, QHeaderView::ResizeToContents); // Auto-size for
-                                           // Path ID
+        ColumnPathId, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(
-        2, QHeaderView::Stretch); // Stretch terminal path
-                                  // column
+        ColumnStatus, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(
-        3, QHeaderView::ResizeToContents); // Auto-size for
-                                           // costs
+        ColumnTerminalPath, QHeaderView::Interactive);
+    // The terminal sequence is the most scan-heavy field in the table.
+    // Give it a wide default so it does not collapse behind the metric
+    // columns, while still letting users resize it manually.
+    m_table->setColumnWidth(ColumnTerminalPath, 520);
     header->setSectionResizeMode(
-        4, QHeaderView::ResizeToContents); // Auto-size for
-                                           // costs
+        ColumnPredictedCost, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(
+        ColumnActualCost, QHeaderView::ResizeToContents);
 
-    // Plan 8.2 + Plan 10: auto-size the metric columns (5..22).
-    for (int c = 5; c < 23; ++c)
+    // Plan 8.2 + Plan 10: auto-size the metric columns.
+    for (int c = ColumnPredictedDistance; c < ColumnCount; ++c)
         header->setSectionResizeMode(
             c, QHeaderView::ResizeToContents);
 
@@ -837,21 +946,84 @@ QString ShortestPathsTable::eligibilityTooltip(
     if (!pathData)
         return QString();
 
-    QStringList lines;
-    lines.append(pathData->pathKey);
-    if (!pathData->eligibility.blockingReason.isEmpty())
+    if (!pathData->eligibility.simulatable
+        && !pathData->eligibility.blockingReason.isEmpty())
     {
-        lines.append(
-            tr("Blocked: %1")
-                .arg(pathData->eligibility.blockingReason));
+        return tr("Simulation unavailable: %1")
+            .arg(pathData->eligibility.blockingReason);
     }
+
+    if (!pathData->eligibility.simulatable)
+        return tr("Simulation unavailable.");
+
     if (!pathData->eligibility.warningReason.isEmpty())
     {
-        lines.append(
-            tr("Warning: %1")
-                .arg(pathData->eligibility.warningReason));
+        return tr("Ready for simulation with warning: %1")
+            .arg(pathData->eligibility.warningReason);
     }
-    return lines.join(QLatin1Char('\n'));
+
+    return tr("Ready for simulation.");
+}
+
+QString ShortestPathsTable::availabilityBannerText() const
+{
+    int           unavailableCount = 0;
+    QSet<QString> affectedBackends;
+
+    for (const auto *pathData : m_pathData)
+    {
+        if (!pathData || !pathData->path || !pathData->isVisible
+            || pathData->eligibility.simulatable)
+        {
+            continue;
+        }
+
+        ++unavailableCount;
+        const QString reason = pathData->eligibility.blockingReason;
+        if (reason.contains(QStringLiteral("ShipNetSim")))
+            affectedBackends.insert(QStringLiteral("ShipNetSim"));
+        if (reason.contains(QStringLiteral("NeTrainSim")))
+            affectedBackends.insert(QStringLiteral("NeTrainSim"));
+        if (reason.contains(QStringLiteral("TerminalSim")))
+            affectedBackends.insert(QStringLiteral("TerminalSim"));
+        if (reason.contains(QStringLiteral("truck-backed execution")))
+        {
+            affectedBackends.insert(
+                tr("truck-backed execution"));
+        }
+    }
+
+    if (unavailableCount == 0)
+        return QString();
+
+    QString text =
+        unavailableCount == 1
+            ? tr("One path is currently unavailable for simulation. ")
+            : tr("%1 paths are currently unavailable for simulation. ")
+                  .arg(unavailableCount);
+
+    text += tr("Rows marked unavailable remain visible, but they cannot be selected for simulation until the required backends are available.");
+
+    if (!affectedBackends.isEmpty())
+    {
+        QStringList backends = affectedBackends.values();
+        backends.sort();
+        text += tr(" Affected backends: %1.")
+                    .arg(backends.join(QStringLiteral(", ")));
+    }
+
+    text += tr(" Hover the Status column for the exact requirement.");
+    return text;
+}
+
+void ShortestPathsTable::updateAvailabilityBanner()
+{
+    if (!m_availabilityBanner)
+        return;
+
+    const QString text = availabilityBannerText();
+    m_availabilityBanner->setText(text);
+    m_availabilityBanner->setVisible(!text.isEmpty());
 }
 
 int ShortestPathsTable::pathsSize() const
@@ -921,7 +1093,7 @@ void ShortestPathsTable::updatePredictionCosts(
         for (int row = 0; row < m_table->rowCount(); ++row)
         {
             // Get the path ID for this row
-            auto idItem = m_table->item(row, 1);
+            auto idItem = m_table->item(row, ColumnPathId);
             if (idItem
                 && idItem->data(Qt::UserRole).toString()
                        == pathKey)
@@ -930,7 +1102,7 @@ void ShortestPathsTable::updatePredictionCosts(
                 // cost was updated
                 if (totalCost >= 0)
                 {
-                    m_table->item(row, 3)->setText(
+                    m_table->item(row, ColumnPredictedCost)->setText(
                         QString::number(totalCost, 'f', 2));
                 }
                 break;
@@ -996,7 +1168,7 @@ void ShortestPathsTable::updateSimulationCosts(
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         // Get the path ID for this row
-        auto idItem = m_table->item(row, 1);
+        auto idItem = m_table->item(row, ColumnPathId);
         if (idItem
             && idItem->data(Qt::UserRole).toString()
                    == pathKey)
@@ -1005,7 +1177,7 @@ void ShortestPathsTable::updateSimulationCosts(
             // total cost was updated
             if (simulationTotalCost >= 0)
             {
-                m_table->item(row, 4)->setText(
+                m_table->item(row, ColumnActualCost)->setText(
                     QString::number(simulationTotalCost,
                                     'f', 2));
             }
@@ -1269,7 +1441,7 @@ void ShortestPathsTable::refreshTable()
 
         auto checkbox = new QCheckBox();
         checkboxLayout->addWidget(checkbox);
-        m_table->setCellWidget(row, 0, checkboxWidget);
+        m_table->setCellWidget(row, ColumnSelect, checkboxWidget);
         checkbox->setEnabled(isSelectable(pathData));
         const QString rowTooltip = eligibilityTooltip(pathData);
         checkbox->setToolTip(rowTooltip);
@@ -1341,6 +1513,15 @@ void ShortestPathsTable::refreshTable()
             checkbox->setChecked(true);
         }
 
+        auto *statusItem = new QTableWidgetItem();
+        statusItem->setData(Qt::AccessibleTextRole,
+                            statusMessage(pathData->eligibility));
+        statusItem->setData(Qt::AccessibleDescriptionRole,
+                            rowTooltip);
+        statusItem->setToolTip(rowTooltip);
+        styleStatusItem(statusItem, pathData->eligibility);
+        m_table->setItem(row, ColumnStatus, statusItem);
+
         // Add Path ID cell
         auto pathItem = new QTableWidgetItem(
             QString::number(pathData->path->getPathId()));
@@ -1348,19 +1529,19 @@ void ShortestPathsTable::refreshTable()
         pathItem->setToolTip(rowTooltip);
         if (!isSelectable(pathData))
             pathItem->setForeground(QBrush(Qt::gray));
-        m_table->setItem(row, 1, pathItem);
+        m_table->setItem(row, ColumnPathId, pathItem);
 
         // Create and add terminal path visualization
         auto pathWidget = createPathRow(pathKey, pathData);
         pathWidget->setToolTip(rowTooltip);
-        m_table->setCellWidget(row, 2, pathWidget);
+        m_table->setCellWidget(row, ColumnTerminalPath, pathWidget);
 
         // Store widget pointer in user role for custom
         // delegate
         QVariant widgetPtr;
         widgetPtr.setValue(pathWidget);
         m_table->model()->setData(
-            m_table->model()->index(row, 2), widgetPtr,
+            m_table->model()->index(row, ColumnTerminalPath), widgetPtr,
             Qt::UserRole);
 
         // Add Predicted Cost cell
@@ -1379,7 +1560,7 @@ void ShortestPathsTable::refreshTable()
         predictedItem->setToolTip(rowTooltip);
         if (!isSelectable(pathData))
             predictedItem->setForeground(QBrush(Qt::gray));
-        m_table->setItem(row, 3, predictedItem);
+        m_table->setItem(row, ColumnPredictedCost, predictedItem);
 
         // Add Actual Cost cell
         QString actualCostText;
@@ -1398,7 +1579,7 @@ void ShortestPathsTable::refreshTable()
         actualItem->setToolTip(rowTooltip);
         if (!isSelectable(pathData))
             actualItem->setForeground(QBrush(Qt::gray));
-        m_table->setItem(row, 4, actualItem);
+        m_table->setItem(row, ColumnActualCost, actualItem);
 
         // Plan 8.2: populate per-vehicle metric columns.
         refreshRow(pathKey);
@@ -1415,6 +1596,7 @@ void ShortestPathsTable::refreshTable()
         selectablePathCount() > getCheckedPathKeys().size());
     m_unselectAllButton->setEnabled(
         !getCheckedPathKeys().isEmpty());
+    updateAvailabilityBanner();
 }
 
 /**
@@ -1478,7 +1660,7 @@ ShortestPathsTable::getSelectedPathKey() const
     int row = selectedItems.first()->row();
 
     // Get the Path ID from column 1
-    auto idItem = m_table->item(row, 1);
+    auto idItem = m_table->item(row, ColumnPathId);
     return idItem ? idItem->data(Qt::UserRole).toString()
                   : QString();
 }
@@ -1496,7 +1678,7 @@ ShortestPathsTable::getCheckedPathKeys() const
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         // Get the checkbox widget in the first column
-        auto checkboxWidget = m_table->cellWidget(row, 0);
+        auto checkboxWidget = m_table->cellWidget(row, ColumnSelect);
         if (!checkboxWidget)
         {
             continue; // Skip rows without checkbox widget
@@ -1517,7 +1699,7 @@ ShortestPathsTable::getCheckedPathKeys() const
         {
             // If checkbox exists and is checked, add the
             // path ID
-            auto idItem = m_table->item(row, 1);
+            auto idItem = m_table->item(row, ColumnPathId);
             if (idItem)
             {
                 checkedPaths.append(
@@ -1551,6 +1733,7 @@ void ShortestPathsTable::clear()
     m_predicted.clear();
     m_actual.clear();
     m_rowByPathKey.clear();
+    updateAvailabilityBanner();
 }
 
 QList<QJsonObject> ShortestPathsTable::buildComparisonSnapshots(
@@ -1741,14 +1924,14 @@ void ShortestPathsTable::loadComparisonSnapshots(
 
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
-        auto *idItem = m_table->item(row, 1);
+        auto *idItem = m_table->item(row, ColumnPathId);
         if (!idItem)
             continue;
         const QString pathKey =
             idItem->data(Qt::UserRole).toString();
         if (!selectedPathKeys.contains(pathKey))
             continue;
-        auto *checkboxWidget = m_table->cellWidget(row, 0);
+        auto *checkboxWidget = m_table->cellWidget(row, ColumnSelect);
         if (!checkboxWidget || !checkboxWidget->layout())
             continue;
         auto *checkBox = qobject_cast<QCheckBox *>(
@@ -1904,7 +2087,7 @@ void ShortestPathsTable::onSelectAllButtonClicked()
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         // Get the checkbox widget in the first column
-        auto checkboxWidget = m_table->cellWidget(row, 0);
+        auto checkboxWidget = m_table->cellWidget(row, ColumnSelect);
         if (!checkboxWidget)
         {
             continue; // Skip rows without checkbox widget
@@ -1956,7 +2139,7 @@ void ShortestPathsTable::onUnselectAllButtonClicked()
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         // Get the checkbox widget in the first column
-        auto checkboxWidget = m_table->cellWidget(row, 0);
+        auto checkboxWidget = m_table->cellWidget(row, ColumnSelect);
         if (!checkboxWidget)
         {
             continue; // Skip rows without checkbox widget
@@ -2136,34 +2319,50 @@ void ShortestPathsTable::refreshRow(
     const auto &p = m_predicted.value(pathKey);
     const auto &a = m_actual.value(pathKey);
 
-    // Predicted per-vehicle (cols 5..10)
-    m_table->setItem(row, 5, cell(p.valid, p.distanceKm));
-    m_table->setItem(row, 6, cell(p.valid, p.travelTimeHours));
-    m_table->setItem(row, 7, cell(p.valid, p.fuelPerVehicle));
-    m_table->setItem(row, 8, cell(p.valid, p.energyPerVehicle));
-    m_table->setItem(row, 9, cell(p.valid, p.carbonPerVehicle));
-    m_table->setItem(row, 10, cell(p.valid, p.riskPerVehicle));
+    // Predicted per-vehicle (cols 6..11)
+    m_table->setItem(row, ColumnPredictedDistance,
+                     cell(p.valid, p.distanceKm));
+    m_table->setItem(row, ColumnPredictedTime,
+                     cell(p.valid, p.travelTimeHours));
+    m_table->setItem(row, ColumnPredictedFuelPerVehicle,
+                     cell(p.valid, p.fuelPerVehicle));
+    m_table->setItem(row, ColumnPredictedEnergyPerVehicle,
+                     cell(p.valid, p.energyPerVehicle));
+    m_table->setItem(row, ColumnPredictedCarbonPerVehicle,
+                     cell(p.valid, p.carbonPerVehicle));
+    m_table->setItem(row, ColumnPredictedRiskPerVehicle,
+                     cell(p.valid, p.riskPerVehicle));
 
-    // Actual per-vehicle (cols 11..15; no fuel column — see
+    // Actual per-vehicle (cols 12..16; no fuel column — see
     // createTableWidget note).
-    m_table->setItem(row, 11, cell(a.valid, a.distanceKm));
-    m_table->setItem(row, 12, cell(a.valid, a.travelTimeHours));
-    m_table->setItem(row, 13, cell(a.valid, a.energyPerVehicle));
-    m_table->setItem(row, 14, cell(a.valid, a.carbonPerVehicle));
-    m_table->setItem(row, 15, cell(a.valid, a.riskPerVehicle));
+    m_table->setItem(row, ColumnActualDistance,
+                     cell(a.valid, a.distanceKm));
+    m_table->setItem(row, ColumnActualTime,
+                     cell(a.valid, a.travelTimeHours));
+    m_table->setItem(row, ColumnActualEnergyPerVehicle,
+                     cell(a.valid, a.energyPerVehicle));
+    m_table->setItem(row, ColumnActualCarbonPerVehicle,
+                     cell(a.valid, a.carbonPerVehicle));
+    m_table->setItem(row, ColumnActualRiskPerVehicle,
+                     cell(a.valid, a.riskPerVehicle));
 
-    // Allocator counts and per-container metrics (cols 16..22)
-    m_table->setItem(row, 16, new QTableWidgetItem(
+    // Allocator counts and per-container metrics (cols 17..23)
+    m_table->setItem(row, ColumnContainers, new QTableWidgetItem(
         p.valid ? QString::number(p.containerCount) : dash));
-    m_table->setItem(row, 17, new QTableWidgetItem(
+    m_table->setItem(row, ColumnVehicles, new QTableWidgetItem(
         p.valid ? QString::number(p.vehiclesNeeded) : dash));
 
-    m_table->setItem(row, 18, cell(p.valid, p.fuelPerContainer));
-    m_table->setItem(row, 19, cell(p.valid, p.energyPerContainer));
-    m_table->setItem(row, 20, cell(p.valid, p.carbonPerContainer));
+    m_table->setItem(row, ColumnPredictedFuelPerContainer,
+                     cell(p.valid, p.fuelPerContainer));
+    m_table->setItem(row, ColumnPredictedEnergyPerContainer,
+                     cell(p.valid, p.energyPerContainer));
+    m_table->setItem(row, ColumnPredictedCarbonPerContainer,
+                     cell(p.valid, p.carbonPerContainer));
 
-    m_table->setItem(row, 21, cell(a.valid, a.energyPerContainer));
-    m_table->setItem(row, 22, cell(a.valid, a.carbonPerContainer));
+    m_table->setItem(row, ColumnActualEnergyPerContainer,
+                     cell(a.valid, a.energyPerContainer));
+    m_table->setItem(row, ColumnActualCarbonPerContainer,
+                     cell(a.valid, a.carbonPerContainer));
 }
 
 } // namespace GUI

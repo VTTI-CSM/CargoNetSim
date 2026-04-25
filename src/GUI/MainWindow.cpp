@@ -87,6 +87,182 @@ namespace CargoNetSim
 namespace GUI
 {
 
+namespace
+{
+
+TerminalItem *resolveRegionTerminalItem(
+    GraphicsScene                    *scene,
+    const Backend::PathTerminal &terminalSnapshot)
+{
+    if (!scene)
+        return nullptr;
+
+    if (!terminalSnapshot.id.isEmpty())
+    {
+        if (auto *terminal =
+                scene->getItemById<TerminalItem>(terminalSnapshot.id))
+        {
+            return terminal;
+        }
+    }
+
+    for (auto *terminal : scene->getItemsByType<TerminalItem>())
+    {
+        if (!terminal)
+            continue;
+
+        if (!terminalSnapshot.id.isEmpty()
+            && terminal->getTerminalId() == terminalSnapshot.id)
+        {
+            return terminal;
+        }
+
+        const QString terminalName =
+            terminal->getProperty("Name").toString();
+        if ((!terminalSnapshot.displayName.isEmpty()
+             && terminalName == terminalSnapshot.displayName)
+            || (!terminalSnapshot.canonicalName.isEmpty()
+                && terminalName == terminalSnapshot.canonicalName))
+        {
+            return terminal;
+        }
+    }
+
+    return nullptr;
+}
+
+QString lineEndpointTerminalId(QGraphicsItem *item)
+{
+    if (auto *terminal = qgraphicsitem_cast<TerminalItem *>(item))
+        return terminal->getTerminalId();
+    if (auto *terminal =
+            qgraphicsitem_cast<GlobalTerminalItem *>(item))
+    {
+        return terminal->getTerminalId();
+    }
+    return QString();
+}
+
+QString lineEndpointDisplayName(QGraphicsItem *item)
+{
+    if (auto *terminal = qgraphicsitem_cast<TerminalItem *>(item))
+        return terminal->getProperty("Name").toString();
+    if (auto *terminal =
+            qgraphicsitem_cast<GlobalTerminalItem *>(item))
+    {
+        if (auto *linked = terminal->getLinkedTerminalItem())
+            return linked->getProperty("Name").toString();
+    }
+    return QString();
+}
+
+bool terminalMatchesLineEndpoint(
+    const Backend::PathTerminal &terminalSnapshot,
+    QGraphicsItem                    *endpoint)
+{
+    if (!endpoint)
+        return false;
+
+    const QString endpointId = lineEndpointTerminalId(endpoint);
+    if (!terminalSnapshot.id.isEmpty()
+        && !endpointId.isEmpty()
+        && endpointId == terminalSnapshot.id)
+    {
+        return true;
+    }
+
+    const QString endpointName =
+        lineEndpointDisplayName(endpoint);
+    return (!terminalSnapshot.displayName.isEmpty()
+            && endpointName == terminalSnapshot.displayName)
+           || (!terminalSnapshot.canonicalName.isEmpty()
+               && endpointName == terminalSnapshot.canonicalName);
+}
+
+ConnectionLine *scanLinesByPathTerminals(
+    GraphicsScene                    *scene,
+    const Backend::PathTerminal &startTerminal,
+    const Backend::PathTerminal &endTerminal,
+    Backend::TransportationTypes::TransportationMode mode)
+{
+    if (!scene)
+        return nullptr;
+
+    for (auto *line : scene->getItemsByType<ConnectionLine>())
+    {
+        if (!line || line->connectionType() != mode)
+            continue;
+
+        const bool forwardMatch =
+            terminalMatchesLineEndpoint(startTerminal,
+                                        line->startItem())
+            && terminalMatchesLineEndpoint(endTerminal,
+                                           line->endItem());
+        const bool reverseMatch =
+            terminalMatchesLineEndpoint(startTerminal,
+                                        line->endItem())
+            && terminalMatchesLineEndpoint(endTerminal,
+                                           line->startItem());
+        if (forwardMatch || reverseMatch)
+            return line;
+    }
+
+    return nullptr;
+}
+
+ConnectionLine *resolveShipConnectionLine(
+    GraphicsScene                    *regionScene,
+    GraphicsScene                    *globalScene,
+    const Backend::PathTerminal &startTerminal,
+    const Backend::PathTerminal &endTerminal)
+{
+    using TransportMode =
+        Backend::TransportationTypes::TransportationMode;
+    constexpr auto kShip = TransportMode::Ship;
+
+    if (!startTerminal.id.isEmpty() && !endTerminal.id.isEmpty())
+    {
+        if (auto *line =
+                Scenario::ConnectionLineFactory::findRegionConnection(
+                    regionScene, startTerminal.id,
+                    endTerminal.id, kShip))
+        {
+            return line;
+        }
+        if (auto *line =
+                Scenario::ConnectionLineFactory::findRegionConnection(
+                    regionScene, endTerminal.id,
+                    startTerminal.id, kShip))
+        {
+            return line;
+        }
+        if (auto *line =
+                Scenario::ConnectionLineFactory::findGlobalLink(
+                    globalScene, startTerminal.id,
+                    endTerminal.id, kShip))
+        {
+            return line;
+        }
+        if (auto *line =
+                Scenario::ConnectionLineFactory::findGlobalLink(
+                    globalScene, endTerminal.id,
+                    startTerminal.id, kShip))
+        {
+            return line;
+        }
+    }
+
+    if (auto *line = scanLinesByPathTerminals(
+            regionScene, startTerminal, endTerminal, kShip))
+    {
+        return line;
+    }
+    return scanLinesByPathTerminals(globalScene, startTerminal,
+                                    endTerminal, kShip);
+}
+
+} // namespace
+
 std::atomic<MainWindow *> MainWindow::s_instance{nullptr};
 
 MainWindow::MainWindow()
@@ -267,6 +443,9 @@ MainWindow::MainWindow()
         << "MainWindow::MainWindow: initializing"
            " heartbeat controller";
     heartbeatController_ = new HeartbeatController(this);
+    connect(heartbeatController_,
+            &HeartbeatController::backendAvailabilityChanged,
+            this, &MainWindow::refreshPreparedPathAvailability);
     heartbeatController_->initialize();
 
     setWindowTitle("CargoNetSim: Multimodal Freight "
@@ -746,6 +925,23 @@ void MainWindow::subscribeDocumentObservers()
                     networkManagerDock_->updateNetworkListForChangedRegion(
                         region);
             });
+}
+
+void MainWindow::refreshPreparedPathAvailability()
+{
+    if (!m_runtime || !shortestPathTable_
+        || m_runtime->preparedPaths().isEmpty())
+    {
+        return;
+    }
+
+    qCDebug(lcGui)
+        << "MainWindow::refreshPreparedPathAvailability:"
+        << "preparedPathCount="
+        << m_runtime->preparedPaths().size();
+    m_runtime->refreshPreparedPathEligibility();
+    shortestPathTable_->setPathEligibility(
+        m_runtime->preparedPathEligibility());
 }
 
 MainWindow::~MainWindow()
@@ -2029,71 +2225,29 @@ void MainWindow::flashPathLines(const QString &pathKey)
         const Backend::PathTerminal &startTerminal = terminals[i];
         const Backend::PathTerminal &endTerminal   = terminals[i + 1];
 
-        // Find corresponding terminal items in the scene
-        TerminalItem *startTerminalItem = nullptr;
-        TerminalItem *endTerminalItem   = nullptr;
-
-        for (auto terminal :
-             regionScene_->getItemsByType<TerminalItem>())
-        {
-            QString terminalName =
-                terminal->getProperty("Name").toString();
-
-            if (terminalName == startTerminal.displayName)
-            {
-                startTerminalItem = terminal;
-            }
-            else if (terminalName == endTerminal.displayName)
-            {
-                endTerminalItem = terminal;
-            }
-
-            if (startTerminalItem && endTerminalItem)
-                break;
-        }
-
-        if (!startTerminalItem || !endTerminalItem)
-        {
-            qCWarning(lcGui) << "Cannot flash path: Unable to "
-                                "find terminal items for segment"
-                             << i;
-            continue;
-        }
-
         // Get transportation mode
         const Backend::TransportationTypes::TransportationMode
             segmentMode = segment->getMode();
-
-        // Find connection line between these terminals
-        ConnectionLine *connection = nullptr;
-        for (auto line :
-             regionScene_->getItemsByType<ConnectionLine>())
-        {
-            if (((line->startItem() == startTerminalItem
-                  && line->endItem() == endTerminalItem)
-                 || (line->startItem() == endTerminalItem
-                     && line->endItem()
-                            == startTerminalItem))
-                && line->connectionType() == segmentMode)
-            {
-                connection = line;
-                break;
-            }
-        }
-
-        if (!connection)
-        {
-            qCWarning(lcGui) << "Cannot flash path: Unable to "
-                                "find connection line for segment"
-                             << i;
-            continue;
-        }
 
         // If ship mode, flash the connection line only
         if (segmentMode
             == Backend::TransportationTypes::
                 TransportationMode::Ship)
         {
+            ConnectionLine *connection =
+                resolveShipConnectionLine(regionScene_,
+                                          globalMapScene_,
+                                          startTerminal,
+                                          endTerminal);
+            if (!connection)
+            {
+                qCWarning(lcGui)
+                    << "Cannot flash path: Unable to find "
+                       "ship connection for segment"
+                    << i << "from" << startTerminal.id << "to"
+                    << endTerminal.id;
+                continue;
+            }
             // Flash the connection line
             connection->flash(
                 true,
@@ -2102,6 +2256,23 @@ void MainWindow::flashPathLines(const QString &pathKey)
         // For train or truck, flash the network map lines
         else
         {
+            TerminalItem *startTerminalItem =
+                resolveRegionTerminalItem(regionScene_,
+                                          startTerminal);
+            TerminalItem *endTerminalItem =
+                resolveRegionTerminalItem(regionScene_,
+                                          endTerminal);
+
+            if (!startTerminalItem || !endTerminalItem)
+            {
+                qCWarning(lcGui)
+                    << "Cannot flash path: Unable to find "
+                       "region terminals for segment"
+                    << i << "from" << startTerminal.id << "to"
+                    << endTerminal.id;
+                continue;
+            }
+
             // Determine network type
             NetworkType networkType;
             if (segmentMode

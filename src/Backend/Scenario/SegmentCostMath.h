@@ -159,36 +159,6 @@ void deleteActualDetails(
     const QString                     &underlyingKey);
 
 /**
- * @brief Convenience: for every segment in @p path, removes the
- *        `actual_values` and `actual_cost` attribute groups. Used by
- *        both SVW and ResultsExtractor before recomputing per-path
- *        results from fresh simulator state.
- *
- * Null path is a no-op.
- */
-void clearPathAttributes(CargoNetSim::Backend::Path *path);
-
-/**
- * @brief Composes per-path costs into a single PathSimulationResult.
- *
- *   r.edgeCosts     = edgeCosts(...)             [SegmentCostMath]
- *   r.terminalCosts = totalTerminalCosts(...)    [TerminalCostMath]
- *   r.totalCost     = edgeCosts + terminalCosts
- *   r.pathId        = path->getPathId()
- *
- * Null path → default-constructed PathSimulationResult.
- */
-CargoNetSim::Backend::Scenario::PathSimulationResult
-computePathCosts(
-    CargoNetSim::Backend::ShipClient::ShipSimulationClient    *shipClient,
-    CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
-    CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
-    CargoNetSim::Backend::Path                                *path,
-    const QVariantMap                                         &costFunctionWeights,
-    const QVariantMap                                         &transportModes,
-    int                                                        containerCount);
-
-/**
  * @brief Computes the full typed execution result for a path without
  *        mutating PathSegment actual attributes.
  */

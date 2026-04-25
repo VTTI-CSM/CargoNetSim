@@ -479,20 +479,5 @@ double Path::totalEstimatedCarbonEmissions() const
 double Path::totalEstimatedRisk() const
 { return sumSegments(m_segments, [](auto &s){ return s.estimatedRisk(); }); }
 
-double Path::totalActualLength() const
-{ return sumSegments(m_segments, [](auto &s){ return s.actualDistance(); }); }
-
-double Path::totalActualTravelTime() const
-{ return sumSegments(m_segments, [](auto &s){ return s.actualTravelTime(); }); }
-
-double Path::totalActualEnergyConsumption() const
-{ return sumSegments(m_segments, [](auto &s){ return s.actualEnergyConsumption(); }); }
-
-double Path::totalActualCarbonEmissions() const
-{ return sumSegments(m_segments, [](auto &s){ return s.actualCarbonEmissions(); }); }
-
-double Path::totalActualRisk() const
-{ return sumSegments(m_segments, [](auto &s){ return s.actualRisk(); }); }
-
 } // namespace Backend
 } // namespace CargoNetSim

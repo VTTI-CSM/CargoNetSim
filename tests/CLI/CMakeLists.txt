@@ -61,31 +61,6 @@ set_target_properties(ProgressReporterTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
-# Task 9: ControlChannel NDJSON IPC round-trip + error-path tests.
-# Needs Qt6::Network for QLocalServer / QLocalSocket — those modules
-# are pulled transitively through cargonetsim-cli-lib (which links
-# them PUBLIC), so listing the lib alone is sufficient.
-add_executable(ControlChannelTest ControlChannelTest.cpp)
-target_link_libraries(ControlChannelTest PRIVATE
-    cargonetsim-cli-lib
-    Qt6::Test
-)
-set_target_properties(ControlChannelTest PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-
-# Task 10: RuntimeStateFile lifecycle + env-override + scan tests.
-# Each test uses its own QTemporaryDir + qputenv override for full
-# isolation from other tests and any leftover on-disk state.
-add_executable(RuntimeStateFileTest RuntimeStateFileTest.cpp)
-target_link_libraries(RuntimeStateFileTest PRIVATE
-    cargonetsim-cli-lib
-    Qt6::Test
-)
-set_target_properties(RuntimeStateFileTest PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-
 # Task 11: HelpCommand + VersionCommand output lock-tests.
 # Tests inject a QBuffer to inspect emitted bytes without process
 # spawning; the production wiring (Task 18 main.cpp) uses the default
@@ -149,30 +124,6 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/tests/fixtures
         ${CMAKE_BINARY_DIR}/bin/fixtures
-)
-
-# Task 15: StatusCommand integration tests. Spins up a real
-# ControlChannelServer in-process + real RuntimeStateFile entries in
-# a QTemporaryDir so the scan ↔ state-file ↔ socket integration path
-# is exercised, not just each piece mocked.
-add_executable(StatusCommandTest StatusCommandTest.cpp)
-target_link_libraries(StatusCommandTest PRIVATE
-    cargonetsim-cli-lib
-    Qt6::Test
-)
-set_target_properties(StatusCommandTest PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-
-# Task 16: StopCommand integration tests. Same real-env pattern as
-# StatusCommandTest — real server, real state files, real sockets.
-add_executable(StopCommandTest StopCommandTest.cpp)
-target_link_libraries(StopCommandTest PRIVATE
-    cargonetsim-cli-lib
-    Qt6::Test
-)
-set_target_properties(StopCommandTest PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
 # Task 19: end-to-end help-text snapshot test. Spawns the production

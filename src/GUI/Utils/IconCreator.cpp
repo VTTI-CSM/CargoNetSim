@@ -2419,6 +2419,92 @@ QPixmap createFilterConnectionsIcon(int size)
     return pixmap;
 }
 
+//------------------------------------------------------------------------------
+// Path Status Icons
+//------------------------------------------------------------------------------
+QPixmap createStatusReadyIcon(int size)
+{
+    qCDebug(lcGuiUtil) << "IconFactory::createStatusReadyIcon() size=" << size;
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    const QRectF bounds(1.5, 1.5, size - 3.0, size - 3.0);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor("#1F7A4D"));
+    painter.drawEllipse(bounds);
+
+    QPen checkPen(Qt::white, std::max(2, size / 7),
+                  Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    painter.setPen(checkPen);
+    QPainterPath check;
+    check.moveTo(size * 0.28, size * 0.54);
+    check.lineTo(size * 0.45, size * 0.70);
+    check.lineTo(size * 0.74, size * 0.34);
+    painter.drawPath(check);
+
+    painter.end();
+    return pixmap;
+}
+
+QPixmap createStatusWarningIcon(int size)
+{
+    qCDebug(lcGuiUtil) << "IconFactory::createStatusWarningIcon() size=" << size;
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    QPolygonF triangle;
+    triangle << QPointF(size * 0.50, 1.5)
+             << QPointF(size - 1.5, size - 2.0)
+             << QPointF(1.5, size - 2.0);
+
+    painter.setPen(QPen(QColor("#A35F00"),
+                        std::max(1.0, size / 14.0)));
+    painter.setBrush(QColor("#F4B740"));
+    painter.drawPolygon(triangle);
+
+    QPen markPen(QColor("#4A3200"), std::max(2, size / 7),
+                 Qt::SolidLine, Qt::RoundCap);
+    painter.setPen(markPen);
+    painter.drawLine(QPointF(size * 0.50, size * 0.30),
+                     QPointF(size * 0.50, size * 0.60));
+    painter.drawPoint(QPointF(size * 0.50, size * 0.77));
+
+    painter.end();
+    return pixmap;
+}
+
+QPixmap createStatusUnavailableIcon(int size)
+{
+    qCDebug(lcGuiUtil) << "IconFactory::createStatusUnavailableIcon() size=" << size;
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    const QRectF bounds(1.5, 1.5, size - 3.0, size - 3.0);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor("#B73A54"));
+    painter.drawEllipse(bounds);
+
+    QPen slashPen(Qt::white, std::max(2, size / 7),
+                  Qt::SolidLine, Qt::RoundCap);
+    painter.setPen(slashPen);
+    painter.drawLine(QPointF(size * 0.30, size * 0.30),
+                     QPointF(size * 0.70, size * 0.70));
+    painter.drawLine(QPointF(size * 0.70, size * 0.30),
+                     QPointF(size * 0.30, size * 0.70));
+
+    painter.end();
+    return pixmap;
+}
+
 } // namespace IconFactory
 } // namespace GUI
 } // namespace CargoNetSim

@@ -10,12 +10,12 @@ namespace Scenario
 {
 
 /**
- * @brief Per-path cost breakdown emitted by ScenarioExecutor.
+ * @brief Derived per-path cost summary for CLI/table/report consumers.
  *
- * The executor emits one of these per path it simulates. Segment-level
- * writeback (actual_values / actual_cost) happens directly on the Path's
- * segments via PathSegment::setAttributes — this struct carries only the
- * aggregate summary the consumer (GUI table / CLI JSON writer) needs.
+ * A2's authoritative backend execution contract is
+ * `ScenarioExecutionResultSet`. This struct is the compact summary view
+ * projected from that richer result model for consumers that only need
+ * aggregate path totals.
  */
 struct PathSimulationResult
 {

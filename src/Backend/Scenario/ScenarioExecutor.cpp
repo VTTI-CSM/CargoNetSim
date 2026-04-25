@@ -162,11 +162,8 @@ bool ScenarioExecutor::run()
 
         m_executionResults = extractor.extractExecutionResults(
             m_paths, m_pathIdentities, &allocation);
-        const auto summaries = m_executionResults.summaryResults();
         qCDebug(lcScenario) << "ScenarioExecutor::run: extracted"
-                            << summaries.size() << "path results";
-        for (const auto &r : summaries)
-            emit pathResultReady(r);
+                            << m_executionResults.size() << "path results";
 
         emit statusMessage(QStringLiteral(
             "Simulation validation completed successfully"));
