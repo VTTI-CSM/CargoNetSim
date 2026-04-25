@@ -35,8 +35,40 @@ struct SegmentExecutionResult
     static SegmentExecutionResult fromJson(const QJsonObject &json);
 };
 
+struct TerminalExecutionResult
+{
+    QString executionId;
+    QString pathIdentity;
+    QString scenarioTerminalId;
+    QString runtimeTerminalId;
+    TransportationTypes::TransportationMode arrivalMode =
+        TransportationTypes::TransportationMode::Any;
+    int         terminalSequenceIndex = -1;
+    int         totalDroppedContainers = 0;
+    int         totalPickedContainers = 0;
+    int         arrivalEvents = 0;
+    int         pickupEvents = 0;
+    double      actualYardDwellSeconds = 0.0;
+    double      actualCustomsDelaySeconds = 0.0;
+    int         customsAppliedCount = 0;
+    double      actualArrivalPenaltySeconds = 0.0;
+    double      actualTotalHandlingSeconds = 0.0;
+    double      actualDirectCostUsd = 0.0;
+    double      actualWeightedDelayContribution = 0.0;
+    double      actualWeightedCostContribution = 0.0;
+    double      actualWeightedTotalContribution = 0.0;
+    QJsonObject firstArrivalStateSnapshot;
+    QJsonObject lastDepartureStateSnapshot;
+    QJsonArray  rawBatchRecords;
+
+    QJsonObject toJson() const;
+    static TerminalExecutionResult fromJson(
+        const QJsonObject &json);
+};
+
 struct PathExecutionResult
 {
+    QString executionId;
     QString pathIdentity;
     int     pathId = -1;
     QString canonicalPathKey;
@@ -48,7 +80,9 @@ struct PathExecutionResult
     double  totalCost = 0.0;
     double  edgeCosts = 0.0;
     double  terminalCosts = 0.0;
+    double  modeledActualTerminalCosts = 0.0;
     QList<SegmentExecutionResult> segmentResults;
+    QList<TerminalExecutionResult> terminalResults;
 
     PathSimulationResult toSimulationResult() const;
     PathSegment::SegmentMetricSnapshot totalActualMetrics() const;

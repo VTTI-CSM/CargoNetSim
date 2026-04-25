@@ -32,6 +32,7 @@ class GraphicsScene : public QGraphicsScene
 
 public:
     explicit GraphicsScene(QObject *parent = nullptr);
+    ~GraphicsScene() override;
 
     void addItemWithId(GraphicsObjectBase *item,
                        const QString      &id);

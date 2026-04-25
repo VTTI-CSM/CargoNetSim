@@ -22,6 +22,13 @@ GraphicsScene::GraphicsScene(QObject *parent)
 {
 }
 
+GraphicsScene::~GraphicsScene()
+{
+    qCInfo(lcGuiScene) << "[DIAG] GraphicsScene::~GraphicsScene:"
+                       << "typeCount=" << itemsByType.size()
+                       << "sceneItemCount=" << items().size();
+}
+
 void GraphicsScene::addItemWithId(GraphicsObjectBase *item,
                                   const QString      &id)
 {

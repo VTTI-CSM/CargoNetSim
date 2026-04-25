@@ -146,6 +146,118 @@ SegmentExecutionResult SegmentExecutionResult::fromJson(
     return result;
 }
 
+QJsonObject TerminalExecutionResult::toJson() const
+{
+    QJsonObject json;
+    json[QStringLiteral("execution_id")] = executionId;
+    json[QStringLiteral("path_identity")] = pathIdentity;
+    json[QStringLiteral("scenario_terminal_id")] =
+        scenarioTerminalId;
+    json[QStringLiteral("runtime_terminal_id")] =
+        runtimeTerminalId;
+    json[QStringLiteral("arrival_mode")] =
+        TransportationTypes::toInt(arrivalMode);
+    json[QStringLiteral("terminal_sequence_index")] =
+        terminalSequenceIndex;
+    json[QStringLiteral("total_dropped_containers")] =
+        totalDroppedContainers;
+    json[QStringLiteral("total_picked_containers")] =
+        totalPickedContainers;
+    json[QStringLiteral("arrival_events")] = arrivalEvents;
+    json[QStringLiteral("pickup_events")] = pickupEvents;
+    json[QStringLiteral("actual_yard_dwell_seconds")] =
+        actualYardDwellSeconds;
+    json[QStringLiteral("actual_customs_delay_seconds")] =
+        actualCustomsDelaySeconds;
+    json[QStringLiteral("customs_applied_count")] =
+        customsAppliedCount;
+    json[QStringLiteral("actual_arrival_penalty_seconds")] =
+        actualArrivalPenaltySeconds;
+    json[QStringLiteral("actual_total_handling_seconds")] =
+        actualTotalHandlingSeconds;
+    json[QStringLiteral("actual_direct_cost_usd")] =
+        actualDirectCostUsd;
+    json[QStringLiteral("actual_weighted_delay_contribution")] =
+        actualWeightedDelayContribution;
+    json[QStringLiteral("actual_weighted_cost_contribution")] =
+        actualWeightedCostContribution;
+    json[QStringLiteral("actual_weighted_total_contribution")] =
+        actualWeightedTotalContribution;
+    json[QStringLiteral("first_arrival_state_snapshot")] =
+        firstArrivalStateSnapshot;
+    json[QStringLiteral("last_departure_state_snapshot")] =
+        lastDepartureStateSnapshot;
+    json[QStringLiteral("raw_batch_records")] = rawBatchRecords;
+    return json;
+}
+
+TerminalExecutionResult TerminalExecutionResult::fromJson(
+    const QJsonObject &json)
+{
+    TerminalExecutionResult result;
+    result.executionId =
+        json.value(QStringLiteral("execution_id")).toString();
+    result.pathIdentity =
+        json.value(QStringLiteral("path_identity")).toString();
+    result.scenarioTerminalId =
+        json.value(QStringLiteral("scenario_terminal_id"))
+            .toString();
+    result.runtimeTerminalId =
+        json.value(QStringLiteral("runtime_terminal_id"))
+            .toString();
+    result.arrivalMode = TransportationTypes::fromInt(
+        json.value(QStringLiteral("arrival_mode")).toInt(-1));
+    result.terminalSequenceIndex =
+        json.value(QStringLiteral("terminal_sequence_index"))
+            .toInt(-1);
+    result.totalDroppedContainers =
+        json.value(QStringLiteral("total_dropped_containers"))
+            .toInt(0);
+    result.totalPickedContainers =
+        json.value(QStringLiteral("total_picked_containers"))
+            .toInt(0);
+    result.arrivalEvents =
+        json.value(QStringLiteral("arrival_events")).toInt(0);
+    result.pickupEvents =
+        json.value(QStringLiteral("pickup_events")).toInt(0);
+    result.actualYardDwellSeconds =
+        json.value(QStringLiteral("actual_yard_dwell_seconds"))
+            .toDouble(0.0);
+    result.actualCustomsDelaySeconds =
+        json.value(QStringLiteral("actual_customs_delay_seconds"))
+            .toDouble(0.0);
+    result.customsAppliedCount =
+        json.value(QStringLiteral("customs_applied_count"))
+            .toInt(0);
+    result.actualArrivalPenaltySeconds =
+        json.value(QStringLiteral("actual_arrival_penalty_seconds"))
+            .toDouble(0.0);
+    result.actualTotalHandlingSeconds =
+        json.value(QStringLiteral("actual_total_handling_seconds"))
+            .toDouble(0.0);
+    result.actualDirectCostUsd =
+        json.value(QStringLiteral("actual_direct_cost_usd"))
+            .toDouble(0.0);
+    result.actualWeightedDelayContribution =
+        json.value(QStringLiteral("actual_weighted_delay_contribution"))
+            .toDouble(0.0);
+    result.actualWeightedCostContribution =
+        json.value(QStringLiteral("actual_weighted_cost_contribution"))
+            .toDouble(0.0);
+    result.actualWeightedTotalContribution =
+        json.value(QStringLiteral("actual_weighted_total_contribution"))
+            .toDouble(0.0);
+    result.firstArrivalStateSnapshot =
+        json.value(QStringLiteral("first_arrival_state_snapshot"))
+            .toObject();
+    result.lastDepartureStateSnapshot =
+        json.value(QStringLiteral("last_departure_state_snapshot"))
+            .toObject();
+    result.rawBatchRecords =
+        json.value(QStringLiteral("raw_batch_records")).toArray();
+    return result;
+}
+
 PathSimulationResult PathExecutionResult::toSimulationResult() const
 {
     PathSimulationResult result;
@@ -236,6 +348,7 @@ PathMetrics PathExecutionResult::toActualMetrics(
 QJsonObject PathExecutionResult::toJson() const
 {
     QJsonObject json;
+    json[QStringLiteral("execution_id")] = executionId;
     json[QStringLiteral("path_identity")] = pathIdentity;
     json[QStringLiteral("path_id")] = pathId;
     json[QStringLiteral("canonical_path_key")] = canonicalPathKey;
@@ -248,11 +361,18 @@ QJsonObject PathExecutionResult::toJson() const
     json[QStringLiteral("total_cost")] = totalCost;
     json[QStringLiteral("edge_costs")] = edgeCosts;
     json[QStringLiteral("terminal_costs")] = terminalCosts;
+    json[QStringLiteral("modeled_actual_terminal_costs")] =
+        modeledActualTerminalCosts;
 
     QJsonArray segments;
     for (const auto &segment : segmentResults)
         segments.append(segment.toJson());
     json[QStringLiteral("segment_results")] = segments;
+
+    QJsonArray terminals;
+    for (const auto &terminal : terminalResults)
+        terminals.append(terminal.toJson());
+    json[QStringLiteral("terminal_results")] = terminals;
     return json;
 }
 
@@ -260,6 +380,8 @@ PathExecutionResult PathExecutionResult::fromJson(
     const QJsonObject &json)
 {
     PathExecutionResult result;
+    result.executionId =
+        json.value(QStringLiteral("execution_id")).toString();
     result.pathIdentity =
         json.value(QStringLiteral("path_identity")).toString();
     result.pathId =
@@ -282,6 +404,9 @@ PathExecutionResult PathExecutionResult::fromJson(
         json.value(QStringLiteral("edge_costs")).toDouble(0.0);
     result.terminalCosts =
         json.value(QStringLiteral("terminal_costs")).toDouble(0.0);
+    result.modeledActualTerminalCosts =
+        json.value(QStringLiteral("modeled_actual_terminal_costs"))
+            .toDouble(0.0);
 
     const QJsonArray segments =
         json.value(QStringLiteral("segment_results")).toArray();
@@ -292,6 +417,17 @@ PathExecutionResult PathExecutionResult::fromJson(
         result.segmentResults.append(
             SegmentExecutionResult::fromJson(
                 segmentValue.toObject()));
+    }
+
+    const QJsonArray terminals =
+        json.value(QStringLiteral("terminal_results")).toArray();
+    for (const auto &terminalValue : terminals)
+    {
+        if (!terminalValue.isObject())
+            continue;
+        result.terminalResults.append(
+            TerminalExecutionResult::fromJson(
+                terminalValue.toObject()));
     }
     return result;
 }

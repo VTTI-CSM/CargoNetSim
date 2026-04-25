@@ -1,6 +1,7 @@
 #include "ScenarioExecutor.h"
 
 #include <exception>
+#include <QUuid>
 
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
@@ -107,11 +108,15 @@ bool ScenarioExecutor::run()
         auto *config     = controller.getConfigController();
         auto *vehicles   = controller.getVehicleController();
         auto *regionData = controller.getRegionDataController();
+        auto *terminalClient = controller.getTerminalClient();
+        const QString executionId =
+            QUuid::createUuid().toString(QUuid::WithoutBraces);
 
         // Build per-path simulation bundles
         qCDebug(lcScenario) << "ScenarioExecutor::run: building request bundles";
         SimulationRequestBuilder builder(
-            *m_document, *m_registry, config, regionData, vehicles);
+            *m_document, *m_registry, config, regionData,
+            vehicles, executionId);
 
         SimulationRequestBundle bundle;
         const auto allocation =
@@ -154,6 +159,7 @@ bool ScenarioExecutor::run()
         ResultsExtractor extractor(controller.getShipClient(),
                                    controller.getTrainClient(),
                                    controller.getTruckManager(),
+                                   terminalClient,
                                    config, this);
         connect(&extractor, &ResultsExtractor::statusMessage,
                 this, &ScenarioExecutor::statusMessage);
@@ -161,7 +167,8 @@ bool ScenarioExecutor::run()
                 this, &ScenarioExecutor::errorMessage);
 
         m_executionResults = extractor.extractExecutionResults(
-            m_paths, m_pathIdentities, &allocation);
+            m_paths, m_pathIdentities, &allocation,
+            executionId);
         qCDebug(lcScenario) << "ScenarioExecutor::run: extracted"
                             << m_executionResults.size() << "path results";
 

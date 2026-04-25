@@ -37,6 +37,7 @@ private slots:
             /*shipClient=*/nullptr,
             /*trainClient=*/nullptr,
             /*truckManager=*/nullptr,
+            /*terminalClient=*/nullptr,
             /*config=*/nullptr);
         QList<CargoNetSim::Backend::Path *> paths;
         auto results = ex.extract(paths);
@@ -69,7 +70,8 @@ private slots:
             CargoNetSim::CargoNetSimController::getInstance();
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             /*ship=*/nullptr, /*train=*/nullptr,
-            /*truck=*/nullptr, ctl.getConfigController());
+            /*truck=*/nullptr, /*terminal=*/nullptr,
+            ctl.getConfigController());
 
         const auto results = ex.extract({path});
         QCOMPARE(results.size(), 1);
@@ -87,7 +89,7 @@ private slots:
     void test_dwell_time_missing_is_zero()
     {
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         QCOMPARE(ex.calculateTerminalDwellTime(QJsonObject{}), 0.0);
     }
 
@@ -103,7 +105,7 @@ private slots:
         config["dwell_time"] = dwell;
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         // shape * scale / 3600 = 2.0 * 3600 / 3600 = 2.0 hours
         QCOMPARE(ex.calculateTerminalDwellTime(config), 2.0);
     }
@@ -119,7 +121,7 @@ private slots:
         config["dwell_time"] = dwell;
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         // scale / 3600 = 7200 / 3600 = 2.0 hours
         QCOMPARE(ex.calculateTerminalDwellTime(config), 2.0);
     }
@@ -135,7 +137,7 @@ private slots:
         config["dwell_time"] = dwell;
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         // mean / 3600 = 3600 / 3600 = 1.0 hour
         QCOMPARE(ex.calculateTerminalDwellTime(config), 1.0);
     }
@@ -154,7 +156,7 @@ private slots:
         config["dwell_time"] = dwell;
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         // exp(mean + sigma^2 / 2) / 3600 = exp(ln(3600) + 0.03125) / 3600
         //                                = 3600 * exp(0.03125) / 3600
         //                                = exp(0.03125) ≈ 1.0317434...
@@ -171,7 +173,7 @@ private slots:
         config["customs"] = customs;
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         double delay = 0.0, cost = 0.0;
         QVERIFY(ex.calculateTerminalCustoms(config, delay, cost));
         // delay_mean is seconds; result is hours: 0.5 * 100.0 / 3600.0
@@ -182,7 +184,7 @@ private slots:
     void test_customs_skipped_when_missing()
     {
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         double delay = 0.0, cost = 0.0;
         QVERIFY(!ex.calculateTerminalCustoms(QJsonObject{},
                                              delay, cost));
@@ -198,7 +200,7 @@ private slots:
         config["cost"] = cost;
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         // Without customs applied: fixed + risk_factor * 1.0
         QCOMPARE(ex.calculateTerminalDirectCosts(config, false),
                  400.0 + 0.015);
@@ -210,7 +212,7 @@ private slots:
     void test_single_terminal_cost_null_terminal_returns_zero()
     {
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         QVariantMap weights;
         QCOMPARE(ex.calculateSingleTerminalCost(nullptr, weights, 10),
                  0.0);
@@ -258,7 +260,7 @@ private slots:
         weights["default"] = defaultWeights;
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // Per-container: dwell=2.0 h (gamma shape=2, scale=3600),
         //   customs=0.5*100/3600 h, direct=500.015.
@@ -272,7 +274,7 @@ private slots:
     void test_total_terminal_costs_empty_segments_is_zero()
     {
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         QList<CargoNetSim::Backend::PathSegment *> segs;
         QList<CargoNetSim::Backend::PathTerminal> terms;
         QCOMPARE(ex.calculateTerminalCosts(segs, terms,
@@ -309,7 +311,7 @@ private slots:
         QList<PathTerminal>  terms;  // unused by current body
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         QCOMPARE(ex.calculateTerminalCosts(segs, terms,
                                            QVariantMap{}, 10),
                  450.0);
@@ -322,7 +324,7 @@ private slots:
         // Null shipClient → early return 0.0 (preserves SVW behavior
         // that crashes on shipClient->getAllShipsStates()).
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            /*ship=*/nullptr, nullptr, nullptr, nullptr);
+            /*ship=*/nullptr, nullptr, nullptr, nullptr, nullptr);
         CargoNetSim::Backend::Path        *p = nullptr;
         CargoNetSim::Backend::PathSegment *s = nullptr;
         QCOMPARE(ex.calculateShipSegmentCost(p, s, 0,
@@ -336,7 +338,8 @@ private slots:
         // Null trainClient → early return 0.0.
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
             /*ship=*/nullptr, /*train=*/nullptr,
-            /*truck=*/nullptr, /*config=*/nullptr);
+            /*truck=*/nullptr, /*terminal=*/nullptr,
+            /*config=*/nullptr);
         CargoNetSim::Backend::Path        *p = nullptr;
         CargoNetSim::Backend::PathSegment *s = nullptr;
         QCOMPARE(ex.calculateTrainSegmentCost(p, s, 0,
@@ -349,7 +352,7 @@ private slots:
     {
         // Empty segment list → 0.0 regardless of clients / weights.
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         QList<CargoNetSim::Backend::PathSegment *> segments;
         QCOMPARE(ex.calculateEdgeCosts(nullptr, segments,
                                        QVariantMap{},
@@ -366,7 +369,7 @@ private slots:
             TransportationTypes::TransportationMode::Train);
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
 
         // First call: {travelTime: 10} under "actual_values".
         QMap<QString, double> first;
@@ -417,7 +420,7 @@ private slots:
             TransportationTypes::TransportationMode::Truck);
 
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, nullptr);
+            nullptr, nullptr, nullptr, nullptr, nullptr);
         QCOMPARE(ex.calculateTruckSegmentCost(nullptr, segment, 0,
                                               modeWeights,
                                               transportModes, 10),
@@ -455,7 +458,8 @@ private slots:
         auto &ctl =
             CargoNetSim::CargoNetSimController::getInstance();
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, ctl.getConfigController());
+            nullptr, nullptr, nullptr, nullptr,
+            ctl.getConfigController());
 
         const auto results = ex.extract({pathA, pathB});
         QCOMPARE(results.size(), 1);
@@ -483,7 +487,8 @@ private slots:
         auto &ctl =
             CargoNetSim::CargoNetSimController::getInstance();
         CargoNetSim::Backend::Scenario::ResultsExtractor ex(
-            nullptr, nullptr, nullptr, ctl.getConfigController());
+            nullptr, nullptr, nullptr, nullptr,
+            ctl.getConfigController());
 
         const auto results =
             ex.extractExecutionResults({path},

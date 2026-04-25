@@ -272,17 +272,23 @@ QWidget *PathComparisonDialog::createTerminalsTab()
 {
     qCDebug(lcGuiPathTable) << "PathComparisonDialog::createTerminalsTab:"
                             << "pathCount=" << m_pathData.size();
-    // Create container widget
     auto container = new QWidget(this);
     auto layout    = new QVBoxLayout(container);
 
-    // Add a header
     auto headerLabel = new QLabel(
         tr("<h2>Terminal Comparison</h2>"), this);
     headerLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(headerLabel);
 
-    // Create column headers (Path ID 1, Path ID 2, etc.)
+    auto noteLabel = new QLabel(
+        tr("Actual terminal values below come from recorded "
+           "arrival-side handling events. Terminals without an "
+           "arrival event in the selected run are shown as "
+           "\"Not modeled\"."),
+        this);
+    noteLabel->setWordWrap(true);
+    layout->addWidget(noteLabel);
+
     QStringList headers;
     for (const auto &path : m_pathData)
     {
@@ -297,17 +303,14 @@ QWidget *PathComparisonDialog::createTerminalsTab()
         }
     }
 
-    // Find the maximum number of terminals across all paths
     const int maxTerminals = m_viewModel.maxTerminals();
 
-    // Create row labels for terminal indices
     QStringList rowLabels;
     for (int i = 0; i < maxTerminals; ++i)
     {
         rowLabels << tr("Terminal %1").arg(i + 1);
     }
 
-    // Populate terminal data for each path
     QList<QStringList> data;
     for (const auto &path : m_pathData)
     {
@@ -345,7 +348,6 @@ QWidget *PathComparisonDialog::createTerminalsTab()
         data.append(terminalData);
     }
 
-    // Transpose data for display (paths as columns)
     QList<QStringList> transposedData;
     for (int rowIdx = 0; rowIdx < maxTerminals; ++rowIdx)
     {
@@ -364,10 +366,249 @@ QWidget *PathComparisonDialog::createTerminalsTab()
         transposedData.append(rowData);
     }
 
-    // Create and add table
-    auto table = createComparisonTable(headers, rowLabels,
-                                       transposedData);
-    layout->addWidget(table);
+    auto terminalTabWidget = new QTabWidget(this);
+
+    auto basicInfoWidget = new QWidget(this);
+    auto basicInfoLayout = new QVBoxLayout(basicInfoWidget);
+    auto table = createComparisonTable(
+        headers, rowLabels, transposedData);
+    basicInfoLayout->addWidget(table);
+    terminalTabWidget->addTab(basicInfoWidget,
+                              tr("Basic Info"));
+
+    for (int terminalIdx = 0; terminalIdx < maxTerminals;
+         ++terminalIdx)
+    {
+        auto attributeWidget = new QWidget(this);
+        auto attributeLayout =
+            new QVBoxLayout(attributeWidget);
+        auto splitter = new QSplitter(Qt::Vertical, this);
+
+        auto terminalInfoWidget = new QWidget(this);
+        auto terminalInfoLayout =
+            new QVBoxLayout(terminalInfoWidget);
+
+        QString terminalInfoText =
+            tr("<h3>Terminal %1 Attributes</h3>")
+                .arg(terminalIdx + 1);
+        for (const auto &path : m_pathData)
+        {
+            if (!(path && path->path))
+                continue;
+
+            const auto &terminals =
+                path->path->getTerminalsInPath();
+            if (terminalIdx >= terminals.size())
+                continue;
+
+            const auto &terminal = terminals[terminalIdx];
+            QString predictedNote;
+            if (terminal.costsSkipped
+                && !terminal.skipReason.isEmpty())
+            {
+                predictedNote =
+                    tr(" (prediction note: %1)")
+                        .arg(terminal.skipReason.toHtmlEscaped());
+            }
+
+            terminalInfoText +=
+                QStringLiteral("<p><b>%1:</b> %2%3</p>")
+                    .arg(m_viewModel.pathLabel(path),
+                         m_viewModel.terminalNameAt(
+                             path, terminalIdx)
+                             .toHtmlEscaped(),
+                         predictedNote);
+        }
+
+        auto infoLabel = new QLabel(terminalInfoText, this);
+        infoLabel->setAlignment(Qt::AlignCenter);
+        infoLabel->setWordWrap(true);
+        terminalInfoLayout->addWidget(infoLabel);
+
+        auto tableWidget = new QWidget(this);
+        auto tableLayout = new QVBoxLayout(tableWidget);
+
+        const QStringList attributeRowLabels = {
+            tr("Handling Time (Predicted, s)"),
+            tr("Handling Time (Actual, s)"),
+            tr("Direct Cost (Predicted, USD)"),
+            tr("Direct Cost (Actual, USD)"),
+            tr("Weighted Delay Contribution (Predicted)"),
+            tr("Weighted Delay Contribution (Actual)"),
+            tr("Weighted Cost Contribution (Predicted)"),
+            tr("Weighted Cost Contribution (Actual)"),
+            tr("Weighted Total Contribution (Predicted)"),
+            tr("Weighted Total Contribution (Actual)"),
+            tr("Arrival Mode (Actual)"),
+            tr("Dropped Containers (Actual)"),
+            tr("Arrival Events (Actual)"),
+            tr("Utilization At Arrival (Actual)"),
+            tr("Congestion At Arrival (Actual)"),
+            tr("Delay Multiplier At Arrival (Actual)")};
+
+        QList<QStringList> attributeData;
+        for (const auto &path : m_pathData)
+        {
+            QStringList pathAttributeData;
+            if (path && path->path
+                && terminalIdx
+                       < path->path->getTerminalsInPath().size())
+            {
+                const auto displayValues =
+                    m_viewModel.terminalValues(
+                        path, terminalIdx);
+
+                pathAttributeData
+                    << (displayValues.predictedAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .predictedHandlingSeconds,
+                                  'f', 0)
+                            : tr("N/A"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualTotalHandlingSeconds,
+                                  'f', 0)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.predictedAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .predictedDirectCostUsd,
+                                  'f', 2)
+                            : tr("N/A"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualDirectCostUsd,
+                                  'f', 2)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.predictedAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .predictedWeightedDelayContribution,
+                                  'f', 2)
+                            : tr("N/A"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualWeightedDelayContribution,
+                                  'f', 2)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.predictedAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .predictedWeightedCostContribution,
+                                  'f', 2)
+                            : tr("N/A"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualWeightedCostContribution,
+                                  'f', 2)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.predictedAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .predictedWeightedTotalContribution,
+                                  'f', 2)
+                            : tr("N/A"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualWeightedTotalContribution,
+                                  'f', 2)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? Backend::TransportationTypes::toString(
+                                  displayValues.actualArrivalMode)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualDroppedContainers)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualArrivalEvents)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualUtilizationAtArrival,
+                                  'f', 3)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualCongestionAtArrival,
+                                  'f', 3)
+                            : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.actualAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .actualDelayMultiplierAtArrival,
+                                  'f', 3)
+                            : tr("Not modeled"));
+            }
+            else
+            {
+                for (int i = 0;
+                     i < attributeRowLabels.size(); ++i)
+                {
+                    pathAttributeData << tr("N/A");
+                }
+            }
+
+            attributeData.append(pathAttributeData);
+        }
+
+        QList<QStringList> transposedAttributeData;
+        for (int rowIdx = 0;
+             rowIdx < attributeRowLabels.size(); ++rowIdx)
+        {
+            QStringList rowData;
+            for (const auto &attrData : attributeData)
+            {
+                rowData << (rowIdx < attrData.size()
+                                ? attrData[rowIdx]
+                                : tr("N/A"));
+            }
+            transposedAttributeData.append(rowData);
+        }
+
+        auto attributeTable = createComparisonTable(
+            headers, attributeRowLabels,
+            transposedAttributeData);
+        tableLayout->addWidget(attributeTable);
+
+        splitter->addWidget(terminalInfoWidget);
+        splitter->addWidget(tableWidget);
+        splitter->setSizes({150, 420});
+        attributeLayout->addWidget(splitter);
+
+        terminalTabWidget->addTab(
+            attributeWidget,
+            tr("Terminal %1 Attributes").arg(terminalIdx + 1));
+    }
+
+    layout->addWidget(terminalTabWidget);
 
     return container;
 }

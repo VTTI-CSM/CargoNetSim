@@ -11,6 +11,22 @@ namespace CargoNetSim
 namespace Backend
 {
 
+namespace
+{
+
+QJsonArray jsonArrayFromStringList(const QStringList &values)
+{
+    QJsonArray array;
+    for (const auto &value : values)
+    {
+        if (!value.isEmpty())
+            array.append(value);
+    }
+    return array;
+}
+
+}
+
 QString TerminalSimulationClient::makeTopPathsCacheKey(
     const QString &start, const QString &end, int mode,
     int requestedTopN,
@@ -91,6 +107,11 @@ TerminalSimulationClient::~TerminalSimulationClient()
 
     // Clear capacities and terminal count
     m_capacities.clear();
+    m_terminalSystemDynamicsStates.clear();
+    m_terminalRuntimeStates.clear();
+    m_terminalRuntimeProjections.clear();
+    m_lastTerminalExecutionResults = QJsonArray();
+    m_lastTerminalExecutionResultsCleared = QJsonObject();
     m_serializedGraph = QJsonObject();
     m_pingResponse    = QJsonObject();
     m_terminalCount   = 0;
@@ -882,19 +903,22 @@ QJsonObject TerminalSimulationClient::getTerminalSystemDynamicsState(
 {
     qCDebug(lcClientTerminal) << "getTerminalSystemDynamicsState: terminalId=" << terminalId;
 
-    QJsonObject result;
-
-    executeSerializedCommand([&]() {
+    const bool success = executeSerializedCommand([&]() {
         QJsonObject params;
         params["terminal_id"] = terminalId;
 
-        bool success = sendCommandAndWait(
+        return sendCommandAndWait(
             "get_system_dynamics_state",
             params,
             {"systemDynamicsState"});
-
-        return success;
     });
+
+    if (!success)
+        return QJsonObject();
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    const QJsonObject result =
+        m_terminalSystemDynamicsStates.value(terminalId);
 
     if (result.isEmpty())
     {
@@ -904,6 +928,126 @@ QJsonObject TerminalSimulationClient::getTerminalSystemDynamicsState(
     }
 
     return result;
+}
+
+QJsonArray TerminalSimulationClient::getTerminalsRuntimeState(
+    const QStringList &terminalIds)
+{
+    if (terminalIds.isEmpty())
+        return QJsonArray();
+
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_ids"] =
+            jsonArrayFromStringList(terminalIds);
+        return sendCommandAndWait(
+            "get_terminals_runtime_state",
+            params,
+            {"terminalRuntimeState"});
+    });
+
+    if (!success)
+        return QJsonArray();
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    QJsonArray results;
+    for (const auto &terminalId : terminalIds)
+    {
+        const auto snapshot =
+            m_terminalRuntimeStates.value(terminalId);
+        if (!snapshot.isEmpty())
+            results.append(snapshot);
+    }
+    return results;
+}
+
+QJsonArray TerminalSimulationClient::getTerminalsRuntimeProjections(
+    const QStringList &terminalIds)
+{
+    if (terminalIds.isEmpty())
+        return QJsonArray();
+
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_ids"] =
+            jsonArrayFromStringList(terminalIds);
+        return sendCommandAndWait(
+            "get_terminals_runtime_projections",
+            params,
+            {"terminalRuntimeProjections"});
+    });
+
+    if (!success)
+        return QJsonArray();
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    QJsonArray results;
+    for (const auto &terminalId : terminalIds)
+    {
+        const auto projection =
+            m_terminalRuntimeProjections.value(terminalId);
+        if (!projection.isEmpty())
+            results.append(projection);
+    }
+    return results;
+}
+
+QJsonArray TerminalSimulationClient::getTerminalExecutionResults(
+    const QString     &executionId,
+    const QStringList &terminalIds,
+    const QStringList &pathIdentities)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["execution_id"] = executionId;
+        if (!terminalIds.isEmpty())
+        {
+            params["terminal_ids"] =
+                jsonArrayFromStringList(terminalIds);
+        }
+        if (!pathIdentities.isEmpty())
+        {
+            params["path_identities"] =
+                jsonArrayFromStringList(pathIdentities);
+        }
+        return sendCommandAndWait(
+            "get_terminal_execution_results",
+            params,
+            {"terminalExecutionResults"});
+    });
+
+    if (!success)
+        return QJsonArray();
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    return m_lastTerminalExecutionResults;
+}
+
+int TerminalSimulationClient::clearTerminalExecutionResults(
+    const QString     &executionId,
+    const QStringList &terminalIds)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["execution_id"] = executionId;
+        if (!terminalIds.isEmpty())
+        {
+            params["terminal_ids"] =
+                jsonArrayFromStringList(terminalIds);
+        }
+        return sendCommandAndWait(
+            "clear_terminal_execution_results",
+            params,
+            {"terminalExecutionResultsCleared"});
+    });
+
+    if (!success)
+        return 0;
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    return m_lastTerminalExecutionResultsCleared
+        .value(QStringLiteral("records_cleared"))
+        .toInt(0);
 }
 
 // Serialize server graph
@@ -1031,8 +1175,23 @@ void TerminalSimulationClient::onEventReceived(
     }
     else if (normEvent == "systemdynamicsstate")
     {
-        // SD state returned - no special handling needed
-        qCInfo(lcClientTerminal) << "System Dynamics state received";
+        onSystemDynamicsState(message);
+    }
+    else if (normEvent == "terminalruntimestate")
+    {
+        onTerminalRuntimeState(message);
+    }
+    else if (normEvent == "terminalruntimeprojections")
+    {
+        onTerminalRuntimeProjections(message);
+    }
+    else if (normEvent == "terminalexecutionresults")
+    {
+        onTerminalExecutionResults(message);
+    }
+    else if (normEvent == "terminalexecutionresultscleared")
+    {
+        onTerminalExecutionResultsCleared(message);
     }
     else
     {
@@ -1361,6 +1520,11 @@ void TerminalSimulationClient::onServerReset(
 
     // Reset capacities and terminal count
     m_capacities.clear();
+    m_terminalSystemDynamicsStates.clear();
+    m_terminalRuntimeStates.clear();
+    m_terminalRuntimeProjections.clear();
+    m_lastTerminalExecutionResults = QJsonArray();
+    m_lastTerminalExecutionResultsCleared = QJsonObject();
     m_serializedGraph = QJsonObject();
     m_pingResponse    = QJsonObject();
     m_terminalCount   = 0;
@@ -1484,6 +1648,82 @@ void TerminalSimulationClient::onCapacityFetched(
 
     // Log event for tracking
     qCInfo(lcClientTerminal) << "Capacity fetched for:" << terminalId;
+}
+
+void TerminalSimulationClient::onSystemDynamicsState(
+    const QJsonObject &message)
+{
+    const QJsonObject result = message["result"].toObject();
+    const QString terminalId =
+        result.value("terminal_id").toString(
+            message.value("params").toObject()
+                .value("terminal_id").toString());
+    if (terminalId.isEmpty())
+        return;
+
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    m_terminalSystemDynamicsStates[terminalId] = result;
+    qCInfo(lcClientTerminal)
+        << "System Dynamics state received for:" << terminalId;
+}
+
+void TerminalSimulationClient::onTerminalRuntimeState(
+    const QJsonObject &message)
+{
+    const QJsonArray results =
+        message.value("result").toObject()
+            .value("results").toArray();
+
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    for (const auto &value : results)
+    {
+        if (!value.isObject())
+            continue;
+        const QJsonObject snapshot = value.toObject();
+        const QString terminalId =
+            snapshot.value("terminal_id").toString();
+        if (terminalId.isEmpty())
+            continue;
+        m_terminalRuntimeStates[terminalId] = snapshot;
+    }
+}
+
+void TerminalSimulationClient::onTerminalRuntimeProjections(
+    const QJsonObject &message)
+{
+    const QJsonArray results =
+        message.value("result").toObject()
+            .value("results").toArray();
+
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    for (const auto &value : results)
+    {
+        if (!value.isObject())
+            continue;
+        const QJsonObject projection = value.toObject();
+        const QString terminalId =
+            projection.value("terminal_id").toString();
+        if (terminalId.isEmpty())
+            continue;
+        m_terminalRuntimeProjections[terminalId] = projection;
+    }
+}
+
+void TerminalSimulationClient::onTerminalExecutionResults(
+    const QJsonObject &message)
+{
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    m_lastTerminalExecutionResults =
+        message.value("result").toObject()
+            .value("results").toArray();
+}
+
+void TerminalSimulationClient::onTerminalExecutionResultsCleared(
+    const QJsonObject &message)
+{
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    m_lastTerminalExecutionResultsCleared =
+        message.value("result").toObject();
 }
 
 } // namespace Backend

@@ -479,6 +479,44 @@ public:
     Q_INVOKABLE QJsonObject getTerminalSystemDynamicsState(
         const QString& terminalId);
 
+    /**
+     * @brief Get runtime-state snapshots for a batch of terminals.
+     * @param terminalIds Terminal ids to query
+     * @return One runtime snapshot object per requested terminal
+     */
+    Q_INVOKABLE QJsonArray getTerminalsRuntimeState(
+        const QStringList &terminalIds);
+
+    /**
+     * @brief Get runtime handling projections for a batch of terminals.
+     * @param terminalIds Terminal ids to query
+     * @return One projection object per requested terminal
+     */
+    Q_INVOKABLE QJsonArray getTerminalsRuntimeProjections(
+        const QStringList &terminalIds);
+
+    /**
+     * @brief Get terminal execution results filtered by execution id/path ids.
+     * @param executionId Execution id to query
+     * @param terminalIds Optional runtime terminal ids to limit the search
+     * @param pathIdentities Optional prepared path identities to limit results
+     * @return Matching terminal execution result objects
+     */
+    Q_INVOKABLE QJsonArray getTerminalExecutionResults(
+        const QString     &executionId,
+        const QStringList &terminalIds = {},
+        const QStringList &pathIdentities = {});
+
+    /**
+     * @brief Clear terminal execution results for an execution id.
+     * @param executionId Execution id to clear
+     * @param terminalIds Optional runtime terminal ids to limit the clear
+     * @return Number of terminal execution records cleared
+     */
+    Q_INVOKABLE int clearTerminalExecutionResults(
+        const QString     &executionId,
+        const QStringList &terminalIds = {});
+
     // Serialization and Diagnostics
     /**
      * @brief Serializes the server graph
@@ -597,6 +635,13 @@ private:
      */
     void onCapacityFetched(const QJsonObject &message);
 
+    void onSystemDynamicsState(const QJsonObject &message);
+    void onTerminalRuntimeState(const QJsonObject &message);
+    void onTerminalRuntimeProjections(const QJsonObject &message);
+    void onTerminalExecutionResults(const QJsonObject &message);
+    void onTerminalExecutionResultsCleared(
+        const QJsonObject &message);
+
     /**
      * @brief Read-write lock for thread-safe data access
      *
@@ -641,6 +686,12 @@ private:
      * @brief Map of terminal IDs to capacity values
      */
     QMap<QString, double> m_capacities;
+
+    QMap<QString, QJsonObject> m_terminalSystemDynamicsStates;
+    QMap<QString, QJsonObject> m_terminalRuntimeStates;
+    QMap<QString, QJsonObject> m_terminalRuntimeProjections;
+    QJsonArray                 m_lastTerminalExecutionResults;
+    QJsonObject                m_lastTerminalExecutionResultsCleared;
 
     /**
      * @brief serialized graph data.

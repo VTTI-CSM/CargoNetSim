@@ -115,11 +115,12 @@ private slots:
         }
 
         // --- Run builder ---
+        const QString executionId = QStringLiteral("exec-train-1");
         SimulationRequestBuilder builder(
             doc, registry,
             ctl.getConfigController(),
             ctl.getRegionDataController(),
-            ctl.getVehicleController());
+            ctl.getVehicleController(), executionId);
         SimulationRequestBundle bundle;
         QVERIFY2(builder.buildForPath(path, originContainers,
                                       bundle, &err),
@@ -136,6 +137,49 @@ private slots:
         QCOMPARE(trainId.artifactType, QStringLiteral("train"));
         QCOMPARE(trainId.segmentIndex, 0);
         QCOMPARE(trainId.artifactIndex, 0);
+        QVERIFY(!td.containers.isEmpty());
+        const auto *trackedContainer = td.containers.first();
+        QVERIFY(trackedContainer != nullptr);
+        using Hauler = ContainerCore::Container::HaulerType;
+        QCOMPARE(trackedContainer->getCustomVariable(
+                     Hauler::noHauler,
+                     QStringLiteral("execution_id"))
+                     .toString(),
+                 executionId);
+        QCOMPARE(trackedContainer->getCustomVariable(
+                     Hauler::noHauler,
+                     QStringLiteral("path_identity"))
+                     .toString(),
+                 path->canonicalPathKey());
+        QCOMPARE(trackedContainer->getCustomVariable(
+                     Hauler::noHauler,
+                     QStringLiteral("scenario_terminal_id"))
+                     .toString(),
+                 QStringLiteral("T_D"));
+        QVERIFY(!trackedContainer->getCustomVariable(
+                     Hauler::noHauler,
+                     QStringLiteral("runtime_terminal_id"))
+                     .isValid());
+        QCOMPARE(trackedContainer->getCustomVariable(
+                     Hauler::noHauler,
+                     QStringLiteral("terminal_sequence_index"))
+                     .toInt(),
+                 1);
+        QCOMPARE(trackedContainer->getCustomVariable(
+                     Hauler::noHauler,
+                     QStringLiteral("segment_index"))
+                     .toInt(),
+                 0);
+        QCOMPARE(trackedContainer->getCustomVariable(
+                     Hauler::noHauler,
+                     QStringLiteral("vehicle_mode"))
+                     .toString(),
+                 QStringLiteral("Train"));
+        QCOMPARE(trackedContainer->getCustomVariable(
+                     Hauler::noHauler,
+                     QStringLiteral("vehicle_id"))
+                     .toString(),
+                 td.train->getUserId());
 
         // --- Cleanup ---
         qDeleteAll(originContainers);

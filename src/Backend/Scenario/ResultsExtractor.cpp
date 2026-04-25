@@ -1,8 +1,12 @@
 #include "ResultsExtractor.h"
 
+#include <algorithm>
+
+#include "Backend/Clients/TerminalClient/TerminalSimulationClient.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Models/Path.h"
+#include "PropertyKeys.h"
 #include "SegmentCostMath.h"
 #include "TerminalCostMath.h"
 
@@ -13,16 +17,117 @@ namespace Backend
 namespace Scenario
 {
 
+namespace
+{
+
+namespace PK = PropertyKeys;
+
+QVariantMap terminalWeightsForMode(
+    const QVariantMap &costWeights,
+    TransportationTypes::TransportationMode mode)
+{
+    const QString modeKey =
+        QString::number(static_cast<int>(mode));
+    return costWeights.contains(modeKey)
+        ? costWeights.value(modeKey).toMap()
+        : costWeights.value(QStringLiteral("default")).toMap();
+}
+
+TransportationTypes::TransportationMode terminalArrivalModeFromJson(
+    const QJsonArray &rawBatchRecords)
+{
+    if (rawBatchRecords.isEmpty() || !rawBatchRecords.first().isObject())
+        return TransportationTypes::TransportationMode::Any;
+
+    const QJsonObject firstRecord =
+        rawBatchRecords.first().toObject();
+    const QString mode =
+        firstRecord.value(QStringLiteral("vehicle_mode")).toString();
+    return mode.isEmpty()
+        ? TransportationTypes::TransportationMode::Any
+        : transportationModeFromString(mode);
+}
+
+QHash<QString, QList<TerminalExecutionResult>>
+loadTerminalExecutionResults(
+    CargoNetSim::Backend::TerminalSimulationClient *terminalClient,
+    const QVariantMap                              &costWeights,
+    const QString                                  &executionId,
+    const QStringList                              &pathIdentities)
+{
+    QHash<QString, QList<TerminalExecutionResult>> byPathIdentity;
+    if (!terminalClient || executionId.isEmpty()
+        || pathIdentities.isEmpty())
+    {
+        return byPathIdentity;
+    }
+
+    const QJsonArray rawResults =
+        terminalClient->getTerminalExecutionResults(
+            executionId, {}, pathIdentities);
+    for (const auto &value : rawResults)
+    {
+        if (!value.isObject())
+            continue;
+
+        auto terminalResult =
+            TerminalExecutionResult::fromJson(value.toObject());
+        terminalResult.arrivalMode =
+            terminalArrivalModeFromJson(
+                terminalResult.rawBatchRecords);
+        const QVariantMap weights = terminalWeightsForMode(
+            costWeights, terminalResult.arrivalMode);
+        terminalResult.actualWeightedDelayContribution =
+            (terminalResult.actualTotalHandlingSeconds / 3600.0)
+            * weights.value(PK::Segment::TerminalDelay)
+                  .toDouble();
+        terminalResult.actualWeightedCostContribution =
+            terminalResult.actualDirectCostUsd
+            * weights.value(PK::Segment::TerminalCost)
+                  .toDouble();
+        terminalResult.actualWeightedTotalContribution =
+            terminalResult.actualWeightedDelayContribution
+            + terminalResult.actualWeightedCostContribution;
+        byPathIdentity[terminalResult.pathIdentity].append(
+            terminalResult);
+    }
+
+    for (auto it = byPathIdentity.begin();
+         it != byPathIdentity.end(); ++it)
+    {
+        auto &terminalResults = it.value();
+        std::sort(
+            terminalResults.begin(), terminalResults.end(),
+            [](const TerminalExecutionResult &lhs,
+               const TerminalExecutionResult &rhs) {
+                if (lhs.terminalSequenceIndex
+                    != rhs.terminalSequenceIndex)
+                {
+                    return lhs.terminalSequenceIndex
+                        < rhs.terminalSequenceIndex;
+                }
+                return lhs.scenarioTerminalId
+                    < rhs.scenarioTerminalId;
+            });
+    }
+
+    return byPathIdentity;
+}
+
+} // namespace
+
 ResultsExtractor::ResultsExtractor(
     CargoNetSim::Backend::ShipClient::ShipSimulationClient    *shipClient,
     CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
     CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
+    CargoNetSim::Backend::TerminalSimulationClient            *terminalClient,
     CargoNetSim::Backend::ConfigController                    *config,
     QObject                                                   *parent)
     : QObject(parent)
     , m_shipClient(shipClient)
     , m_trainClient(trainClient)
     , m_truckManager(truckManager)
+    , m_terminalClient(terminalClient)
     , m_config(config)
 {
 }
@@ -36,7 +141,8 @@ QList<PathSimulationResult> ResultsExtractor::extract(
 ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
     const QList<CargoNetSim::Backend::Path *> &paths,
     const QVector<QString>                    &pathIdentities,
-    const PathAllocation                      *allocation)
+    const PathAllocation                      *allocation,
+    const QString                            &executionId)
 {
     qCInfo(lcScenario) << "ResultsExtractor::extract: paths:" << paths.size()
                        << "(per-path container counts carried on Path snapshots)";
@@ -51,6 +157,23 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
         m_config->getCostFunctionWeights();
     const QVariantMap transportModes =
         m_config->getTransportModes();
+    QStringList resolvedPathIdentities;
+    resolvedPathIdentities.reserve(paths.size());
+    for (int index = 0; index < paths.size(); ++index)
+    {
+        auto *path = paths[index];
+        if (!path)
+            continue;
+        resolvedPathIdentities.append(
+            (index < pathIdentities.size()
+             && !pathIdentities[index].isEmpty())
+            ? pathIdentities[index]
+            : path->canonicalPathKey());
+    }
+    const auto terminalResultsByPathIdentity =
+        loadTerminalExecutionResults(
+            m_terminalClient, costWeights, executionId,
+            resolvedPathIdentities);
 
     emit statusMessage(
         QStringLiteral("Extracting simulation results..."));
@@ -77,9 +200,17 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
             ? pathIdentities[index]
             : path->canonicalPathKey();
 
-        const auto result = SegmentCostMath::computePathExecutionResult(
+        auto result = SegmentCostMath::computePathExecutionResult(
             m_shipClient, m_trainClient, m_truckManager, path,
             pathIdentity, costWeights, transportModes, containerCount);
+        result.executionId = executionId;
+        result.terminalResults =
+            terminalResultsByPathIdentity.value(pathIdentity);
+        for (const auto &terminalResult : result.terminalResults)
+        {
+            result.modeledActualTerminalCosts +=
+                terminalResult.actualWeightedTotalContribution;
+        }
         const auto summary = result.toSimulationResult();
         results.addPathResult(result);
         qCDebug(lcScenario) << "ResultsExtractor::extractExecutionResults: pathId:" << summary.pathId
@@ -98,6 +229,16 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
     }
 
     qCInfo(lcScenario) << "ResultsExtractor::extractExecutionResults: completed, results:" << results.size();
+    if (m_terminalClient && !executionId.isEmpty())
+    {
+        const int cleared =
+            m_terminalClient->clearTerminalExecutionResults(
+                executionId);
+        qCDebug(lcScenario)
+            << "ResultsExtractor::extractExecutionResults:"
+            << "cleared terminal execution records:" << cleared
+            << "for executionId =" << executionId;
+    }
     emit statusMessage(QStringLiteral(
         "Results extraction completed successfully"));
     return results;

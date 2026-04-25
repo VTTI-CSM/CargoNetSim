@@ -38,6 +38,7 @@ namespace TruckClient
 {
 class TruckSimulationManager;
 }
+class TerminalSimulationClient;
 namespace Scenario
 {
 
@@ -68,6 +69,7 @@ public:
         CargoNetSim::Backend::ShipClient::ShipSimulationClient    *shipClient,
         CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
         CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
+        CargoNetSim::Backend::TerminalSimulationClient            *terminalClient,
         CargoNetSim::Backend::ConfigController                    *config,
         QObject                                                   *parent = nullptr);
 
@@ -84,7 +86,8 @@ public:
     ScenarioExecutionResultSet extractExecutionResults(
         const QList<CargoNetSim::Backend::Path *> &paths,
         const QVector<QString>                    &pathIdentities = {},
-        const PathAllocation                      *allocation = nullptr);
+        const PathAllocation                      *allocation = nullptr,
+        const QString                            &executionId = QString());
 
 signals:
     void statusMessage(const QString &msg);
@@ -159,6 +162,7 @@ private:
     CargoNetSim::Backend::ShipClient::ShipSimulationClient    *m_shipClient;
     CargoNetSim::Backend::TrainClient::TrainSimulationClient  *m_trainClient;
     CargoNetSim::Backend::TruckClient::TruckSimulationManager *m_truckManager;
+    CargoNetSim::Backend::TerminalSimulationClient            *m_terminalClient;
     CargoNetSim::Backend::ConfigController                    *m_config;
 };
 

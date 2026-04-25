@@ -35,6 +35,36 @@ public:
         Backend::PathSegment::SegmentCostSnapshot actual;
     };
 
+    struct TerminalDisplayValues
+    {
+        bool   predictedAvailable = false;
+        double predictedHandlingSeconds = 0.0;
+        double predictedDirectCostUsd = 0.0;
+        double predictedWeightedDelayContribution = 0.0;
+        double predictedWeightedCostContribution = 0.0;
+        double predictedWeightedTotalContribution = 0.0;
+        bool   predictedCostsSkipped = false;
+        QString predictedSkipReason;
+
+        bool   actualAvailable = false;
+        Backend::TransportationTypes::TransportationMode actualArrivalMode =
+            Backend::TransportationTypes::TransportationMode::Any;
+        double actualYardDwellSeconds = 0.0;
+        double actualCustomsDelaySeconds = 0.0;
+        double actualArrivalPenaltySeconds = 0.0;
+        double actualTotalHandlingSeconds = 0.0;
+        double actualDirectCostUsd = 0.0;
+        double actualWeightedDelayContribution = 0.0;
+        double actualWeightedCostContribution = 0.0;
+        double actualWeightedTotalContribution = 0.0;
+        int    actualDroppedContainers = 0;
+        int    actualArrivalEvents = 0;
+        double actualUtilizationAtArrival = 0.0;
+        double actualCongestionAtArrival = 0.0;
+        double actualDelayMultiplierAtArrival = 0.0;
+        int    actualContainerCountAtArrival = 0;
+    };
+
     explicit PathComparisonViewModel(
         const QList<const PathData *> &paths);
 
@@ -46,6 +76,9 @@ public:
                                 const QString       &terminalId) const;
     QString terminalNameAt(const PathData *pathData,
                            int             terminalIndex) const;
+    TerminalDisplayValues terminalValues(
+        const PathData *pathData,
+        int             terminalIndex) const;
     QString segmentDescription(const PathData *pathData,
                                int             segmentIndex) const;
 

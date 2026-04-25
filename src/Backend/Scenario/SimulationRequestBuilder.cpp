@@ -48,12 +48,14 @@ SimulationRequestBuilder::SimulationRequestBuilder(
     const ScenarioRegistry &registry,
     ConfigController       *config,
     RegionDataController   *regionData,
-    VehicleController      *vehicles)
+    VehicleController      *vehicles,
+    const QString          &executionId)
     : m_doc(doc)
     , m_registry(registry)
     , m_config(config)
     , m_regionData(regionData)
     , m_vehicles(vehicles)
+    , m_executionId(executionId)
 {
 }
 
@@ -64,6 +66,18 @@ struct LinkagePair
 {
     NodeLinkage start;
     NodeLinkage end;
+};
+
+struct TerminalHandlingMetadata
+{
+    QString executionId;
+    QString pathIdentity;
+    QString scenarioTerminalId;
+    QString runtimeTerminalId;
+    int     terminalSequenceIndex = -1;
+    int     segmentIndex = -1;
+    QString vehicleMode;
+    QString vehicleId;
 };
 
 // linkagesFor() already filters by NetworkSpec::Type, so this helper
@@ -108,9 +122,11 @@ QList<ContainerCore::Container *> takeContainersForVehicle(
     int                                   segmentIndex,
     int                                  &containerCounter,
     const QString                        &currentLocation,
-    const QString                        &destination)
+    const QString                        &destination,
+    const TerminalHandlingMetadata       &metadata)
 {
     QList<ContainerCore::Container *> result;
+    using Hauler = ContainerCore::Container::HaulerType;
     for (int j = 0; j < take && !source.isEmpty(); ++j)
     {
         auto *orig = source.takeFirst();
@@ -119,6 +135,44 @@ QList<ContainerCore::Container *> takeContainersForVehicle(
             RuntimeArtifacts::copiedContainerId(
                 path, segmentIndex, containerCounter++,
                 orig->getContainerID()));
+        if (!metadata.executionId.isEmpty())
+        {
+            copy->addCustomVariable(
+                Hauler::noHauler,
+                QStringLiteral("execution_id"),
+                metadata.executionId);
+        }
+        copy->addCustomVariable(
+            Hauler::noHauler,
+            QStringLiteral("path_identity"),
+            metadata.pathIdentity);
+        copy->addCustomVariable(
+            Hauler::noHauler,
+            QStringLiteral("scenario_terminal_id"),
+            metadata.scenarioTerminalId);
+        if (!metadata.runtimeTerminalId.isEmpty())
+        {
+            copy->addCustomVariable(
+                Hauler::noHauler,
+                QStringLiteral("runtime_terminal_id"),
+                metadata.runtimeTerminalId);
+        }
+        copy->addCustomVariable(
+            Hauler::noHauler,
+            QStringLiteral("terminal_sequence_index"),
+            metadata.terminalSequenceIndex);
+        copy->addCustomVariable(
+            Hauler::noHauler,
+            QStringLiteral("segment_index"),
+            metadata.segmentIndex);
+        copy->addCustomVariable(
+            Hauler::noHauler,
+            QStringLiteral("vehicle_mode"),
+            metadata.vehicleMode);
+        copy->addCustomVariable(
+            Hauler::noHauler,
+            QStringLiteral("vehicle_id"),
+            metadata.vehicleId);
         copy->setContainerCurrentLocation(currentLocation);
         copy->addDestination(destination);
         result.append(copy);
@@ -195,11 +249,20 @@ bool SimulationRequestBuilder::buildTrainSegment(
 
             TrainSimData td;
             td.train      = train;
+            const TerminalHandlingMetadata metadata{
+                m_executionId,
+                path->canonicalPathKey(),
+                endId,
+                QString(),
+                segmentIdx + 1,
+                segmentIdx,
+                QStringLiteral("Train"),
+                trainId};
             td.containers = takeContainersForVehicle(
                 qMin(trainContainerCount, containersCopy.size()),
                 containersCopy, path, segmentIdx, containerCounter,
                 QString::number(pair.start.nodeId),
-                QString::number(pair.end.nodeId));
+                QString::number(pair.end.nodeId), metadata);
             bundle.trainData[networkName].append(td);
         }
     }
@@ -268,10 +331,19 @@ bool SimulationRequestBuilder::buildTruckSegment(
                 QStringLiteral("truck"));
             td.originNode      = pair.start.nodeId;
             td.destinationNode = pair.end.nodeId;
+            const TerminalHandlingMetadata metadata{
+                m_executionId,
+                path->canonicalPathKey(),
+                endId,
+                QString(),
+                segmentIdx + 1,
+                segmentIdx,
+                QStringLiteral("Truck"),
+                td.tripId};
             td.containers      = takeContainersForVehicle(
                 qMin(truckContainerCount, containersCopy.size()),
                 containersCopy, path, segmentIdx, containerCounter,
-                startName, endName);
+                startName, endName, metadata);
             bundle.truckData[networkName].append(td);
         }
     }
@@ -331,10 +403,19 @@ bool SimulationRequestBuilder::buildShipSegment(
         ShipSimData sd;
         sd.ship                = ship;
         sd.destinationTerminal = endId;
+        const TerminalHandlingMetadata metadata{
+            m_executionId,
+            path->canonicalPathKey(),
+            endId,
+            QString(),
+            segmentIdx + 1,
+            segmentIdx,
+            QStringLiteral("Ship"),
+            shipId};
         sd.containers          = takeContainersForVehicle(
             qMin(shipContainerCount, containersCopy.size()),
             containersCopy, path, segmentIdx, containerCounter,
-            startId, endId);
+            startId, endId, metadata);
         bundle.shipData[networkName].append(sd);
     }
 

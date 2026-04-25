@@ -20,6 +20,7 @@ using CargoNetSim::Backend::Scenario::PreparedPathEligibility;
 using CargoNetSim::Backend::Scenario::ScenarioExecutionResultSet;
 using CargoNetSim::Backend::Scenario::PathExecutionResult;
 using CargoNetSim::Backend::Scenario::SegmentExecutionResult;
+using CargoNetSim::Backend::Scenario::TerminalExecutionResult;
 using CargoNetSim::Backend::Scenario::ScenarioDocument;
 using CargoNetSim::GUI::ShortestPathsTable;
 
@@ -263,6 +264,7 @@ private slots:
         segmentResult.actualCosts.travelTime = 7.0;
 
         PathExecutionResult pathResult;
+        pathResult.executionId = QStringLiteral("exec-1");
         pathResult.pathIdentity = pathKey;
         pathResult.pathId = 1;
         pathResult.canonicalPathKey = pathKey;
@@ -273,7 +275,34 @@ private slots:
         pathResult.totalCost = 33.0;
         pathResult.edgeCosts = 11.0;
         pathResult.terminalCosts = 22.0;
+        pathResult.modeledActualTerminalCosts = 6.5;
         pathResult.segmentResults.append(segmentResult);
+
+        TerminalExecutionResult terminalResult;
+        terminalResult.executionId = QStringLiteral("exec-1");
+        terminalResult.pathIdentity = pathKey;
+        terminalResult.scenarioTerminalId = QStringLiteral("D1");
+        terminalResult.runtimeTerminalId =
+            QStringLiteral("USA_rail_D1");
+        terminalResult.arrivalMode =
+            CargoNetSim::Backend::TransportationTypes::
+                TransportationMode::Train;
+        terminalResult.terminalSequenceIndex = 1;
+        terminalResult.totalDroppedContainers = 4;
+        terminalResult.arrivalEvents = 1;
+        terminalResult.actualTotalHandlingSeconds = 1800.0;
+        terminalResult.actualDirectCostUsd = 12.0;
+        terminalResult.actualWeightedDelayContribution = 4.5;
+        terminalResult.actualWeightedCostContribution = 2.0;
+        terminalResult.actualWeightedTotalContribution = 6.5;
+        terminalResult.firstArrivalStateSnapshot = QJsonObject{
+            {QStringLiteral("container_count"), 44},
+            {QStringLiteral("state"),
+             QJsonObject{
+                 {QStringLiteral("utilization"), 0.72},
+                 {QStringLiteral("congestion"), 0.25},
+                 {QStringLiteral("delay_multiplier"), 1.4}}}};
+        pathResult.terminalResults.append(terminalResult);
 
         ScenarioExecutionResultSet results;
         results.addPathResult(pathResult);
@@ -291,11 +320,22 @@ private slots:
             reloaded.getDataByPathKey(pathKey);
         QVERIFY(reloadedData != nullptr);
         QVERIFY(reloadedData->executionResult.has_value());
+        QCOMPARE(reloadedData->executionResult->executionId,
+                 QStringLiteral("exec-1"));
         QCOMPARE(reloadedData->executionResult->effectiveContainerCount, 4);
+        QCOMPARE(reloadedData->executionResult->modeledActualTerminalCosts,
+                 6.5);
         QCOMPARE(reloadedData->executionResult->segmentResults.size(), 1);
+        QCOMPARE(reloadedData->executionResult->terminalResults.size(), 1);
         QCOMPARE(
             reloadedData->executionResult->segmentResults.first().actualMetrics.distance,
             12345.0);
+        QCOMPARE(
+            reloadedData->executionResult->terminalResults.first().scenarioTerminalId,
+            QStringLiteral("D1"));
+        QCOMPARE(
+            reloadedData->executionResult->terminalResults.first().actualWeightedTotalContribution,
+            6.5);
     }
 };
 

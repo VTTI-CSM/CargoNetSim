@@ -108,7 +108,8 @@ public:
                              const ScenarioRegistry &registry,
                              ConfigController       *config,
                              RegionDataController   *regionData,
-                             VehicleController      *vehicles);
+                             VehicleController      *vehicles,
+                             const QString          &executionId = QString());
 
     /**
      * @brief Build a bundle for a single path.
@@ -186,6 +187,7 @@ private:
     ConfigController       *m_config;
     RegionDataController   *m_regionData;
     VehicleController      *m_vehicles;
+    QString                 m_executionId;
 };
 
 } // namespace Scenario

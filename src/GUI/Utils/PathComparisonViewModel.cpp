@@ -71,6 +71,50 @@ actualCostsForSegment(
     return segments[segmentIndex]->actualCosts();
 }
 
+const CargoNetSim::Backend::Scenario::TerminalExecutionResult *
+terminalResultFor(
+    const PathComparisonViewModel::PathData *pathData,
+    int                                      terminalIndex)
+{
+    const auto *path = pathData ? pathData->path.get() : nullptr;
+    const auto *result = executionResultFor(pathData);
+    if (!path || !result)
+        return nullptr;
+
+    const auto &terminals = path->getTerminalsInPath();
+    if (terminalIndex < 0 || terminalIndex >= terminals.size())
+        return nullptr;
+
+    const auto &terminal = terminals[terminalIndex];
+    const int sequenceIndex =
+        terminal.sequenceIndex >= 0
+        ? terminal.sequenceIndex
+        : terminalIndex;
+
+    for (const auto &terminalResult : result->terminalResults)
+    {
+        if (terminalResult.terminalSequenceIndex != sequenceIndex)
+            continue;
+        if (terminalResult.scenarioTerminalId.isEmpty()
+            || terminal.id.isEmpty()
+            || terminalResult.scenarioTerminalId == terminal.id)
+        {
+            return &terminalResult;
+        }
+    }
+
+    for (const auto &terminalResult : result->terminalResults)
+    {
+        if (terminal.id.isEmpty()
+            || terminalResult.scenarioTerminalId == terminal.id)
+        {
+            return &terminalResult;
+        }
+    }
+
+    return nullptr;
+}
+
 CargoNetSim::Backend::PathSegment::SegmentCostSnapshot
 sumExecutionCosts(
     const QList<CargoNetSim::Backend::Scenario::SegmentExecutionResult>
@@ -175,6 +219,70 @@ QString PathComparisonViewModel::terminalNameAt(
     if (!terminal.canonicalName.isEmpty())
         return terminal.canonicalName;
     return terminal.id.isEmpty() ? QStringLiteral("-") : terminal.id;
+}
+
+PathComparisonViewModel::TerminalDisplayValues
+PathComparisonViewModel::terminalValues(
+    const PathData *pathData, int terminalIndex) const
+{
+    TerminalDisplayValues out;
+    if (!pathData || !pathData->path)
+        return out;
+
+    const auto &terminals = pathData->path->getTerminalsInPath();
+    if (terminalIndex < 0 || terminalIndex >= terminals.size())
+        return out;
+
+    const auto &terminal = terminals[terminalIndex];
+    out.predictedAvailable = true;
+    out.predictedHandlingSeconds = terminal.handlingTime;
+    out.predictedDirectCostUsd = terminal.rawCost;
+    out.predictedWeightedDelayContribution =
+        terminal.weightedTerminalDelayContribution;
+    out.predictedWeightedCostContribution =
+        terminal.weightedTerminalCostContribution;
+    out.predictedWeightedTotalContribution =
+        terminal.weightedTerminalTotalContribution;
+    out.predictedCostsSkipped = terminal.costsSkipped;
+    out.predictedSkipReason = terminal.skipReason;
+
+    const auto *actual = terminalResultFor(pathData, terminalIndex);
+    if (!actual)
+        return out;
+
+    out.actualAvailable = true;
+    out.actualArrivalMode = actual->arrivalMode;
+    out.actualYardDwellSeconds = actual->actualYardDwellSeconds;
+    out.actualCustomsDelaySeconds =
+        actual->actualCustomsDelaySeconds;
+    out.actualArrivalPenaltySeconds =
+        actual->actualArrivalPenaltySeconds;
+    out.actualTotalHandlingSeconds =
+        actual->actualTotalHandlingSeconds;
+    out.actualDirectCostUsd = actual->actualDirectCostUsd;
+    out.actualWeightedDelayContribution =
+        actual->actualWeightedDelayContribution;
+    out.actualWeightedCostContribution =
+        actual->actualWeightedCostContribution;
+    out.actualWeightedTotalContribution =
+        actual->actualWeightedTotalContribution;
+    out.actualDroppedContainers =
+        actual->totalDroppedContainers;
+    out.actualArrivalEvents = actual->arrivalEvents;
+
+    const auto state =
+        actual->firstArrivalStateSnapshot
+            .value(QStringLiteral("state")).toObject();
+    out.actualUtilizationAtArrival =
+        state.value(QStringLiteral("utilization")).toDouble(0.0);
+    out.actualCongestionAtArrival =
+        state.value(QStringLiteral("congestion")).toDouble(0.0);
+    out.actualDelayMultiplierAtArrival =
+        state.value(QStringLiteral("delay_multiplier")).toDouble(0.0);
+    out.actualContainerCountAtArrival =
+        actual->firstArrivalStateSnapshot
+            .value(QStringLiteral("container_count")).toInt(0);
+    return out;
 }
 
 QString PathComparisonViewModel::segmentDescription(

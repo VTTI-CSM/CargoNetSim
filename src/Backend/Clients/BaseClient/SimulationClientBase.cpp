@@ -292,6 +292,12 @@ bool SimulationClientBase::sendCommandAndWait(
         return false;
     }
 
+    qCInfo(lcClient) << "[DIAG] sendCommandAndWait:"
+                     << "command=" << command
+                     << "expectedEvents=" << expectedEvents
+                     << "timeoutMs=" << timeoutMs
+                     << "thread=" << QThread::currentThread();
+
     // Wait for the expected event
     bool received = waitForEvent(expectedEvents, timeoutMs);
     if (!received)
@@ -388,6 +394,11 @@ bool SimulationClientBase::waitForEvent(
         normalizedEvents.append(normalizeEventName(event));
     }
 
+    qCInfo(lcClient) << "[DIAG] waitForEvent: begin"
+                     << "expected=" << normalizedEvents
+                     << "timeoutMs=" << timeoutMs
+                     << "thread=" << QThread::currentThread();
+
     QElapsedTimer timer;
     timer.start();
     bool receivedEvent = false;
@@ -403,6 +414,9 @@ bool SimulationClientBase::waitForEvent(
             {
                 if (m_receivedEvents.contains(event))
                 {
+                    qCInfo(lcClient) << "[DIAG] waitForEvent: already received"
+                                     << "event=" << event
+                                     << "elapsedMs=" << timer.elapsed();
                     if (m_logger)
                     {
                         m_logger->log(
@@ -431,6 +445,9 @@ bool SimulationClientBase::waitForEvent(
             {
                 if (m_receivedEvents.contains(event))
                 {
+                    qCInfo(lcClient) << "[DIAG] waitForEvent: observed after write-lock reacquire"
+                                     << "event=" << event
+                                     << "elapsedMs=" << timer.elapsed();
                     receivedEvent = true;
                     break;
                 }
@@ -439,6 +456,10 @@ bool SimulationClientBase::waitForEvent(
             // If still not received, wait
             if (!receivedEvent)
             {
+                qCInfo(lcClient) << "[DIAG] waitForEvent: sleeping"
+                                 << "expected=" << normalizedEvents
+                                 << "elapsedMs=" << timer.elapsed()
+                                 << "thread=" << QThread::currentThread();
                 if (timeoutMs <= 0)
                 {
                     // Wait indefinitely for the event
@@ -451,6 +472,9 @@ bool SimulationClientBase::waitForEvent(
                         timeoutMs - timer.elapsed();
                     if (remainingTime <= 0)
                     {
+                        qCWarning(lcClient) << "[DIAG] waitForEvent: timeout before sleep"
+                                            << "expected=" << normalizedEvents
+                                            << "elapsedMs=" << timer.elapsed();
                         if (m_logger)
                         {
                             m_logger->logError(
@@ -461,9 +485,15 @@ bool SimulationClientBase::waitForEvent(
                         }
                         return false;
                     }
+                    qCInfo(lcClient) << "[DIAG] waitForEvent: waiting with timeout"
+                                     << "remainingMs=" << remainingTime;
                     m_eventCondition.wait(&m_eventMutex,
                                           remainingTime);
                 }
+
+                qCInfo(lcClient) << "[DIAG] waitForEvent: woke"
+                                 << "elapsedMs=" << timer.elapsed()
+                                 << "thread=" << QThread::currentThread();
 
                 // Check one more time after waiting
                 for (const QString &event :
@@ -471,6 +501,9 @@ bool SimulationClientBase::waitForEvent(
                 {
                     if (m_receivedEvents.contains(event))
                     {
+                        qCInfo(lcClient) << "[DIAG] waitForEvent: received after wake"
+                                         << "event=" << event
+                                         << "elapsedMs=" << timer.elapsed();
                         receivedEvent = true;
                         break;
                     }
@@ -479,6 +512,9 @@ bool SimulationClientBase::waitForEvent(
         }
     }
 
+    qCInfo(lcClient) << "[DIAG] waitForEvent: success"
+                     << "expected=" << normalizedEvents
+                     << "elapsedMs=" << timer.elapsed();
     return true;
 }
 
