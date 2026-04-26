@@ -855,17 +855,10 @@ void MainWindow::subscribeDocumentObservers()
     connect(doc, &ScenarioDocument::connectionAdded, this,
             [this, doc, regionScene](const Connection &c) {
                 if (!regionScene) return;
-                for (auto &stored : m_runtime->document().connections)
-                {
-                    if (stored.fromTerminalId == c.fromTerminalId
-                     && stored.toTerminalId   == c.toTerminalId
-                     && stored.mode           == c.mode)
-                    {
-                        GUI::Scenario::ConnectionLineFactory::fromConnection(
-                            doc, &stored, regionScene, this);
-                        return;
-                    }
-                }
+                if (auto *stored = doc->findConnection(
+                        c.fromTerminalId, c.toTerminalId, c.mode))
+                    GUI::Scenario::ConnectionLineFactory::fromConnection(
+                        doc, stored, regionScene, this);
             });
     connect(doc, &ScenarioDocument::connectionRemoved, this,
             [regionScene](const QString &from, const QString &to,
@@ -882,17 +875,10 @@ void MainWindow::subscribeDocumentObservers()
     connect(doc, &ScenarioDocument::globalLinkAdded, this,
             [this, doc](const GlobalLink &g) {
                 if (!globalMapScene_) return;
-                for (auto &stored : m_runtime->document().globalLinks)
-                {
-                    if (stored.fromTerminalId == g.fromTerminalId
-                     && stored.toTerminalId   == g.toTerminalId
-                     && stored.mode           == g.mode)
-                    {
-                        GUI::Scenario::ConnectionLineFactory::fromGlobalLink(
-                            doc, &stored, globalMapScene_, this);
-                        return;
-                    }
-                }
+                if (auto *stored = doc->findGlobalLink(
+                        g.fromTerminalId, g.toTerminalId, g.mode))
+                    GUI::Scenario::ConnectionLineFactory::fromGlobalLink(
+                        doc, stored, globalMapScene_, this);
             });
     connect(doc, &ScenarioDocument::globalLinkRemoved, this,
             [this](const QString &from, const QString &to,

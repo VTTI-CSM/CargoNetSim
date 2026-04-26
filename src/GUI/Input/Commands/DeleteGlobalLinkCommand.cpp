@@ -29,14 +29,10 @@ void DeleteGlobalLinkCommand::redo()
 {
     if (!m_doc) { setObsolete(true); return; }
     if (!m_captured) {
-        for (const auto &g : m_doc->globalLinks) {
-            if (g.fromTerminalId == m_fromId
-             && g.toTerminalId   == m_toId
-             && g.mode           == m_mode) {
-                m_snapshot = g;
-                m_captured = true;
-                break;
-            }
+        if (const auto *g = m_doc->findGlobalLink(
+                m_fromId, m_toId, m_mode)) {
+            m_snapshot = *g;
+            m_captured = true;
         }
         if (!m_captured) {
             qCWarning(lcGuiInputCmd)

@@ -533,6 +533,14 @@ bool ScenarioDocument::addConnection(const Connection &c)
     if (c.fromTerminalId.isEmpty() || c.toTerminalId.isEmpty()) return false;
     if (!terminals.contains(c.fromTerminalId))                  return false;
     if (!terminals.contains(c.toTerminalId))                    return false;
+    if (findConnectionIndex(c.fromTerminalId, c.toTerminalId, c.mode) >= 0)
+    {
+        qCWarning(lcScenario)
+            << "ScenarioDocument::addConnection: duplicate route rejected"
+            << c.fromTerminalId << "->" << c.toTerminalId
+            << "mode=" << static_cast<int>(c.mode);
+        return false;
+    }
     connections.append(c);
     emit connectionAdded(c);
     return true;
@@ -544,19 +552,45 @@ bool ScenarioDocument::removeConnection(
 {
     qCDebug(lcScenario) << "ScenarioDocument::removeConnection: from:" << fromId
                         << "to:" << toId;
+    const int i = findConnectionIndex(fromId, toId, mode);
+    if (i >= 0)
+    {
+        connections.removeAt(i);
+        emit connectionRemoved(fromId, toId, mode);
+        return true;
+    }
+    return false;
+}
+
+int ScenarioDocument::findConnectionIndex(
+    const QString &fromId, const QString &toId,
+    TransportationTypes::TransportationMode mode) const
+{
     for (int i = 0; i < connections.size(); ++i)
     {
         const Connection &c = connections.at(i);
-        if (c.fromTerminalId == fromId &&
-            c.toTerminalId   == toId   &&
-            c.mode           == mode)
-        {
-            connections.removeAt(i);
-            emit connectionRemoved(fromId, toId, mode);
-            return true;
-        }
+        if (c.fromTerminalId == fromId
+            && c.toTerminalId == toId
+            && c.mode == mode)
+            return i;
     }
-    return false;
+    return -1;
+}
+
+Connection *ScenarioDocument::findConnection(
+    const QString &fromId, const QString &toId,
+    TransportationTypes::TransportationMode mode)
+{
+    const int i = findConnectionIndex(fromId, toId, mode);
+    return i >= 0 ? &connections[i] : nullptr;
+}
+
+const Connection *ScenarioDocument::findConnection(
+    const QString &fromId, const QString &toId,
+    TransportationTypes::TransportationMode mode) const
+{
+    const int i = findConnectionIndex(fromId, toId, mode);
+    return i >= 0 ? &connections.at(i) : nullptr;
 }
 
 bool ScenarioDocument::addGlobalLink(const GlobalLink &g)
@@ -564,6 +598,14 @@ bool ScenarioDocument::addGlobalLink(const GlobalLink &g)
     qCDebug(lcScenario) << "ScenarioDocument::addGlobalLink: from:" << g.fromTerminalId
                         << "to:" << g.toTerminalId;
     if (g.fromTerminalId.isEmpty() || g.toTerminalId.isEmpty()) return false;
+    if (findGlobalLinkIndex(g.fromTerminalId, g.toTerminalId, g.mode) >= 0)
+    {
+        qCWarning(lcScenario)
+            << "ScenarioDocument::addGlobalLink: duplicate route rejected"
+            << g.fromTerminalId << "->" << g.toTerminalId
+            << "mode=" << static_cast<int>(g.mode);
+        return false;
+    }
     globalLinks.append(g);
     emit globalLinkAdded(g);
     return true;
@@ -575,19 +617,45 @@ bool ScenarioDocument::removeGlobalLink(
 {
     qCDebug(lcScenario) << "ScenarioDocument::removeGlobalLink: from:" << fromQual
                         << "to:" << toQual;
+    const int i = findGlobalLinkIndex(fromQual, toQual, mode);
+    if (i >= 0)
+    {
+        globalLinks.removeAt(i);
+        emit globalLinkRemoved(fromQual, toQual, mode);
+        return true;
+    }
+    return false;
+}
+
+int ScenarioDocument::findGlobalLinkIndex(
+    const QString &fromId, const QString &toId,
+    TransportationTypes::TransportationMode mode) const
+{
     for (int i = 0; i < globalLinks.size(); ++i)
     {
         const GlobalLink &g = globalLinks.at(i);
-        if (g.fromTerminalId == fromQual &&
-            g.toTerminalId   == toQual   &&
-            g.mode           == mode)
-        {
-            globalLinks.removeAt(i);
-            emit globalLinkRemoved(fromQual, toQual, mode);
-            return true;
-        }
+        if (g.fromTerminalId == fromId
+            && g.toTerminalId == toId
+            && g.mode == mode)
+            return i;
     }
-    return false;
+    return -1;
+}
+
+GlobalLink *ScenarioDocument::findGlobalLink(
+    const QString &fromId, const QString &toId,
+    TransportationTypes::TransportationMode mode)
+{
+    const int i = findGlobalLinkIndex(fromId, toId, mode);
+    return i >= 0 ? &globalLinks[i] : nullptr;
+}
+
+const GlobalLink *ScenarioDocument::findGlobalLink(
+    const QString &fromId, const QString &toId,
+    TransportationTypes::TransportationMode mode) const
+{
+    const int i = findGlobalLinkIndex(fromId, toId, mode);
+    return i >= 0 ? &globalLinks.at(i) : nullptr;
 }
 
 bool ScenarioDocument::updateConnection(
@@ -598,17 +666,12 @@ bool ScenarioDocument::updateConnection(
     qCDebug(lcScenario)
         << "ScenarioDocument::updateConnection:"
         << fromId << "->" << toId;
-    for (int i = 0; i < connections.size(); ++i)
+    const int i = findConnectionIndex(fromId, toId, mode);
+    if (i >= 0)
     {
-        auto &c = connections[i];
-        if (c.fromTerminalId == fromId
-            && c.toTerminalId == toId
-            && c.mode == mode)
-        {
-            connections[i] = updated;
-            emit connectionChanged(fromId, toId, mode);
-            return true;
-        }
+        connections[i] = updated;
+        emit connectionChanged(fromId, toId, mode);
+        return true;
     }
     qCWarning(lcScenario)
         << "ScenarioDocument::updateConnection: not found";
@@ -623,17 +686,12 @@ bool ScenarioDocument::updateGlobalLink(
     qCDebug(lcScenario)
         << "ScenarioDocument::updateGlobalLink:"
         << fromId << "->" << toId;
-    for (int i = 0; i < globalLinks.size(); ++i)
+    const int i = findGlobalLinkIndex(fromId, toId, mode);
+    if (i >= 0)
     {
-        auto &g = globalLinks[i];
-        if (g.fromTerminalId == fromId
-            && g.toTerminalId == toId
-            && g.mode == mode)
-        {
-            globalLinks[i] = updated;
-            emit globalLinkChanged(fromId, toId, mode);
-            return true;
-        }
+        globalLinks[i] = updated;
+        emit globalLinkChanged(fromId, toId, mode);
+        return true;
     }
     qCWarning(lcScenario)
         << "ScenarioDocument::updateGlobalLink: not found";

@@ -133,10 +133,28 @@ public:
     bool addConnection(const Connection &c);
     bool removeConnection(const QString &fromId, const QString &toId,
                           TransportationTypes::TransportationMode mode);
+    int findConnectionIndex(
+        const QString &fromId, const QString &toId,
+        TransportationTypes::TransportationMode mode) const;
+    Connection *findConnection(
+        const QString &fromId, const QString &toId,
+        TransportationTypes::TransportationMode mode);
+    const Connection *findConnection(
+        const QString &fromId, const QString &toId,
+        TransportationTypes::TransportationMode mode) const;
 
     bool addGlobalLink(const GlobalLink &g);
     bool removeGlobalLink(const QString &fromQual, const QString &toQual,
                           TransportationTypes::TransportationMode mode);
+    int findGlobalLinkIndex(
+        const QString &fromId, const QString &toId,
+        TransportationTypes::TransportationMode mode) const;
+    GlobalLink *findGlobalLink(
+        const QString &fromId, const QString &toId,
+        TransportationTypes::TransportationMode mode);
+    const GlobalLink *findGlobalLink(
+        const QString &fromId, const QString &toId,
+        TransportationTypes::TransportationMode mode) const;
 
     bool updateConnection(const QString &fromId,
                           const QString &toId,

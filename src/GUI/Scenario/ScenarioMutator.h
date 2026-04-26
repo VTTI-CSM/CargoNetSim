@@ -128,6 +128,13 @@ public:
         const QString                       &fromTerminalId,
         const QString                       &toTerminalId,
         Backend::TransportationTypes::TransportationMode mode);
+    static bool createConnection(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &fromTerminalId,
+        const QString                       &toTerminalId,
+        Backend::TransportationTypes::TransportationMode mode,
+        const QVariantMap                   &properties,
+        Backend::Scenario::LinkageSource     source);
 
     static bool removeConnection(
         Backend::Scenario::ScenarioDocument *doc,
@@ -145,6 +152,13 @@ public:
         const QString                       &fromTerminalId,
         const QString                       &toTerminalId,
         Backend::TransportationTypes::TransportationMode mode);
+    static bool createGlobalLink(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &fromTerminalId,
+        const QString                       &toTerminalId,
+        Backend::TransportationTypes::TransportationMode mode,
+        const QVariantMap                   &properties,
+        Backend::Scenario::LinkageSource     source);
 
     static bool removeGlobalLink(
         Backend::Scenario::ScenarioDocument *doc,

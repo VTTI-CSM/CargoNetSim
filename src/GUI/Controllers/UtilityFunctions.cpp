@@ -769,9 +769,16 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
             {
                 updated.properties[it.key()] = it.value();
             }
-            return doc->updateConnection(
+            const bool ok = doc->updateConnection(
                 updated.fromTerminalId, updated.toTerminalId,
                 updated.mode, updated);
+            if (ok)
+            {
+                for (auto it = canonicalRouteProperties.constBegin();
+                     it != canonicalRouteProperties.constEnd(); ++it)
+                    connection->setProperty(it.key(), it.value());
+            }
+            return ok;
         }
         qCWarning(lcGuiUtil)
             << "setConnectionProperties: line is bound as connection"
@@ -789,9 +796,16 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
             {
                 updated.properties[it.key()] = it.value();
             }
-            return doc->updateGlobalLink(
+            const bool ok = doc->updateGlobalLink(
                 updated.fromTerminalId, updated.toTerminalId,
                 updated.mode, updated);
+            if (ok)
+            {
+                for (auto it = canonicalRouteProperties.constBegin();
+                     it != canonicalRouteProperties.constEnd(); ++it)
+                    connection->setProperty(it.key(), it.value());
+            }
+            return ok;
         }
         qCWarning(lcGuiUtil)
             << "setConnectionProperties: line is bound as global link"

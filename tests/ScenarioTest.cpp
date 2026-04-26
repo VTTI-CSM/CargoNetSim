@@ -1782,6 +1782,83 @@ private slots:
         QVERIFY(sawRegionError);
     }
 
+    void test_addConnection_rejects_duplicate_route_identity()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        ScenarioDocument doc;
+        RegionSpec usa; usa.name = "USA"; doc.addRegion(usa);
+
+        TerminalPlacement a; a.id="A"; a.type="Sea Port Terminal"; a.region="USA";
+        TerminalPlacement b; b.id="B"; b.type="Sea Port Terminal"; b.region="USA";
+        doc.addTerminal(a); doc.addTerminal(b);
+
+        Connection c;
+        c.fromTerminalId = "A"; c.toTerminalId = "B";
+        c.mode = CargoNetSim::Backend::TransportationTypes::TransportationMode::Truck;
+        c.region = "USA";
+        c.properties["distance"] = 120000.0;
+
+        QVERIFY(doc.addConnection(c));
+        QVERIFY(!doc.addConnection(c));
+        QCOMPARE(doc.connections.size(), 1);
+        QVERIFY(doc.findConnection("A", "B",
+            CargoNetSim::Backend::TransportationTypes::TransportationMode::Truck) != nullptr);
+    }
+
+    void test_addGlobalLink_rejects_duplicate_route_identity()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        ScenarioDocument doc;
+        RegionSpec usa; usa.name = "USA"; doc.addRegion(usa);
+        RegionSpec esp; esp.name = "ESP"; doc.addRegion(esp);
+
+        TerminalPlacement a; a.id="A"; a.type="Sea Port Terminal"; a.region="USA";
+        TerminalPlacement b; b.id="B"; b.type="Sea Port Terminal"; b.region="ESP";
+        doc.addTerminal(a); doc.addTerminal(b);
+
+        GlobalLink g;
+        g.fromTerminalId = "A"; g.toTerminalId = "B";
+        g.mode = CargoNetSim::Backend::TransportationTypes::TransportationMode::Ship;
+        g.properties["distance"] = 500000.0;
+
+        QVERIFY(doc.addGlobalLink(g));
+        QVERIFY(!doc.addGlobalLink(g));
+        QCOMPARE(doc.globalLinks.size(), 1);
+        QVERIFY(doc.findGlobalLink("A", "B",
+            CargoNetSim::Backend::TransportationTypes::TransportationMode::Ship) != nullptr);
+    }
+
+    void test_validator_duplicate_connection_route_identity_is_error()
+    {
+        using namespace CargoNetSim::Backend::Scenario;
+        ScenarioDocument doc;
+        RegionSpec usa; usa.name = "USA"; doc.addRegion(usa);
+
+        TerminalPlacement a; a.id="A"; a.type="Sea Port Terminal"; a.region="USA";
+        TerminalPlacement b; b.id="B"; b.type="Sea Port Terminal"; b.region="USA";
+        doc.addTerminal(a); doc.addTerminal(b);
+
+        Connection c1;
+        c1.fromTerminalId = "A"; c1.toTerminalId = "B";
+        c1.mode = CargoNetSim::Backend::TransportationTypes::TransportationMode::Truck;
+        c1.region = "USA";
+        c1.properties["distance"] = 120000.0;
+        Connection c2 = c1;
+        c2.properties["distance"] = 0.0;
+        doc.connections.append(c1);
+        doc.connections.append(c2);
+
+        auto issues = ScenarioValidator::validate(doc);
+        bool sawDuplicate = false;
+        for (const auto &i : issues)
+        {
+            if (i.severity == ValidationIssue::Error
+                && i.message.contains("Duplicate connection"))
+                sawDuplicate = true;
+        }
+        QVERIFY(sawDuplicate);
+    }
+
     void test_validator_connection_region_empty_is_not_error()
     {
         // Connection.region is user-optional; blank means "I trust the

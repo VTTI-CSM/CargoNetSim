@@ -158,27 +158,13 @@ void ConnectionLine::unbindModel()
 Backend::Scenario::Connection *ConnectionLine::connectionModel() const
 {
     if (m_binding != BindingKind::Connection || !m_doc) return nullptr;
-    for (auto &c : m_doc->connections)
-    {
-        if (c.fromTerminalId == m_fromId
-         && c.toTerminalId   == m_toId
-         && c.mode           == m_connectionType)
-            return &c;
-    }
-    return nullptr;
+    return m_doc->findConnection(m_fromId, m_toId, m_connectionType);
 }
 
 Backend::Scenario::GlobalLink *ConnectionLine::globalLinkModel() const
 {
     if (m_binding != BindingKind::GlobalLink || !m_doc) return nullptr;
-    for (auto &g : m_doc->globalLinks)
-    {
-        if (g.fromTerminalId == m_fromId
-         && g.toTerminalId   == m_toId
-         && g.mode           == m_connectionType)
-            return &g;
-    }
-    return nullptr;
+    return m_doc->findGlobalLink(m_fromId, m_toId, m_connectionType);
 }
 
 std::unique_ptr<QUndoCommand> ConnectionLine::createDeleteCommand(

@@ -29,14 +29,10 @@ void DeleteConnectionCommand::redo()
 {
     if (!m_doc) { setObsolete(true); return; }
     if (!m_captured) {
-        for (const auto &c : m_doc->connections) {
-            if (c.fromTerminalId == m_fromId
-             && c.toTerminalId   == m_toId
-             && c.mode           == m_mode) {
-                m_snapshot = c;
-                m_captured = true;
-                break;
-            }
+        if (const auto *c = m_doc->findConnection(
+                m_fromId, m_toId, m_mode)) {
+            m_snapshot = *c;
+            m_captured = true;
         }
         if (!m_captured) {
             qCWarning(lcGuiInputCmd)

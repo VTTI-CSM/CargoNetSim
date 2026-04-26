@@ -238,6 +238,20 @@ bool ScenarioMutator::createConnection(
     const QString                       &toId,
     Backend::TransportationTypes::TransportationMode mode)
 {
+    return createConnection(
+        doc, fromId, toId, mode,
+        Backend::Scenario::RouteMetricUnits::defaultCanonicalProperties(),
+        Backend::Scenario::LinkageSource::Manual);
+}
+
+bool ScenarioMutator::createConnection(
+    Backend::Scenario::ScenarioDocument *doc,
+    const QString                       &fromId,
+    const QString                       &toId,
+    Backend::TransportationTypes::TransportationMode mode,
+    const QVariantMap                   &properties,
+    Backend::Scenario::LinkageSource     source)
+{
     using namespace Backend::Scenario;
     if (!doc) return false;
     qCDebug(lcGuiScene) << "ScenarioMutator::createConnection:"
@@ -255,10 +269,8 @@ bool ScenarioMutator::createConnection(
     c.toTerminalId   = toId;
     c.mode           = mode;
     c.region         = fromRegion;  // invariant: matches both endpoints
-    c.properties     =
-        Backend::Scenario::RouteMetricUnits::
-            defaultCanonicalProperties();
-    c.source         = LinkageSource::Manual;
+    c.properties     = properties;
+    c.source         = source;
     return doc->addConnection(c);
 }
 
@@ -280,6 +292,20 @@ bool ScenarioMutator::createGlobalLink(
     const QString                       &fromId,
     const QString                       &toId,
     Backend::TransportationTypes::TransportationMode mode)
+{
+    return createGlobalLink(
+        doc, fromId, toId, mode,
+        Backend::Scenario::RouteMetricUnits::defaultCanonicalProperties(),
+        Backend::Scenario::LinkageSource::Manual);
+}
+
+bool ScenarioMutator::createGlobalLink(
+    Backend::Scenario::ScenarioDocument *doc,
+    const QString                       &fromId,
+    const QString                       &toId,
+    Backend::TransportationTypes::TransportationMode mode,
+    const QVariantMap                   &properties,
+    Backend::Scenario::LinkageSource     source)
 {
     using namespace Backend::Scenario;
     if (!doc) return false;
@@ -310,10 +336,8 @@ bool ScenarioMutator::createGlobalLink(
     g.fromTerminalId = fromId;
     g.toTerminalId   = toId;
     g.mode           = mode;
-    g.properties     =
-        Backend::Scenario::RouteMetricUnits::
-            defaultCanonicalProperties();
-    g.source         = LinkageSource::Manual;
+    g.properties     = properties;
+    g.source         = source;
     return doc->addGlobalLink(g);
 }
 
@@ -349,27 +373,17 @@ bool ScenarioMutator::setConnectionProperty(
         << fromId << "->" << toId
         << "key=" << key << "value=" << value;
 
-    // Search regional connections
-    for (auto &c : doc->connections)
+    if (auto *c = doc->findConnection(fromId, toId, mode))
     {
-        if (c.fromTerminalId == fromId
-            && c.toTerminalId == toId
-            && c.mode == mode)
-        {
-            c.properties[key] = value;
-            return doc->updateConnection(fromId, toId, mode, c);
-        }
+        Backend::Scenario::Connection updated = *c;
+        updated.properties[key] = value;
+        return doc->updateConnection(fromId, toId, mode, updated);
     }
-    // Search global links
-    for (auto &g : doc->globalLinks)
+    if (auto *g = doc->findGlobalLink(fromId, toId, mode))
     {
-        if (g.fromTerminalId == fromId
-            && g.toTerminalId == toId
-            && g.mode == mode)
-        {
-            g.properties[key] = value;
-            return doc->updateGlobalLink(fromId, toId, mode, g);
-        }
+        Backend::Scenario::GlobalLink updated = *g;
+        updated.properties[key] = value;
+        return doc->updateGlobalLink(fromId, toId, mode, updated);
     }
 
     qCWarning(lcGuiScene)
@@ -508,17 +522,14 @@ bool ScenarioMutator::restoreConnection(
     const Backend::Scenario::Connection   &snapshot)
 {
     if (!doc) return false;
-    for (const auto &c : doc->connections)
+    if (doc->findConnection(snapshot.fromTerminalId,
+                            snapshot.toTerminalId,
+                            snapshot.mode))
     {
-        if (c.fromTerminalId == snapshot.fromTerminalId
-         && c.toTerminalId   == snapshot.toTerminalId
-         && c.mode           == snapshot.mode)
-        {
-            qCWarning(lcGuiScene)
-                << "ScenarioMutator::restoreConnection:"
-                << "duplicate (from,to,mode); skipping";
-            return false;
-        }
+        qCWarning(lcGuiScene)
+            << "ScenarioMutator::restoreConnection:"
+            << "duplicate (from,to,mode); skipping";
+        return false;
     }
     qCInfo(lcGuiScene) << "ScenarioMutator::restoreConnection:"
                        << "from=" << snapshot.fromTerminalId
@@ -531,17 +542,14 @@ bool ScenarioMutator::restoreGlobalLink(
     const Backend::Scenario::GlobalLink   &snapshot)
 {
     if (!doc) return false;
-    for (const auto &g : doc->globalLinks)
+    if (doc->findGlobalLink(snapshot.fromTerminalId,
+                            snapshot.toTerminalId,
+                            snapshot.mode))
     {
-        if (g.fromTerminalId == snapshot.fromTerminalId
-         && g.toTerminalId   == snapshot.toTerminalId
-         && g.mode           == snapshot.mode)
-        {
-            qCWarning(lcGuiScene)
-                << "ScenarioMutator::restoreGlobalLink:"
-                << "duplicate (from,to,mode); skipping";
-            return false;
-        }
+        qCWarning(lcGuiScene)
+            << "ScenarioMutator::restoreGlobalLink:"
+            << "duplicate (from,to,mode); skipping";
+        return false;
     }
     qCInfo(lcGuiScene) << "ScenarioMutator::restoreGlobalLink:"
                        << "from=" << snapshot.fromTerminalId

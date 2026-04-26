@@ -151,20 +151,21 @@ ConnectionLine *ConnectionController::createConnectionLine(
             << "null argument, returning nullptr";
         return nullptr;
     }
-    if (checkExistingConnection(startItem, endItem,
-                                connectionType))
-    {
-        qCDebug(lcGuiView)
-            << "ConnectionController::createConnectionLine:"
-            << "connection already exists, returning nullptr";
-        return nullptr;
-    }
-
     // No scenario runtime -> no document to mutate. Use the
     // ad-hoc legacy path; the line lives in the scene only.
     if (!m_runtime)
+    {
+        if (checkExistingConnection(startItem, endItem,
+                                    connectionType))
+        {
+            qCDebug(lcGuiView)
+                << "ConnectionController::createConnectionLine:"
+                << "legacy scene connection already exists, returning nullptr";
+            return nullptr;
+        }
         return createConnectionLineLegacy(startItem, endItem,
                                           connectionType);
+    }
 
     auto *doc         = &m_runtime->document();
 
@@ -182,6 +183,20 @@ ConnectionLine *ConnectionController::createConnectionLine(
             return createConnectionLineLegacy(startItem,
                                               endItem,
                                               connectionType);
+        if (auto *existingLine =
+                Scenario::ConnectionLineFactory::findRegionConnection(
+                    m_regionScene, sId, eId, connectionType))
+            return existingLine;
+        if (auto *existing = doc->findConnection(
+                sId, eId, connectionType))
+            return Scenario::ConnectionLineFactory::fromConnection(
+                doc, existing, m_regionScene, m_mainWindow);
+        if (checkExistingConnection(startItem, endItem, connectionType))
+        {
+            qCDebug(lcGuiView)
+                << "createConnectionLine: visual connection already exists in reverse direction";
+            return nullptr;
+        }
         if (!Scenario::ScenarioMutator::createConnection(
                 doc, sId, eId, connectionType))
             return nullptr;
@@ -226,6 +241,20 @@ ConnectionLine *ConnectionController::createConnectionLine(
             return createConnectionLineLegacy(startItem,
                                               endItem,
                                               connectionType);
+        if (auto *existingLine =
+                Scenario::ConnectionLineFactory::findGlobalLink(
+                    m_globalMapScene, sId, eId, connectionType))
+            return existingLine;
+        if (auto *existing = doc->findGlobalLink(
+                sId, eId, connectionType))
+            return Scenario::ConnectionLineFactory::fromGlobalLink(
+                doc, existing, m_globalMapScene, m_mainWindow);
+        if (checkExistingConnection(startItem, endItem, connectionType))
+        {
+            qCDebug(lcGuiView)
+                << "createConnectionLine: visual global link already exists in reverse direction";
+            return nullptr;
+        }
         qCDebug(lcGuiView) << "createConnectionLine: calling createGlobalLink";
         if (!Scenario::ScenarioMutator::createGlobalLink(
                 doc, sId, eId, connectionType))
@@ -355,6 +384,43 @@ bool ConnectionController::removeConnectionLine(
 
     try
     {
+        if (m_runtime && connectionLine->isConnectionBinding())
+        {
+            auto *doc = &m_runtime->document();
+            const bool removed = Scenario::ScenarioMutator::removeConnection(
+                doc,
+                connectionLine->boundFromTerminalId(),
+                connectionLine->boundToTerminalId(),
+                connectionLine->connectionType());
+            if (removed)
+                m_status->showMessage(
+                    QString("Connection removed successfully."),
+                    2000);
+            else
+                m_status->showError(
+                    QString("Failed to remove connection."),
+                    3000);
+            return removed;
+        }
+        if (m_runtime && connectionLine->isGlobalLinkBinding())
+        {
+            auto *doc = &m_runtime->document();
+            const bool removed = Scenario::ScenarioMutator::removeGlobalLink(
+                doc,
+                connectionLine->boundFromTerminalId(),
+                connectionLine->boundToTerminalId(),
+                connectionLine->connectionType());
+            if (removed)
+                m_status->showMessage(
+                    QString("Connection removed successfully."),
+                    2000);
+            else
+                m_status->showError(
+                    QString("Failed to remove connection."),
+                    3000);
+            return removed;
+        }
+
         // Determine which scene the connection belongs to
         GraphicsScene *scene = nullptr;
 

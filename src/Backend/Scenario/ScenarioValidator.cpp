@@ -204,10 +204,21 @@ void ScenarioValidator::checkConnections(const ScenarioDocument &doc,
 {
     qCDebug(lcScenario) << "ScenarioValidator::checkConnections:"
                         << doc.connections.size() << "connections";
+    QSet<QString> seen;
     for (int i = 0; i < doc.connections.size(); ++i)
     {
         const Connection &c = doc.connections.at(i);
         const QString path = QStringLiteral("connections[%1]").arg(i);
+        const QString key =
+            c.fromTerminalId + QLatin1Char('|')
+            + c.toTerminalId + QLatin1Char('|')
+            + QString::number(static_cast<int>(c.mode));
+
+        if (seen.contains(key))
+            err(out, path,
+                QStringLiteral("Duplicate connection for the same (from, to, mode) route identity"));
+        else
+            seen.insert(key);
 
         if (!doc.terminals.contains(c.fromTerminalId))
             err(out, path + ".from",
@@ -249,6 +260,7 @@ void ScenarioValidator::checkGlobalLinks(const ScenarioDocument &doc,
 {
     qCDebug(lcScenario) << "ScenarioValidator::checkGlobalLinks:"
                         << doc.globalLinks.size() << "global links";
+    QSet<QString> seen;
     auto regionOf = [&](const QString &qualified, QString *foundRegion) -> bool
     {
         const int slash = qualified.indexOf('/');
@@ -267,6 +279,16 @@ void ScenarioValidator::checkGlobalLinks(const ScenarioDocument &doc,
     {
         const GlobalLink &g = doc.globalLinks.at(i);
         const QString path = QStringLiteral("global_links[%1]").arg(i);
+        const QString key =
+            g.fromTerminalId + QLatin1Char('|')
+            + g.toTerminalId + QLatin1Char('|')
+            + QString::number(static_cast<int>(g.mode));
+
+        if (seen.contains(key))
+            err(out, path,
+                QStringLiteral("Duplicate global_link for the same (from, to, mode) route identity"));
+        else
+            seen.insert(key);
 
         QString rf, rt;
         if (!regionOf(g.fromTerminalId, &rf))
