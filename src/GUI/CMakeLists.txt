@@ -139,8 +139,6 @@ set(GUI_SOURCES
     Scenario/BackgroundPhotoItemFactory.cpp
     Scenario/RegionCenterPointFactory.h
     Scenario/RegionCenterPointFactory.cpp
-    Scenario/ScenarioMutator.h
-    Scenario/ScenarioMutator.cpp
     Scenario/SceneRepopulator.h
     Scenario/SceneRepopulator.cpp
     Scenario/ConnectionLineFactory.h

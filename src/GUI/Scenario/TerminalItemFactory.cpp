@@ -1,7 +1,7 @@
 #include "TerminalItemFactory.h"
 
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/TerminalPlacement.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ItemEventBinder.h"

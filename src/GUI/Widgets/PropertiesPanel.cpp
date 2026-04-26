@@ -6,15 +6,13 @@
 #include "../Items/RegionCenterPoint.h"
 #include "../Items/TerminalItem.h"
 #include "../MainWindow.h"
-#include "../Scenario/ScenarioMutator.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/ScenarioEditService.h"
 #include "../Utils/IconCreator.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Scenario/RegionSpec.h"
-#include "Backend/Scenario/ScenarioDocument.h"
-#include "Backend/Scenario/PropertyKeys.h"
-#include "Backend/Scenario/RouteMetricUnits.h"
-#include "Backend/Scenario/TerminalPlacement.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "DestinationListEditor.h"
 #include "GraphicsScene.h"
@@ -27,6 +25,7 @@
 #include "../Input/Modes/NormalMode.h"
 #include "../Input/Modes/PickDestinationMode.h"
 #include "../Input/PickCoordinator.h"
+#include "Backend/Application/RouteAuthoringService.h"
 
 #include <QApplication>
 #include <QDebug>
@@ -411,11 +410,13 @@ void PropertiesPanel::displayTerminalProperties(
     // Region is a first-class field on TerminalPlacement, not bag storage.
     // Build the ComboBox here so it always appears regardless of bag contents.
     {
+        if (!mainWindow)
+            mainWindow = qobject_cast<MainWindow *>(window());
         QComboBox *combo = new QComboBox();
         combo->addItems(
-            CargoNetSim::CargoNetSimController::getInstance()
-                .getRegionDataController()
-                ->getAllRegionNames());
+            mainWindow && mainWindow->networkViewService()
+                ? mainWindow->networkViewService()->regionNames()
+                : QStringList());
         combo->setCurrentText(item->getRegion());
         editFields[QStringLiteral("Region")] = combo;
         layout->addRow(tr("Region:"), combo);
@@ -836,7 +837,7 @@ void PropertiesPanel::addRoleSection(TerminalItem *item)
         QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, [doc, id](int index) {
             auto role = static_cast<TerminalRole>(index);
-            GUI::Scenario::ScenarioMutator::setTerminalRole(
+            Backend::Application::ScenarioEditService::setTerminalRole(
                 doc, id, role);
         });
 
@@ -915,7 +916,7 @@ void PropertiesPanel::addOriginConfigurationSection(
         item->getProperty(PK::Terminal::InitialContainerCount).toInt());
     connect(countSpin, QOverload<int>::of(&QSpinBox::valueChanged),
             this, [doc, id](int value) {
-                GUI::Scenario::ScenarioMutator::setTerminalProperty(
+                Backend::Application::ScenarioEditService::setTerminalProperty(
                     doc, id, PK::Terminal::InitialContainerCount,
                     value > 0 ? QVariant(value) : QVariant());
             });
@@ -997,7 +998,7 @@ void PropertiesPanel::addOriginConfigurationSection(
                     m[PK::Terminal::DestFraction] = r.fraction;
                     out.append(m);
                 }
-                GUI::Scenario::ScenarioMutator::setTerminalProperty(
+                Backend::Application::ScenarioEditService::setTerminalProperty(
                     doc, id, PK::Terminal::Destinations, out);
             });
 
@@ -1008,12 +1009,12 @@ void PropertiesPanel::addOriginConfigurationSection(
         listEditor->setVisible(multi);
         if (multi)
         {
-            GUI::Scenario::ScenarioMutator::setTerminalProperty(
+            Backend::Application::ScenarioEditService::setTerminalProperty(
                 doc, id, PK::Terminal::DestinationTerminal, QVariant());
         }
         else
         {
-            GUI::Scenario::ScenarioMutator::setTerminalProperty(
+            Backend::Application::ScenarioEditService::setTerminalProperty(
                 doc, id, PK::Terminal::Destinations, QVariant());
         }
     };
@@ -1679,7 +1680,7 @@ void PropertiesPanel::saveConnectionProperties(
         Backend::Scenario::RouteMetricUnits::
             canonicalPropertiesFromDisplay(newProperties);
 
-    // Route through ScenarioMutator if bound to backend
+    // Route through the backend editing service if bound to backend
     // (handles both regional Connections and GlobalLinks)
     QString fromId, toId;
     Backend::TransportationTypes::TransportationMode mode{};
@@ -1707,16 +1708,19 @@ void PropertiesPanel::saveConnectionProperties(
     if (hasBacking && mainWindow && mainWindow->runtime())
     {
         auto *doc = &mainWindow->runtime()->document();
+        auto &controller =
+            CargoNetSim::CargoNetSimController::getInstance();
+        Backend::Application::RouteAuthoringService routeAuthoringService(
+            &controller);
         for (auto it = newProperties.constBegin();
              it != newProperties.constEnd(); ++it)
         {
             if (connection->getProperties().value(it.key())
                 != it.value())
             {
-                GUI::Scenario::ScenarioMutator::
-                    setConnectionProperty(
-                        doc, fromId, toId, mode,
-                        it.key(), it.value());
+                routeAuthoringService.setConnectionProperty(
+                    *doc, fromId, toId, mode,
+                    it.key(), it.value());
             }
         }
     }
@@ -1937,15 +1941,19 @@ void PropertiesPanel::handleRegionChange(
 
     if (mainWindow)
     {
-        const auto &centers =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getAllRegionVariableAs<
-                        RegionCenterPoint *>(
-                        "regionCenterPoint");
-        newRegionCenter = centers.value(newRegionName);
-        oldRegionCenter = centers.value(oldRegionName);
+        if (auto *networkView = mainWindow->networkViewService())
+        {
+            newRegionCenter =
+                networkView->regionVariable(
+                               newRegionName,
+                               QStringLiteral("regionCenterPoint"))
+                    .value<RegionCenterPoint *>();
+            oldRegionCenter =
+                networkView->regionVariable(
+                               oldRegionName,
+                               QStringLiteral("regionCenterPoint"))
+                    .value<RegionCenterPoint *>();
+        }
     }
 
     if (newRegionCenter && oldRegionCenter)
@@ -2132,7 +2140,7 @@ void PropertiesPanel::onDestinationResolved(
         return;
     }
     auto *doc = &mainWindow->runtime()->document();
-    GUI::Scenario::ScenarioMutator::setTerminalProperty(
+    Backend::Application::ScenarioEditService::setTerminalProperty(
         doc, session.requesterId,
         PK::Terminal::DestinationTerminal, terminalId);
 }

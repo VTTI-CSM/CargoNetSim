@@ -13,11 +13,11 @@ class ScenarioDocument;
 namespace GUI {
 
 /**
- * @brief Thin wrapper over `Backend::Scenario::ScenarioSerializer`.
+ * @brief Thin GUI wrapper over backend scenario persistence operations.
  *
  * Kept under the legacy "ProjectSerializer" name because the GUI menu
  * action has historically been labelled "Open / Save Project". New
- * callers should prefer the `ScenarioSerializer` API directly; this
+ * callers should prefer the backend persistence service directly; this
  * class exists so `BasicButtonController::openScenario` /
  * `saveScenario` (Task 19) have a single GUI-layer entry point for
  * YAML round-trip that callers can extend with GUI-specific concerns

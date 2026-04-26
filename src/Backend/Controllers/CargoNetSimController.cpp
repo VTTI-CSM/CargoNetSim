@@ -196,22 +196,42 @@ bool CargoNetSimController::startAll()
     // Start all threads
     if (m_truckThread && !m_truckThread->isRunning())
     {
+        qCInfo(lcController) << "CargoNetSimController::startAll:"
+                             << "starting truck thread"
+                             << m_truckThread
+                             << m_truckThread->objectName();
         m_truckThread->start();
+        queueTruckManagerStartup();
     }
 
     if (m_shipThread && !m_shipThread->isRunning())
     {
+        qCInfo(lcController) << "CargoNetSimController::startAll:"
+                             << "starting ship thread"
+                             << m_shipThread
+                             << m_shipThread->objectName();
         m_shipThread->start();
+        queueShipClientStartup();
     }
 
     if (m_trainThread && !m_trainThread->isRunning())
     {
+        qCInfo(lcController) << "CargoNetSimController::startAll:"
+                             << "starting train thread"
+                             << m_trainThread
+                             << m_trainThread->objectName();
         m_trainThread->start();
+        queueTrainClientStartup();
     }
 
     if (m_terminalThread && !m_terminalThread->isRunning())
     {
+        qCInfo(lcController) << "CargoNetSimController::startAll:"
+                             << "starting terminal thread"
+                             << m_terminalThread
+                             << m_terminalThread->objectName();
         m_terminalThread->start();
+        queueTerminalClientStartup();
     }
 
     return true;
@@ -268,6 +288,90 @@ CargoNetSimController::getTruckManager() const
     return m_truckManager;
 }
 
+bool CargoNetSimController::loadConfig()
+{
+    return m_configController
+               ? m_configController->loadConfig()
+               : false;
+}
+
+QVariantMap CargoNetSimController::getAllConfigParams() const
+{
+    return m_configController
+               ? m_configController->getAllParams()
+               : QVariantMap{};
+}
+
+QVariantMap CargoNetSimController::getSimulationParams() const
+{
+    return m_configController
+               ? m_configController->getSimulationParams()
+               : QVariantMap{};
+}
+
+QVariantMap CargoNetSimController::getCostFunctionWeights() const
+{
+    return m_configController
+               ? m_configController->getCostFunctionWeights()
+               : QVariantMap{};
+}
+
+void CargoNetSimController::updateConfig(
+    const QVariantMap &newConfig)
+{
+    if (m_configController)
+        m_configController->updateConfig(newConfig);
+}
+
+bool CargoNetSimController::saveConfig()
+{
+    return m_configController
+               ? m_configController->saveConfig()
+               : false;
+}
+
+QVector<Backend::Train *> CargoNetSimController::getAllTrains() const
+{
+    return m_vehicleController
+               ? m_vehicleController->getAllTrains()
+               : QVector<Backend::Train *>{};
+}
+
+QVector<Backend::Ship *> CargoNetSimController::getAllShips() const
+{
+    return m_vehicleController
+               ? m_vehicleController->getAllShips()
+               : QVector<Backend::Ship *>{};
+}
+
+bool CargoNetSimController::updateTrains(
+    QVector<Backend::Train *> trains)
+{
+    return m_vehicleController
+               ? m_vehicleController->updateTrains(std::move(trains))
+               : false;
+}
+
+bool CargoNetSimController::updateShips(
+    QVector<Backend::Ship *> ships)
+{
+    return m_vehicleController
+               ? m_vehicleController->updateShips(std::move(ships))
+               : false;
+}
+
+bool CargoNetSimController::hasAnyTrains() const
+{
+    return m_vehicleController
+               && !m_vehicleController->getAllTrains().isEmpty();
+}
+
+bool CargoNetSimController::hasAnyShips() const
+{
+    return m_vehicleController
+               && !m_vehicleController->getAllShips().isEmpty();
+}
+
 Backend::NetworkController *
 CargoNetSimController::getNetworkController() const
 {
@@ -319,48 +423,106 @@ bool CargoNetSimController::addContainersToTerminal(
     return result;
 }
 
-void CargoNetSimController::onThreadStarted()
+void CargoNetSimController::queueTruckManagerStartup()
 {
-    QThread *senderThread =
-        qobject_cast<QThread *>(sender());
+    if (!m_truckManager)
+        return;
 
-    if (senderThread == m_shipThread)
+    const bool invoked = QMetaObject::invokeMethod(
+        m_truckManager,
+        [this]() {
+            qCDebug(lcController)
+                << "CargoNetSimController::queueTruckManagerStartup:"
+                << "currentThread=" << QThread::currentThread()
+                << "managerThread=" << m_truckManager->thread();
+            m_truckManager->initializeManager(
+                m_simulationTime, m_terminalClient, m_logger);
+        },
+        Qt::QueuedConnection);
+
+    if (!invoked)
     {
-        if (m_shipClient)
-        {
-            m_shipClient->initializeClient(m_simulationTime,
-                                           m_terminalClient,
-                                           m_logger);
+        qCCritical(lcController)
+            << "CargoNetSimController::queueTruckManagerStartup:"
+            << "failed to queue truck manager startup";
+    }
+}
+
+void CargoNetSimController::queueShipClientStartup()
+{
+    if (!m_shipClient)
+        return;
+
+    const bool invoked = QMetaObject::invokeMethod(
+        m_shipClient,
+        [this]() {
+            qCDebug(lcController)
+                << "CargoNetSimController::queueShipClientStartup:"
+                << "currentThread=" << QThread::currentThread()
+                << "clientThread=" << m_shipClient->thread();
+            m_shipClient->initializeClient(
+                m_simulationTime, m_terminalClient, m_logger);
             m_shipClient->connectToServer();
-        }
-    }
-    else if (senderThread == m_trainThread)
+        },
+        Qt::QueuedConnection);
+
+    if (!invoked)
     {
-        if (m_trainClient)
-        {
+        qCCritical(lcController)
+            << "CargoNetSimController::queueShipClientStartup:"
+            << "failed to queue ship client startup";
+    }
+}
+
+void CargoNetSimController::queueTrainClientStartup()
+{
+    if (!m_trainClient)
+        return;
+
+    const bool invoked = QMetaObject::invokeMethod(
+        m_trainClient,
+        [this]() {
+            qCDebug(lcController)
+                << "CargoNetSimController::queueTrainClientStartup:"
+                << "currentThread=" << QThread::currentThread()
+                << "clientThread=" << m_trainClient->thread();
             m_trainClient->initializeClient(
-                m_simulationTime, m_terminalClient,
-                m_logger);
+                m_simulationTime, m_terminalClient, m_logger);
             m_trainClient->connectToServer();
-        }
-    }
-    else if (senderThread == m_terminalThread)
+        },
+        Qt::QueuedConnection);
+
+    if (!invoked)
     {
-        if (m_terminalClient)
-        {
+        qCCritical(lcController)
+            << "CargoNetSimController::queueTrainClientStartup:"
+            << "failed to queue train client startup";
+    }
+}
+
+void CargoNetSimController::queueTerminalClientStartup()
+{
+    if (!m_terminalClient)
+        return;
+
+    const bool invoked = QMetaObject::invokeMethod(
+        m_terminalClient,
+        [this]() {
+            qCDebug(lcController)
+                << "CargoNetSimController::queueTerminalClientStartup:"
+                << "currentThread=" << QThread::currentThread()
+                << "clientThread=" << m_terminalClient->thread();
             m_terminalClient->initializeClient(
                 m_simulationTime, nullptr, m_logger);
             m_terminalClient->connectToServer();
-        }
-    }
-    else if (senderThread == m_truckThread)
+        },
+        Qt::QueuedConnection);
+
+    if (!invoked)
     {
-        if (m_truckManager)
-        {
-            m_truckManager->initializeManager(
-                m_simulationTime, m_terminalClient,
-                m_logger);
-        }
+        qCCritical(lcController)
+            << "CargoNetSimController::queueTerminalClientStartup:"
+            << "failed to queue terminal client startup";
     }
 }
 
@@ -408,8 +570,6 @@ bool CargoNetSimController::initializeTruckClient(
     m_truckManager->moveToThread(m_truckThread);
 
     // Connect thread signals
-    connect(m_truckThread, &QThread::started, this,
-            &CargoNetSimController::onThreadStarted);
     connect(m_truckThread, &QThread::finished, this,
             &CargoNetSimController::onThreadFinished);
 
@@ -441,8 +601,6 @@ bool CargoNetSimController::initializeShipClient()
     m_shipClient->moveToThread(m_shipThread);
 
     // Connect thread signals
-    connect(m_shipThread, &QThread::started, this,
-            &CargoNetSimController::onThreadStarted);
     connect(m_shipThread, &QThread::finished, this,
             &CargoNetSimController::onThreadFinished);
 
@@ -473,8 +631,6 @@ bool CargoNetSimController::initializeTrainClient()
     m_trainClient->moveToThread(m_trainThread);
 
     // Connect thread signals
-    connect(m_trainThread, &QThread::started, this,
-            &CargoNetSimController::onThreadStarted);
     connect(m_trainThread, &QThread::finished, this,
             &CargoNetSimController::onThreadFinished);
 
@@ -506,8 +662,6 @@ bool CargoNetSimController::initializeTerminalClient()
     m_terminalClient->moveToThread(m_terminalThread);
 
     // Connect thread signals
-    connect(m_terminalThread, &QThread::started, this,
-            &CargoNetSimController::onThreadStarted);
     connect(m_terminalThread, &QThread::finished, this,
             &CargoNetSimController::onThreadFinished);
 

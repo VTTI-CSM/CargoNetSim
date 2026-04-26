@@ -78,6 +78,10 @@ void SimulationClientBase::initializeClient(
     TerminalSimulationClient *terminalClient,
     LoggerInterface          *logger)
 {
+    qCDebug(lcClient) << "SimulationClientBase::initializeClient:"
+                      << getClientTypeString()
+                      << "currentThread=" << QThread::currentThread()
+                      << "objectThread=" << this->thread();
 
     // Set the SimulationTime and logger interface
     m_logger = logger;
@@ -142,6 +146,12 @@ bool SimulationClientBase::isConnected() const
  */
 bool SimulationClientBase::connectToServer()
 {
+    qCDebug(lcClient) << "SimulationClientBase::connectToServer:"
+                      << getClientTypeString()
+                      << "currentThread=" << QThread::currentThread()
+                      << "objectThread=" << this->thread()
+                      << "handlerExists="
+                      << (m_rabbitMQHandler != nullptr);
     // Check if m_rabbitMQHandler exists
     if (m_rabbitMQHandler == nullptr)
     {

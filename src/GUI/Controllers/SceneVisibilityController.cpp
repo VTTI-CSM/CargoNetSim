@@ -1,8 +1,7 @@
 #include "SceneVisibilityController.h"
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Scenario/NetworkLookup.h"
 #include "GUI/Items/BackgroundPhotoItem.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/GlobalTerminalItem.h"
@@ -48,10 +47,9 @@ void SceneVisibilityController::updateSceneVisibility()
         return;
     }
 
-    QString currentRegion =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getCurrentRegion();
+    Backend::Application::NetworkViewService networkView;
+    const QString currentRegion =
+        networkView.currentRegionName();
 
     for (auto item : m_regionScene->items())
     {
@@ -175,11 +173,9 @@ void SceneVisibilityController::showFilteredConnections(
         QList<TerminalItem *> terminals =
             scene->getItemsByType<TerminalItem>();
 
-        QString currentRegion =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegion();
+        Backend::Application::NetworkViewService networkView;
+        const QString currentRegion =
+            networkView.currentRegionName();
 
         for (TerminalItem *terminal : terminals)
         {
@@ -304,8 +300,9 @@ void SceneVisibilityController::changeNetworkVisibility(
 
     for (auto mapPoint : mapPoints)
     {
+        Backend::Application::NetworkViewService networkView;
         const QString name =
-            Backend::Scenario::NetworkLookup::networkNameOf(
+            networkView.networkNameOf(
                 mapPoint->getReferenceNetwork());
         if (!name.isEmpty())
             checkNetworkAndSetVisibility(name, mapPoint);
@@ -313,8 +310,9 @@ void SceneVisibilityController::changeNetworkVisibility(
 
     for (auto mapLine : mapLines)
     {
+        Backend::Application::NetworkViewService networkView;
         const QString name =
-            Backend::Scenario::NetworkLookup::networkNameOf(
+            networkView.networkNameOf(
                 mapLine->getReferenceNetwork());
         if (!name.isEmpty())
             checkNetworkAndSetVisibility(name, mapLine);
@@ -348,7 +346,8 @@ void SceneVisibilityController::changeNetworkColor(
 
     for (auto mapPoint : mapPoints)
     {
-        if (Backend::Scenario::NetworkLookup::networkNameOf(
+        Backend::Application::NetworkViewService networkView;
+        if (networkView.networkNameOf(
                 mapPoint->getReferenceNetwork())
             == networkName)
         {
@@ -358,7 +357,8 @@ void SceneVisibilityController::changeNetworkColor(
 
     for (auto mapLine : mapLines)
     {
-        if (Backend::Scenario::NetworkLookup::networkNameOf(
+        Backend::Application::NetworkViewService networkView;
+        if (networkView.networkNameOf(
                 mapLine->getReferenceNetwork())
             == networkName)
         {

@@ -1,7 +1,7 @@
 #include "ProjectSerializer.h"
+#include "Backend/Application/ScenarioPersistenceService.h"
 #include "Backend/Commons/LogCategories.h"
-
-#include "Backend/Scenario/ScenarioSerializer.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 
 namespace CargoNetSim {
 namespace GUI {
@@ -10,7 +10,8 @@ std::unique_ptr<Backend::Scenario::ScenarioDocument>
 ProjectSerializer::loadProject(const QString &path, QString *error)
 {
     qCInfo(lcGui) << "ProjectSerializer::loadProject:" << path;
-    auto doc = Backend::Scenario::ScenarioSerializer::fromYaml(path, error);
+    auto doc = Backend::Application::ScenarioPersistenceService()
+                   .loadYaml(path, error);
     if (!doc)
         qCWarning(lcGui) << "ProjectSerializer::loadProject: failed -"
                          << (error ? *error : "unknown error");
@@ -22,8 +23,8 @@ bool ProjectSerializer::saveProject(
     const QString &path, QString *error)
 {
     qCInfo(lcGui) << "ProjectSerializer::saveProject:" << path;
-    bool ok = Backend::Scenario::ScenarioSerializer::toYaml(doc, path,
-                                                            error);
+    bool ok = Backend::Application::ScenarioPersistenceService()
+                  .saveYaml(doc, path, error);
     if (!ok)
         qCWarning(lcGui) << "ProjectSerializer::saveProject: failed -"
                          << (error ? *error : "unknown error");

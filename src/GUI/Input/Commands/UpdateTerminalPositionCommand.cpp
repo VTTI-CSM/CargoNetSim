@@ -1,8 +1,8 @@
 #include "UpdateTerminalPositionCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -40,7 +40,7 @@ void UpdateTerminalPositionCommand::redo()
         m_oldLatLon = QPointF(it->latLon.longitude, it->latLon.latitude);
         m_captured  = true;
     }
-    Scenario::ScenarioMutator::updateTerminalPosition(
+    Backend::Application::ScenarioEditService::updateTerminalPosition(
         m_doc.data(), m_terminalId, m_newLatLon);
     qCInfo(lcGuiInputCmd) << "UpdateTerminalPositionCommand::redo"
                           << m_terminalId
@@ -51,7 +51,7 @@ void UpdateTerminalPositionCommand::redo()
 void UpdateTerminalPositionCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::updateTerminalPosition(
+    Backend::Application::ScenarioEditService::updateTerminalPosition(
         m_doc.data(), m_terminalId, m_oldLatLon);
     qCInfo(lcGuiInputCmd) << "UpdateTerminalPositionCommand::undo"
                           << m_terminalId

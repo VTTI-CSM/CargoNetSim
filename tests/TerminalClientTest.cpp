@@ -1,9 +1,9 @@
 #include <QTest>
+#include "Backend/Bootstrap/BackendBootstrapService.h"
 #include "Backend/Clients/TerminalClient/TerminalSimulationClient.h"
 #include "Backend/Models/Terminal.h"
 #include "Backend/Models/PathSegment.h"
 #include "Backend/Models/Path.h"
-#include "Backend/BackendInit.h"
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QThread>
@@ -771,9 +771,16 @@ int main(int argc, char *argv[])
     // client and must not boot the full controller stack, otherwise a
     // second TerminalSimulationClient competes on the same RabbitMQ
     // response queue.
-    CargoNetSim::Backend::initializeBackend("",
-                                            nullptr,
-                                            false);
+    const CargoNetSim::Backend::BackendBootstrapService
+        backendBootstrap;
+    const auto bootstrapResult = backendBootstrap.registerOnly();
+    if (!bootstrapResult.succeeded())
+    {
+        qCritical().noquote()
+            << QStringLiteral("TerminalClientTest bootstrap failed: %1")
+                   .arg(bootstrapResult.message);
+        return 1;
+    }
 
     // Create instance of the test class
     TerminalSimulationClientTest testObject;

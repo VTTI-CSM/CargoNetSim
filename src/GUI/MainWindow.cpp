@@ -2,15 +2,10 @@
 #include "GUI/Utils/ApplicationLogger.h"
 #include "Backend/Commons/LogCategories.h"
 
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/RegionDataController.h"
-#include "Backend/Scenario/Connection.h"
-#include "Backend/Scenario/GlobalLink.h"
-#include "Backend/Scenario/NodeLinkage.h"
-#include "Backend/Scenario/RegionSpec.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/ScenarioLoadService.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
-#include "Backend/Scenario/TerminalPlacement.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/MapPoint.h"
 #include "GUI/Scenario/ConnectionLineFactory.h"
@@ -66,7 +61,6 @@
 
 #include "Utils/IconCreator.h"
 
-#include "Backend/Controllers/CargoNetSimController.h"
 #include "Controllers/BasicButtonController.h"
 #include "Controllers/ConnectionController.h"
 #include "Controllers/NetworkController.h"
@@ -78,8 +72,6 @@
 #include "Controllers/TerminalController.h"
 #include "Controllers/ToolbarController.h"
 #include "Controllers/UtilityFunctions.h"
-#include "Backend/Scenario/NetworkLookup.h"
-
 #include "Serializers/ProjectSerializer.h"
 
 namespace CargoNetSim
@@ -297,6 +289,8 @@ MainWindow::MainWindow()
     // are wired below. Created before scenes/views because Task 1.13
     // keeps the bus lifetime >= any controller that references it.
     m_commandBus = new Input::CommandBus(this);
+    m_networkViewService =
+        new Backend::Application::NetworkViewService(nullptr, this);
 
     // SettingsController must be created BEFORE initializeUI()
     // because settingsWidget_ is created in initializeUI()
@@ -331,7 +325,7 @@ MainWindow::MainWindow()
     // Create an empty scenario with a default region.
     // This ensures runtime() is NEVER null during normal
     // operation — all terminal creation goes through the
-    // modern ScenarioMutator path with ScenarioDocument
+    // modern ScenarioEditService path with ScenarioDocument
     // binding.
     {
         auto doc = std::make_unique<
@@ -343,15 +337,17 @@ MainWindow::MainWindow()
         defaultRegion.localOrigin    = {0.0, 0.0};
         defaultRegion.globalPosition = {0.0, 0.0};
         doc->addRegion(defaultRegion);
-        auto runtime = std::make_unique<
-            Backend::Scenario::ScenarioRuntime>(
-            std::move(doc));
-        if (runtime->load())
-            setRuntime(std::move(runtime));
+
+        Backend::Application::ScenarioLoadService loadService;
+        auto loadResult =
+            loadService.loadFromDocument(std::move(doc));
+        if (loadResult.succeeded())
+            setRuntime(std::move(loadResult.runtime));
         else
             qCCritical(lcGui)
                 << "MainWindow: failed to initialize"
-                   " empty scenario at startup";
+                   " empty scenario at startup:"
+                << loadResult.message;
     }
 
     // Construct the two InteractionControllers now that scenes,
@@ -783,9 +779,9 @@ void MainWindow::subscribeDocumentObservers()
         });
 
     // Linkage lifecycle → MapPoint factory / removal. The owning region
-    // is the one whose RegionData::findNetworkByName (Task 5.5) answers
-    // non-null for the linkage's networkName — one dispatch helper does
-    // the "rail or truck" disambiguation on our behalf.
+    // is resolved through Backend::Application::NetworkViewService so the
+    // GUI no longer walks RegionDataController directly just to project a
+    // linkage's backing node.
     connect(doc, &ScenarioDocument::linkageAdded, this,
             [this, regionScene](const NodeLinkage &link) {
                 // Find-or-create. When a network has already been
@@ -810,21 +806,16 @@ void MainWindow::subscribeDocumentObservers()
                 }
                 if (!mp)
                 {
-                    auto *rdc = CargoNetSim::CargoNetSimController
-                                    ::getInstance().getRegionDataController();
-                    if (!rdc || !regionScene || !stored) return;
-                    // Walk regions to find the one hosting this network
-                    // so the factory can project the node's coordinates.
-                    for (auto it = m_runtime->document().regions.begin();
-                         it != m_runtime->document().regions.end(); ++it)
-                    {
-                        auto *rd = rdc->getRegionData(it.key());
-                        if (!rd) continue;
-                        if (!rd->findNetworkByName(link.networkName)) continue;
+                    if (!regionScene || !stored) return;
+                    Backend::Application::NetworkViewService
+                        networkView;
+                    const QString regionName =
+                        networkView.owningRegionName(
+                            m_runtime->document(),
+                            link.networkName);
+                    if (!regionName.isEmpty())
                         mp = GUI::Scenario::MapPointFactory::fromNodeLinkage(
-                            stored, rd, regionScene, this);
-                        break;
-                    }
+                            stored, regionName, regionScene, this);
                     return;
                 }
                 // Existing MapPoint → bind model + visual terminal.
@@ -2066,10 +2057,9 @@ void MainWindow::assignSelectedToCurrentRegion()
         }
 
         QString currentRegion =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegion();
+            networkViewService()
+                ? networkViewService()->currentRegionName()
+                : QString();
 
         // Handle items with a 'region' property
         if (item->type() == QGraphicsItem::UserType + 1)
@@ -2332,8 +2322,8 @@ void MainWindow::flashPathLines(const QString &pathKey)
 
             Backend::NetworkKind kind{};
             const QString        networkName =
-                Backend::Scenario::NetworkLookup::networkNameOf(
-                    networkObj, &kind);
+                Backend::Application::NetworkViewService()
+                    .networkNameOf(networkObj, &kind);
             // Sanity: the point's referenced network must match the
             // flash-path's declared network type.
             const bool kindMatches =
@@ -2432,10 +2422,9 @@ void MainWindow::addBackgroundPhoto()
         const QString  region =
             isGlobal
                 ? QStringLiteral("global")
-                : CargoNetSim::CargoNetSimController::
-                      getInstance()
-                          .getRegionDataController()
-                          ->getCurrentRegion();
+                : (networkViewService()
+                       ? networkViewService()->currentRegionName()
+                       : QString());
 
         const QPointF viewCenter =
             view->mapToScene(view->viewport()->rect().center());

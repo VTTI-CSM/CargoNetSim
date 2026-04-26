@@ -16,6 +16,8 @@
 #include "Backend/Scenario/ScenarioRegistry.h"
 #include "Backend/Scenario/SimulatorCommandAvailability.h"
 
+#include <QThread>
+
 namespace CargoNetSim {
 namespace Backend {
 namespace Scenario {
@@ -114,8 +116,24 @@ QList<CargoNetSim::Backend::Path *> PathDiscovery::findTopPaths(
 
     if (!isCommandAvailable(terminalClient))
     {
+        auto *handler = terminalClient->getRabbitMQHandler();
+        auto *clientThread =
+            qobject_cast<QThread *>(terminalClient->thread());
         qCCritical(lcScenario) << "PathDiscovery::findTopPaths:"
-                               << "TerminalSim command queue is unavailable";
+                               << "TerminalSim command queue is unavailable"
+                               << "clientThread=" << terminalClient->thread()
+                               << "clientThreadRunning="
+                               << (clientThread ? clientThread->isRunning()
+                                                : false)
+                               << "clientConnected="
+                               << terminalClient->isConnected()
+                               << "handler=" << handler
+                               << "handlerConnected="
+                               << (handler ? handler->isConnected() : false)
+                               << "handlerHasConsumers="
+                               << (handler
+                                       ? handler->hasCommandQueueConsumers()
+                                       : false);
         if (err)
             *err = QStringLiteral(
                 "TerminalSim command queue is unavailable");

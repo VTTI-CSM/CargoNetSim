@@ -55,6 +55,39 @@ set(Backend_SOURCES
     Controllers/ConfigController.h
     Controllers/ConfigController.cpp
 
+    # Application
+    Application/PreparedPathService.h
+    Application/PreparedPathService.cpp
+    Application/AvailabilityService.h
+    Application/AvailabilityService.cpp
+    Application/NetworkManagementService.h
+    Application/NetworkManagementService.cpp
+    Application/NetworkViewService.h
+    Application/NetworkViewService.cpp
+    Application/PathPresentationService.h
+    Application/PathPresentationService.cpp
+    Application/ScenarioLoadService.h
+    Application/ScenarioLoadService.cpp
+    Application/ScenarioPreviewService.h
+    Application/ScenarioPreviewService.cpp
+    Application/ScenarioEditService.h
+    Application/ScenarioEditService.cpp
+    Application/ScenarioPersistenceService.h
+    Application/ScenarioPersistenceService.cpp
+    Application/SimulationRunService.h
+    Application/SimulationRunService.cpp
+    Application/RouteAuthoringService.h
+    Application/RouteAuthoringService.cpp
+
+    # Bootstrap
+    Bootstrap/BackendBootstrapService.h
+    Bootstrap/BackendBootstrapService.cpp
+
+    # CLI API
+    CliApi/ResultsApi.h
+    CliApi/ScenarioDocumentApi.h
+    CliApi/ValidationApi.h
+
     # Clients
 
     # BaseClient
@@ -215,7 +248,6 @@ set(Backend_SOURCES
     Scenario/TerminalTypeDefaults.cpp
     Scenario/TruckFleetSpec.h
     Scenario/ValidationIssue.h
-
 
     # Initialization
     BackendInit.h

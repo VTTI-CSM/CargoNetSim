@@ -1,7 +1,6 @@
 #include "NetworkMoveDialog.h"
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/RegionDataController.h"
 #include "GUI/MainWindow.h"
 #include <QLocale>
 
@@ -175,33 +174,29 @@ void NetworkMoveDialog::populateNetworkLists()
     trainNetworkCombo->clear();
     truckNetworkCombo->clear();
 
-    // Get region data
-    Backend::RegionData *regionData =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getRegionData(regionName);
-
-    if (!regionData)
-    {
-        qCWarning(lcGuiNetwork) << "NetworkMoveDialog::populateNetworkLists: null regionData for"
-                             << regionName;
-        return;
-    }
+    Backend::Application::NetworkViewService networkView;
 
     // Populate train networks
-    QStringList trainNetworks =
-        regionData->getTrainNetworks();
+    const QStringList trainNetworks =
+        networkView.trainNetworkNames(regionName);
     for (const QString &name : trainNetworks)
     {
         trainNetworkCombo->addItem(name);
     }
 
     // Populate truck networks
-    QStringList truckNetworks =
-        regionData->getTruckNetworks();
+    const QStringList truckNetworks =
+        networkView.truckNetworkNames(regionName);
     for (const QString &name : truckNetworks)
     {
         truckNetworkCombo->addItem(name);
+    }
+
+    if (trainNetworks.isEmpty() && truckNetworks.isEmpty())
+    {
+        qCWarning(lcGuiNetwork)
+            << "NetworkMoveDialog::populateNetworkLists:"
+            << "no networks found for region" << regionName;
     }
 
     // Update visibility of group boxes

@@ -1,8 +1,9 @@
 #include "NetworkDrawingController.h"
+#include "Backend/Application/ScenarioEditService.h"
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/Units.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Controllers/RegionDataController.h"
-#include "Backend/Scenario/NetworkLookup.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Controllers/TerminalController.h"
 #include "GUI/Controllers/UtilityFunctions.h"
 #include "GUI/Items/MapLine.h"
@@ -10,9 +11,7 @@
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ItemEventBinder.h"
-#include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Utils/ColorUtils.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
@@ -58,24 +57,26 @@ NetworkDrawingController::NetworkDrawingController(
 // ── public ──────────────────────────────────────────────
 
 void NetworkDrawingController::drawNetwork(
-    Backend::RegionData *regionData,
-    NetworkType          networkType,
-    QString             &networkName,
-    bool                 skipTerminalCreation)
+    const QString &regionName,
+    NetworkType    networkType,
+    const QString &networkName,
+    bool           skipTerminalCreation)
 {
     qCInfo(lcGuiView) << "NetworkDrawingController::drawNetwork:"
+                      << "region=" << regionName
                       << "network=" << networkName
                       << "type=" << static_cast<int>(networkType);
 
-    if (!regionData)
+    Backend::Application::NetworkViewService networkView;
+    const auto resolved =
+        networkView.resolveNetworkView(regionName, networkName);
+    if (!resolved)
     {
         qCWarning(lcGuiView)
             << "NetworkDrawingController::drawNetwork:"
-            << "null regionData, returning";
+            << "network not found for region, returning";
         return;
     }
-
-    QString regionName = regionData->getRegion();
     QColor  linksColor = ColorUtils::getRandomColor();
 
     m_status->storeButtons();
@@ -84,15 +85,17 @@ void NetworkDrawingController::drawNetwork(
 
     if (networkType == NetworkType::Train)
     {
-        auto network =
-            regionData->getTrainNetwork(networkName);
+        auto network = qobject_cast<
+            Backend::TrainClient::NeTrainSimNetwork *>(
+            resolved->networkObject);
         drawTrainNetwork(network, regionName, linksColor,
                          skipTerminalCreation, networkName);
     }
     else if (networkType == NetworkType::Truck)
     {
-        auto network =
-            regionData->getTruckNetworkConfig(networkName);
+        auto network = qobject_cast<
+            Backend::TruckClient::IntegrationSimulationConfig *>(
+            resolved->networkObject);
         drawTruckNetwork(network, regionName, linksColor);
     }
 
@@ -101,29 +104,32 @@ void NetworkDrawingController::drawNetwork(
 }
 
 void NetworkDrawingController::removeNetwork(
-    NetworkType          networkType,
-    Backend::RegionData *regionData,
-    QString             &networkName)
+    NetworkType    networkType,
+    const QString &regionName,
+    const QString &networkName)
 {
     qCDebug(lcGuiView)
         << "NetworkDrawingController::removeNetwork:"
+        << "region=" << regionName
         << "network=" << networkName
         << "type=" << static_cast<int>(networkType);
 
-    if (!regionData)
+    Backend::Application::NetworkViewService networkView;
+    const auto resolved =
+        networkView.resolveNetworkView(regionName, networkName);
+    if (!resolved)
     {
         qCWarning(lcGuiView)
             << "NetworkDrawingController::removeNetwork:"
-            << "null regionData, returning";
+            << "network not found";
         return;
     }
-
-    QString regionName = regionData->getRegion();
 
     if (networkType == NetworkType::Train)
     {
         Backend::TrainClient::NeTrainSimNetwork *network =
-            regionData->getTrainNetwork(networkName);
+            qobject_cast<Backend::TrainClient::NeTrainSimNetwork *>(
+                resolved->networkObject);
         if (!network)
         {
             qCWarning(lcGuiView)
@@ -163,7 +169,8 @@ void NetworkDrawingController::removeNetwork(
     else if (networkType == NetworkType::Truck)
     {
         Backend::TruckClient::IntegrationNetwork *network =
-            regionData->getTruckNetwork(networkName);
+            qobject_cast<Backend::TruckClient::IntegrationNetwork *>(
+                resolved->networkObject);
         if (!network)
         {
             qCWarning(lcGuiView)
@@ -234,10 +241,10 @@ bool NetworkDrawingController::moveNetworkItems(
         if (!refNetwork)
             continue;
 
+        Backend::Application::NetworkViewService networkView;
         Backend::NetworkKind kind{};
         const QString name =
-            Backend::Scenario::NetworkLookup::networkNameOf(
-                refNetwork, &kind);
+            networkView.networkNameOf(refNetwork, &kind);
         const bool isTargetNetwork =
             (name == networkName)
             && ((networkType == NetworkType::Train
@@ -275,10 +282,10 @@ bool NetworkDrawingController::moveNetworkItems(
         if (!refNetwork)
             continue;
 
+        Backend::Application::NetworkViewService networkView;
         Backend::NetworkKind kind{};
         const QString name =
-            Backend::Scenario::NetworkLookup::networkNameOf(
-                refNetwork, &kind);
+            networkView.networkNameOf(refNetwork, &kind);
         const bool isTargetNetwork =
             (name == networkName)
             && ((networkType == NetworkType::Train
@@ -313,7 +320,7 @@ bool NetworkDrawingController::moveNetworkItems(
 
 void NetworkDrawingController::drawTrainNetwork(
     Backend::TrainClient::NeTrainSimNetwork *network,
-    QString &regionName, QColor &linksColor,
+    const QString &regionName, QColor &linksColor,
     bool skipTerminalCreation,
     const QString &networkName)
 {
@@ -399,7 +406,7 @@ void NetworkDrawingController::drawTrainNetwork(
             point->setLinkedTerminal(terminal);
             if (terminal && m_mainWindow->runtime())
             {
-                GUI::Scenario::ScenarioMutator::linkTerminalToNode(
+                Backend::Application::ScenarioEditService::linkTerminalToNode(
                     &m_mainWindow->runtime()->document(),
                     terminal->sceneRegistryKey(),
                     networkName,
@@ -479,7 +486,7 @@ void NetworkDrawingController::drawTrainNetwork(
 void NetworkDrawingController::drawTruckNetwork(
     Backend::TruckClient::IntegrationSimulationConfig
             *networkConfig,
-    QString &regionName, QColor &linksColor)
+    const QString &regionName, QColor &linksColor)
 {
     if (!networkConfig)
     {
@@ -580,7 +587,7 @@ MapPoint *NetworkDrawingController::drawNode(
     const QString &networkNodeID,
     const QString &nodeUniqueID,
     QPointF        projectedPoint,
-    QString       &regionName,
+    const QString &regionName,
     QColor         color,
     const QMap<QString, QVariant> &properties)
 {
@@ -618,7 +625,7 @@ MapLine *NetworkDrawingController::drawLink(
     const QString &linkUniqueID,
     QPointF        projectedStartPoint,
     QPointF        projectedEndPoint,
-    QString       &regionName,
+    const QString &regionName,
     QColor         color,
     const QMap<QString, QVariant> &properties)
 {

@@ -1,8 +1,8 @@
 #include "UnlinkTerminalCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -47,7 +47,7 @@ void UnlinkTerminalCommand::redo()
             return;
         }
     }
-    Scenario::ScenarioMutator::unlinkTerminalFromNode(
+    Backend::Application::ScenarioEditService::unlinkTerminalFromNode(
         m_doc.data(), m_terminalId, m_networkName, m_nodeId);
     qCInfo(lcGuiInputCmd) << "UnlinkTerminalCommand::redo"
                           << m_terminalId << m_networkName << "node=" << m_nodeId;
@@ -56,7 +56,8 @@ void UnlinkTerminalCommand::redo()
 void UnlinkTerminalCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::restoreLinkage(m_doc.data(), m_snapshot);
+    Backend::Application::ScenarioEditService::restoreLinkage(
+        m_doc.data(), m_snapshot);
     qCInfo(lcGuiInputCmd) << "UnlinkTerminalCommand::undo"
                           << m_terminalId << m_networkName << "node=" << m_nodeId;
 }

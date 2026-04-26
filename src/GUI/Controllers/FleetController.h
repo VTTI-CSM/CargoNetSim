@@ -17,12 +17,12 @@ public:
     explicit FleetController(MainWindow *mainWindow,
                              QObject    *parent = nullptr);
 
-    /// Append @p paths to doc.fleet.trainsFiles and write back through
-    /// ScenarioMutator. No-op if paths is empty or runtime is null.
+    /// Append @p paths to doc.fleet.trainsFiles and write back through the
+    /// backend editing service. No-op if paths is empty or runtime is null.
     void appendTrainFiles(const QStringList &paths);
 
-    /// Append @p paths to doc.fleet.shipsFiles and write back through
-    /// ScenarioMutator. No-op if paths is empty or runtime is null.
+    /// Append @p paths to doc.fleet.shipsFiles and write back through the
+    /// backend editing service. No-op if paths is empty or runtime is null.
     void appendShipFiles(const QStringList &paths);
 
 private:

@@ -15,10 +15,8 @@
 #include <QStyleOptionGraphicsItem>
 #include <cmath>
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/Connection.h"
-#include "Backend/Scenario/GlobalLink.h"
-#include "Backend/Scenario/RouteMetricUnits.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Input/ClickContext.h"
 #include "GUI/Input/Commands/DeleteItemCommand.h"
 

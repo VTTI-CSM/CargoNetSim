@@ -1,14 +1,13 @@
 #include "NetworkController.h"
 #include "../MainWindow.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/RegionDataController.h"
-#include "Backend/Scenario/NetworkSpec.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Application/NetworkManagementService.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/ScenarioEditService.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Controllers/UtilityFunctions.h"
 #include "GUI/Controllers/SceneVisibilityController.h"
 #include "GUI/Controllers/NetworkDrawingController.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 
 #include <QColor>
 #include <QFileDialog>
@@ -25,32 +24,52 @@ namespace CargoNetSim
 namespace GUI
 {
 
+namespace
+{
+
+CargoNetSim::Backend::NetworkKind toNetworkKind(
+    CargoNetSim::GUI::NetworkType type)
+{
+    switch (type)
+    {
+    case CargoNetSim::GUI::NetworkType::Train:
+        return CargoNetSim::Backend::NetworkKind::Rail;
+    case CargoNetSim::GUI::NetworkType::Truck:
+        return CargoNetSim::Backend::NetworkKind::Truck;
+    case CargoNetSim::GUI::NetworkType::Ship:
+        break;
+    }
+
+    throw std::runtime_error(
+        "Ship network operations are not supported yet.");
+}
+
+} // namespace
+
 QString NetworkController::importNetwork(
     MainWindow *mainWindow, NetworkType networkType,
-    Backend::RegionData *regionData)
+    const QString &regionName)
 {
+    if (!mainWindow || regionName.isEmpty())
+        return QString();
+
+    Backend::Application::NetworkViewService viewService;
+    Backend::Application::NetworkManagementService
+        managementService;
+
     qCDebug(lcGuiNetwork) << "NetworkController::importNetwork:"
                           << "type=" << static_cast<int>(networkType)
-                          << "region=" << regionData->getRegion();
+                          << "region=" << regionName;
     // Add validation logic to check for existing networks
     // first
     QStringList networkNames;
     if (networkType == NetworkType::Train)
-    {
-        networkNames = regionData->getTrainNetworks();
-    }
+        networkNames = viewService.trainNetworkNames(regionName);
     else if (networkType == NetworkType::Truck)
-    {
-        networkNames = regionData->getTruckNetworks();
-    }
+        networkNames = viewService.truckNetworkNames(regionName);
     else if (networkType == NetworkType::Ship)
-    {
-        qCWarning(lcGuiNetwork) << "NetworkController::importNetwork:"
-                                << "Ship network import not supported";
         throw std::runtime_error(
             "Ship network import is not supported yet.");
-        return "";
-    }
 
     // Check for existing network - same check as in
     // NetworkManagerDialog
@@ -58,7 +77,7 @@ QString NetworkController::importNetwork(
     {
         qCWarning(lcGuiNetwork) << "NetworkController::importNetwork:"
                                 << "network already exists for region"
-                                << regionData->getRegion();
+                                << regionName;
         QString typeString =
             getNetworkTypeString(networkType);
         QMessageBox::warning(
@@ -66,7 +85,7 @@ QString NetworkController::importNetwork(
             QString(
                 "One %1 Network is allowed for region '%2'")
                 .arg(typeString.toLower())
-                .arg(regionData->getRegion()));
+                .arg(regionName));
         return QString();
     }
 
@@ -97,7 +116,8 @@ QString NetworkController::importNetwork(
         // Check for name conflicts
         try
         {
-            if (regionData->checkNetworkNameConflict(
+            if (managementService.checkNetworkNameConflict(
+                    regionName,
                     networkName))
             {
                 qCDebug(lcGuiNetwork) << "NetworkController::importNetwork:"
@@ -123,13 +143,13 @@ QString NetworkController::importNetwork(
     if (networkType == NetworkType::Train)
     {
         if (NetworkController::importTrainNetwork(
-                mainWindow, regionData, networkName))
+                mainWindow, regionName, networkName))
             return networkName;
     }
     else if (networkType == NetworkType::Truck)
     {
         if (NetworkController::importTruckNetwork(
-                mainWindow, regionData, networkName))
+                mainWindow, regionName, networkName))
             return networkName;
     }
 
@@ -170,17 +190,17 @@ void recordNetworkInDocument(
         spec.referencePoint.x = origin.longitude;
         spec.referencePoint.y = origin.latitude;
     }
-    if (!GUI::Scenario::ScenarioMutator::addNetwork(&doc, regionName, spec))
+    if (!Backend::Application::ScenarioEditService::addNetwork(&doc, regionName, spec))
         qCWarning(lcGuiNetwork)
             << "recordNetworkInDocument:"
-            << "ScenarioMutator::addNetwork failed for"
+            << "ScenarioEditService::addNetwork failed for"
             << networkName;
 }
 
 } // namespace
 
 bool NetworkController::importTrainNetwork(
-    MainWindow *mainWindow, Backend::RegionData *regionData,
+    MainWindow *mainWindow, const QString &regionName,
     QString &networkName)
 {
     // Select node file
@@ -215,25 +235,28 @@ bool NetworkController::importTrainNetwork(
                          << "starting import" << networkName;
     try
     {
+        Backend::Application::NetworkManagementService
+            managementService;
         qCDebug(lcRail) << "[RailLoad] importTrainNetwork: calling"
                     " addTrainNetwork, name=" << networkName;
         // load the network
-        regionData->addTrainNetwork(networkName, nodeFile,
-                                    linkFile);
+        if (!managementService.addTrainNetwork(
+                regionName, networkName, nodeFile, linkFile))
+            return false;
         qCDebug(lcRail) << "[RailLoad] importTrainNetwork:"
                     " addTrainNetwork returned";
         // Draw the network on map
         qCDebug(lcRail) << "[RailLoad] importTrainNetwork: calling"
                     " drawNetwork";
         mainWindow->networkDrawing()->drawNetwork(
-            regionData, NetworkType::Train, networkName);
+            regionName, NetworkType::Train, networkName);
         qCDebug(lcRail) << "[RailLoad] importTrainNetwork:"
                     " drawNetwork returned";
 
         // Record the declaration in the ScenarioDocument so save/CLI
         // paths see what the GUI just imported. No-op without runtime.
         recordNetworkInDocument(
-            mainWindow, regionData->getRegion(), networkName,
+            mainWindow, regionName, networkName,
             Backend::NetworkKind::Rail,
             {{QStringLiteral("nodes"), nodeFile},
              {QStringLiteral("links"), linkFile}});
@@ -253,7 +276,7 @@ bool NetworkController::importTrainNetwork(
 }
 
 bool NetworkController::importTruckNetwork(
-    MainWindow *mainWindow, Backend::RegionData *regionData,
+    MainWindow *mainWindow, const QString &regionName,
     QString &networkName)
 {
     // Select node file
@@ -274,18 +297,21 @@ bool NetworkController::importTruckNetwork(
                          << "file=" << configFile;
     try
     {
+        Backend::Application::NetworkManagementService
+            managementService;
         // load the network
-        regionData->addTruckNetwork(networkName,
-                                    configFile);
+        if (!managementService.addTruckNetwork(
+                regionName, networkName, configFile))
+            return false;
 
         // Draw the network on map
         mainWindow->networkDrawing()->drawNetwork(
-            regionData, NetworkType::Truck, networkName);
+            regionName, NetworkType::Truck, networkName);
 
         // Record in document for CLI/GUI convergence (see
         // importTrainNetwork comment).
         recordNetworkInDocument(
-            mainWindow, regionData->getRegion(), networkName,
+            mainWindow, regionName, networkName,
             Backend::NetworkKind::Truck,
             {{QStringLiteral("config"), configFile}});
 
@@ -318,37 +344,30 @@ NetworkController::getNetworkTypeString(NetworkType type)
 
 bool NetworkController::removeNetwork(
     MainWindow *mainWindow, NetworkType networkType,
-    QString &networkName, Backend::RegionData *regionData)
+    QString &networkName, const QString &regionName)
 {
+    if (!mainWindow || regionName.isEmpty())
+        return false;
+
     // handle the visual delete first since it depends on
     // the backend
     mainWindow->networkDrawing()->removeNetwork(
-        networkType, regionData, networkName);
+        networkType, regionName, networkName);
 
     // remove the network from the backend
-    bool ok = false;
-    if (networkType == NetworkType::Train)
-    {
-        ok = regionData->removeTrainNetwork(networkName);
-    }
-    else if (networkType == NetworkType::Truck)
-    {
-        ok = regionData->removeTruckNetwork(networkName);
-    }
-    else if (networkType == NetworkType::Ship)
-    {
-        throw std::runtime_error(
-            "Ship network removal is not supported yet.");
-    }
+    Backend::Application::NetworkManagementService
+        managementService;
+    bool ok = managementService.removeNetwork(
+        regionName, networkName, toNetworkKind(networkType));
 
     if (ok && mainWindow && mainWindow->runtime())
     {
-        if (!GUI::Scenario::ScenarioMutator::removeNetwork(
+        if (!Backend::Application::ScenarioEditService::removeNetwork(
                 &mainWindow->runtime()->document(),
-                regionData->getRegion(), networkName))
+                regionName, networkName))
             qCWarning(lcGuiNetwork)
                 << "NetworkController::removeNetwork:"
-                << "ScenarioMutator::removeNetwork failed for"
+                << "ScenarioEditService::removeNetwork failed for"
                 << networkName;
     }
     return ok;
@@ -357,31 +376,19 @@ bool NetworkController::removeNetwork(
 bool NetworkController::renameNetwork(
     MainWindow *mainWindow, NetworkType networkType,
     const QString &oldName, const QString &newName,
-    Backend::RegionData *regionData)
+    const QString &regionName)
 {
-    if (!mainWindow || !regionData)
+    if (!mainWindow || regionName.isEmpty())
         return false;
 
     try
     {
+        Backend::Application::NetworkManagementService
+            managementService;
         // Check if network exists
-        bool networkExists = false;
-        if (networkType == NetworkType::Train)
-        {
-            networkExists =
-                regionData->trainNetworkExists(newName);
-        }
-        else if (networkType == NetworkType::Truck)
-        {
-            networkExists =
-                regionData->truckNetworkExists(newName);
-        }
-        else if (networkType == NetworkType::Ship)
-        {
-            throw std::runtime_error(
-                "Ship network rename is not supported "
-                "yet.");
-        }
+        const bool networkExists =
+            managementService.networkExists(
+                regionName, newName, toNetworkKind(networkType));
 
         if (networkExists && newName != oldName)
         {
@@ -399,22 +406,9 @@ bool NetworkController::renameNetwork(
         try
         {
             // Rename network based on type
-            if (networkType == NetworkType::Train)
-            {
-                success = regionData->renameTrainNetwork(
-                    oldName, newName);
-            }
-            else if (networkType == NetworkType::Truck)
-            {
-                success = regionData->renameTruckNetwork(
-                    oldName, newName);
-            }
-            else if (networkType == NetworkType::Ship)
-            {
-                throw std::runtime_error(
-                    "Ship network rename is not supported "
-                    "yet.");
-            }
+            success = managementService.renameNetwork(
+                regionName, oldName, newName,
+                toNetworkKind(networkType));
         }
         catch (std::exception &e)
         {
@@ -429,12 +423,12 @@ bool NetworkController::renameNetwork(
         {
             if (mainWindow && mainWindow->runtime())
             {
-                if (!GUI::Scenario::ScenarioMutator::renameNetwork(
+                if (!Backend::Application::ScenarioEditService::renameNetwork(
                         &mainWindow->runtime()->document(),
-                        regionData->getRegion(), oldName, newName))
+                        regionName, oldName, newName))
                     qCWarning(lcGuiNetwork)
                         << "NetworkController::renameNetwork:"
-                        << "ScenarioMutator::renameNetwork failed for"
+                        << "ScenarioEditService::renameNetwork failed for"
                         << oldName << "->" << newName;
             }
         }
@@ -454,38 +448,22 @@ bool NetworkController::renameNetwork(
 bool NetworkController::changeNetworkColor(
     MainWindow *mainWindow, NetworkType networkType,
     const QString &networkName, const QColor &newColor,
-    Backend::RegionData *regionData)
+    const QString &regionName)
 {
-    if (!mainWindow || !regionData || !newColor.isValid())
+    if (!mainWindow || regionName.isEmpty()
+        || !newColor.isValid())
         return false;
 
     try
     {
-        BaseNetwork *network = nullptr;
+        Backend::Application::NetworkManagementService
+            managementService;
 
-        // Get network based on type
-        if (networkType == NetworkType::Train)
+        if (managementService.setNetworkVariable(
+                regionName, networkName,
+                toNetworkKind(networkType),
+                QStringLiteral("color"), newColor))
         {
-            network =
-                regionData->getTrainNetwork(networkName);
-        }
-        else if (networkType == NetworkType::Truck)
-        {
-            network =
-                regionData->getTruckNetwork(networkName);
-        }
-        else if (networkType == NetworkType::Ship)
-        {
-            throw std::runtime_error(
-                "Ship network color is not "
-                "supported yet.");
-        }
-
-        if (network)
-        {
-            // Set the color variable
-            network->setVariable("color", newColor);
-
             // Update color of all network items in the
             // scene
             mainWindow->sceneVisibility()->changeNetworkColor(
@@ -515,40 +493,11 @@ CargoNetSim::Backend::ShortestPathResult CargoNetSim::GUI::
 {
     try
     {
-        if (networkType
-            == CargoNetSim::GUI::NetworkType::Train)
-        {
-            auto network =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getRegionData(regionName)
-                        ->getTrainNetwork(networkName);
-
-            // Find the shortest path
-            return network->findShortestPath(startNodeId,
-                                             endNodeId);
-        }
-        else if (networkType
-                 == CargoNetSim::GUI::NetworkType::Truck)
-        {
-            auto network =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getRegionData(regionName)
-                        ->getTruckNetwork(networkName);
-
-            return network->findShortestPath(startNodeId,
-                                             endNodeId);
-        }
-        else if (networkType
-                 == CargoNetSim::GUI::NetworkType::Ship)
-        {
-            throw std::runtime_error(
-                "Ship network shortest path is not "
-                "supported yet.");
-        }
+        Backend::Application::NetworkManagementService
+            managementService;
+        return managementService.findShortestPath(
+            regionName, networkName, toNetworkKind(networkType),
+            startNodeId, endNodeId);
     }
     catch (const std::exception &e)
     {
@@ -567,33 +516,23 @@ bool NetworkController::clearAllNetworks(
         return false;
     }
 
-    auto regionController =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController();
-    auto regionNames =
-        regionController->getAllRegionNames();
+    Backend::Application::NetworkViewService viewService;
+    const auto regionNames = viewService.regionNames();
 
     for (auto regionName : regionNames)
     {
-        Backend::RegionData *regionData =
-            regionController->getRegionData(regionName);
-        if (regionData)
+        for (const auto &netName :
+             viewService.trainNetworkNames(regionName))
         {
-            for (auto netName :
-                 regionData->getTrainNetworks())
-            {
-                // Remove the network from the canvas
-                mainWindow->networkDrawing()->removeNetwork(
-                    NetworkType::Train, regionData, netName);
-            }
+            mainWindow->networkDrawing()->removeNetwork(
+                NetworkType::Train, regionName, netName);
+        }
 
-            for (auto netName :
-                 regionData->getTruckNetworks())
-            {
-                // Remove the network from the canvas
-                mainWindow->networkDrawing()->removeNetwork(
-                    NetworkType::Truck, regionData, netName);
-            }
+        for (const auto &netName :
+             viewService.truckNetworkNames(regionName))
+        {
+            mainWindow->networkDrawing()->removeNetwork(
+                NetworkType::Truck, regionName, netName);
         }
     }
 
@@ -650,34 +589,18 @@ QList<MapLine *> NetworkController::getShortestPathMapLines(
 bool NetworkController::moveNetwork(
     MainWindow *mainWindow, NetworkType networkType,
     const QString &networkName, const QPointF &offset,
-    Backend::RegionData *regionData)
+    const QString &regionName)
 {
-    if (!mainWindow || !regionData)
+    if (!mainWindow || regionName.isEmpty())
         return false;
 
     try
     {
-        // Get the network based on type
-        BaseNetwork *network = nullptr;
-
-        if (networkType == NetworkType::Train)
-        {
-            network =
-                regionData->getTrainNetwork(networkName);
-        }
-        else if (networkType == NetworkType::Truck)
-        {
-            network =
-                regionData->getTruckNetwork(networkName);
-        }
-        else if (networkType == NetworkType::Ship)
-        {
-            throw std::runtime_error(
-                "Ship network moving is not supported "
-                "yet.");
-        }
-
-        if (!network)
+        Backend::Application::NetworkManagementService
+            managementService;
+        if (!managementService.networkExists(
+                regionName, networkName,
+                toNetworkKind(networkType)))
             return false;
 
         // Perform the actual movement through the
@@ -685,7 +608,7 @@ bool NetworkController::moveNetwork(
         bool success =
             mainWindow->networkDrawing()->moveNetworkItems(
                 networkType, networkName, offset,
-                regionData->getRegion());
+                regionName);
 
         if (success)
         {

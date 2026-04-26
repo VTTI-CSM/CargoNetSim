@@ -13,7 +13,7 @@
 
 #include "PathComparisonDialog.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/PropertyKeys.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
 #include "GUI/Utils/IconCreator.h" // For icon utilities
 #include "qcoreapplication.h"
 #include <QFileDialog>
@@ -31,8 +31,7 @@ namespace GUI
 namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
 
 PathComparisonDialog::PathComparisonDialog(
-    const QList<const ShortestPathsTable::PathData *>
-            &pathData,
+    const QList<const PathData *> &pathData,
     QWidget *parent)
     : QDialog(parent)
     , m_pathData(pathData)
@@ -126,8 +125,7 @@ QWidget *PathComparisonDialog::createSummaryTab()
     {
         if (path && path->path)
         {
-            headers << tr("Path %1").arg(
-                path->path->getPathId());
+            headers << m_viewModel.pathSummary(path).pathLabel;
         }
         else
         {
@@ -150,27 +148,26 @@ QWidget *PathComparisonDialog::createSummaryTab()
 
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
+
             // Path ID
-            pathData << QString::number(
-                path->path->getPathId());
+            pathData << QString::number(summary.pathId);
 
             // Total terminals
-            pathData << QString::number(
-                path->path->getTerminalsInPath().size());
+            pathData << QString::number(summary.terminalCount);
 
             // Total segments
-            pathData << QString::number(
-                path->path->getSegments().size());
+            pathData << QString::number(summary.segmentCount);
 
             // Predicted cost
             pathData << QString::number(
-                path->path->getTotalPathCost(), 'f', 2);
+                summary.predictedTotalCost, 'f', 2);
 
             // Actual cost
-            if (path->m_totalSimulationPathCost >= 0)
+            if (path->hasSimulationTotalCost())
             {
                 pathData << QString::number(
-                    path->m_totalSimulationPathCost, 'f',
+                    path->simulationTotalCost, 'f',
                     2);
             }
             else
@@ -182,9 +179,7 @@ QWidget *PathComparisonDialog::createSummaryTab()
             QString startTerminal;
             try
             {
-                startTerminal = getTerminalDisplayNameByID(
-                    path->path.get(),
-                    path->path->getStartTerminal());
+                startTerminal = summary.startTerminalName;
             }
             catch (const std::exception &e)
             {
@@ -199,9 +194,7 @@ QWidget *PathComparisonDialog::createSummaryTab()
             QString endTerminal;
             try
             {
-                endTerminal = getTerminalDisplayNameByID(
-                    path->path.get(),
-                    path->path->getEndTerminal());
+                endTerminal = summary.endTerminalName;
             }
             catch (const std::exception &e)
             {
@@ -294,8 +287,7 @@ QWidget *PathComparisonDialog::createTerminalsTab()
     {
         if (path && path->path)
         {
-            headers << tr("Path %1").arg(
-                path->path->getPathId());
+            headers << m_viewModel.pathSummary(path).pathLabel;
         }
         else
         {
@@ -318,16 +310,15 @@ QWidget *PathComparisonDialog::createTerminalsTab()
 
         if (path && path->path)
         {
-            const auto &terminals =
-                path->path->getTerminalsInPath();
+            const auto terminals =
+                m_viewModel.terminalEntries(path);
 
             // Add terminal information
             for (int i = 0; i < maxTerminals; ++i)
             {
                 if (i < terminals.size())
                 {
-                    terminalData
-                        << m_viewModel.terminalNameAt(path, i);
+                    terminalData << terminals[i].displayName;
                 }
                 else
                 {
@@ -396,27 +387,25 @@ QWidget *PathComparisonDialog::createTerminalsTab()
             if (!(path && path->path))
                 continue;
 
-            const auto &terminals =
-                path->path->getTerminalsInPath();
+            const auto terminals =
+                m_viewModel.terminalEntries(path);
             if (terminalIdx >= terminals.size())
                 continue;
 
             const auto &terminal = terminals[terminalIdx];
             QString predictedNote;
-            if (terminal.costsSkipped
-                && !terminal.skipReason.isEmpty())
+            if (terminal.predictedCostsSkipped
+                && !terminal.predictedSkipReason.isEmpty())
             {
                 predictedNote =
                     tr(" (prediction note: %1)")
-                        .arg(terminal.skipReason.toHtmlEscaped());
+                        .arg(terminal.predictedSkipReason.toHtmlEscaped());
             }
 
             terminalInfoText +=
                 QStringLiteral("<p><b>%1:</b> %2%3</p>")
                     .arg(m_viewModel.pathLabel(path),
-                         m_viewModel.terminalNameAt(
-                             path, terminalIdx)
-                             .toHtmlEscaped(),
+                         terminal.displayName.toHtmlEscaped(),
                          predictedNote);
         }
 
@@ -450,13 +439,13 @@ QWidget *PathComparisonDialog::createTerminalsTab()
         for (const auto &path : m_pathData)
         {
             QStringList pathAttributeData;
-            if (path && path->path
-                && terminalIdx
-                       < path->path->getTerminalsInPath().size())
+            const auto terminals =
+                path ? m_viewModel.terminalEntries(path)
+                     : QList<PathComparisonViewModel::TerminalEntry>{};
+            if (path && terminalIdx < terminals.size())
             {
-                const auto displayValues =
-                    m_viewModel.terminalValues(
-                        path, terminalIdx);
+                const auto &displayValues =
+                    terminals[terminalIdx].displayValues;
 
                 pathAttributeData
                     << (displayValues.predictedAvailable
@@ -633,8 +622,7 @@ QWidget *PathComparisonDialog::createSegmentsTab()
     {
         if (path && path->path)
         {
-            headers << tr("Path %1").arg(
-                path->path->getPathId());
+            headers << m_viewModel.pathSummary(path).pathLabel;
         }
         else
         {
@@ -667,16 +655,15 @@ QWidget *PathComparisonDialog::createSegmentsTab()
 
         if (path && path->path)
         {
-            const auto &segments =
-                path->path->getSegments();
+            const auto segments =
+                m_viewModel.segmentEntries(path);
 
             // Add segment information
             for (int i = 0; i < maxSegments; ++i)
             {
-                if (i < segments.size() && segments[i])
+                if (i < segments.size())
                 {
-                    segmentData
-                        << m_viewModel.segmentDescription(path, i);
+                    segmentData << segments[i].description;
                 }
                 else
                 {
@@ -752,23 +739,18 @@ QWidget *PathComparisonDialog::createSegmentsTab()
         {
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
-                if (segmentIdx < segments.size()
-                    && segments[segmentIdx])
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
+                if (segmentIdx < segments.size())
                 {
+                    const auto &segment = segments[segmentIdx];
                     QString segmentInfo =
                         QString("<p><b>Path %1:</b> %2 → "
                                 "%3 (%4)</p>")
-                            .arg(path->path->getPathId())
-                            .arg(m_viewModel.terminalDisplayName(
-                                path->path.get(),
-                                segments[segmentIdx]->getStart()))
-                            .arg(m_viewModel.terminalDisplayName(
-                                path->path.get(),
-                                segments[segmentIdx]->getEnd()))
-                            .arg(Backend::TransportationTypes::toString(
-                                segments[segmentIdx]->getMode()));
+                            .arg(m_viewModel.pathSummary(path).pathId)
+                            .arg(segment.startTerminalName)
+                            .arg(segment.endTerminalName)
+                            .arg(segment.modeName);
 
                     segmentInfoText += segmentInfo;
                 }
@@ -810,20 +792,18 @@ QWidget *PathComparisonDialog::createSegmentsTab()
 
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
 
-                if (segmentIdx < segments.size()
-                    && segments[segmentIdx])
+                if (segmentIdx < segments.size())
                 {
-                    const auto displayValues =
-                        m_viewModel.segmentValues(path, segmentIdx);
-                    const auto predictedCosts =
-                        m_viewModel.segmentPredictedCosts(
-                            path, segmentIdx);
-                    const auto actualCosts =
-                        m_viewModel.segmentActualCosts(
-                            path, segmentIdx);
+                    const auto &segment = segments[segmentIdx];
+                    const auto &displayValues =
+                        segment.displayValues;
+                    const auto &predictedCosts =
+                        segment.predictedCosts;
+                    const auto &actualCosts =
+                        segment.actualCosts;
 
                     // Carbon Emissions
                     pathAttributeData
@@ -1014,8 +994,7 @@ QWidget *PathComparisonDialog::createCostsTab()
     {
         if (path && path->path)
         {
-            headers << tr("Path %1").arg(
-                path->path->getPathId());
+            headers << m_viewModel.pathSummary(path).pathLabel;
         }
         else
         {
@@ -1044,20 +1023,21 @@ QWidget *PathComparisonDialog::createCostsTab()
 
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             // Add predicted costs
             costData << QString::number(
-                path->path->getTotalPathCost(), 'f', 2);
+                summary.predictedTotalCost, 'f', 2);
             costData << QString::number(
-                path->path->getTotalEdgeCosts(), 'f', 2);
+                summary.predictedEdgeCost, 'f', 2);
             costData << QString::number(
-                path->path->getTotalTerminalCosts(), 'f',
+                summary.predictedTerminalCost, 'f',
                 2);
 
             // Add simulated costs
-            if (path->m_totalSimulationPathCost >= 0)
+            if (path->hasSimulationTotalCost())
             {
                 costData << QString::number(
-                    path->m_totalSimulationPathCost, 'f',
+                    path->simulationTotalCost, 'f',
                     2);
             }
             else
@@ -1065,10 +1045,10 @@ QWidget *PathComparisonDialog::createCostsTab()
                 costData << tr("Not simulated");
             }
 
-            if (path->m_totalSimulationEdgeCosts >= 0)
+            if (path->hasSimulationEdgeCosts())
             {
                 costData << QString::number(
-                    path->m_totalSimulationEdgeCosts, 'f',
+                    path->simulationEdgeCosts, 'f',
                     2);
             }
             else
@@ -1076,11 +1056,11 @@ QWidget *PathComparisonDialog::createCostsTab()
                 costData << tr("Not simulated");
             }
 
-            if (path->m_totalSimulationTerminalCosts >= 0)
+            if (path->hasSimulationTerminalCosts())
             {
                 costData << QString::number(
-                    path->m_totalSimulationTerminalCosts,
-                    'f', 2);
+                    path->simulationTerminalCosts, 'f',
+                    2);
             }
             else
             {
@@ -1088,13 +1068,13 @@ QWidget *PathComparisonDialog::createCostsTab()
             }
 
             // Calculate percentage difference
-            if (path->m_totalSimulationPathCost >= 0
-                && path->path->getTotalPathCost() > 0)
+            if (path->hasSimulationTotalCost()
+                && summary.predictedTotalCost > 0)
             {
                 double predictedCost =
-                    path->path->getTotalPathCost();
+                    summary.predictedTotalCost;
                 double simulatedCost =
-                    path->m_totalSimulationPathCost;
+                    path->simulationTotalCost;
                 double difference =
                     ((simulatedCost - predictedCost)
                      / predictedCost)
@@ -1311,30 +1291,21 @@ QWidget *PathComparisonDialog::createCostsTab()
         {
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
-                if (segmentIdx < segments.size()
-                    && segments[segmentIdx])
+                const auto summary =
+                    m_viewModel.pathSummary(path);
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
+                if (segmentIdx < segments.size())
                 {
-                    QString startTerminalName =
-                        getTerminalDisplayNameByID(
-                            path->path.get(), segments[segmentIdx]
-                                            ->getStart());
-                    QString endTerminalName =
-                        getTerminalDisplayNameByID(
-                            path->path.get(),
-                            segments[segmentIdx]->getEnd());
                     QString segmentInfo =
                         QString("<p><b>Path %1:</b> %2 → "
                                 "%3 (%4)</p>")
-                            .arg(path->path->getPathId())
-                            .arg(startTerminalName)
-                            .arg(endTerminalName)
-                            .arg(
-                                Backend::TransportationTypes::
-                                    toString(
-                                        segments[segmentIdx]
-                                            ->getMode()));
+                            .arg(summary.pathId)
+                            .arg(segments[segmentIdx]
+                                     .startTerminalName)
+                            .arg(segments[segmentIdx]
+                                     .endTerminalName)
+                            .arg(segments[segmentIdx].modeName);
                     segmentInfoText += segmentInfo;
                 }
             }
@@ -1372,11 +1343,10 @@ QWidget *PathComparisonDialog::createCostsTab()
 
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
 
-                if (segmentIdx < segments.size()
-                    && segments[segmentIdx])
+                if (segmentIdx < segments.size())
                 {
                     const auto estimatedCostObj =
                         m_viewModel.segmentPredictedCosts(
@@ -1689,6 +1659,11 @@ void PathComparisonDialog::createPathVisualization(
 
         if (pathData && pathData->path)
         {
+            const auto summary = m_viewModel.pathSummary(pathData);
+            const auto terminals =
+                m_viewModel.terminalEntries(pathData);
+            const auto segments =
+                m_viewModel.segmentEntries(pathData);
             // Create a container for this path
             auto pathContainer = new QWidget(container);
             auto pathLayout =
@@ -1696,8 +1671,8 @@ void PathComparisonDialog::createPathVisualization(
 
             // Add path header
             auto pathHeader = new QLabel(
-                tr("<h3>Path %1</h3>")
-                    .arg(pathData->path->getPathId()),
+                tr("<h3>%1</h3>")
+                    .arg(summary.pathLabel),
                 container);
             pathHeader->setAlignment(Qt::AlignCenter);
             pathLayout->addWidget(pathHeader);
@@ -1709,11 +1684,6 @@ void PathComparisonDialog::createPathVisualization(
             terminalLayout->setSpacing(4);
 
             // Get terminals and segments
-            const auto &terminals =
-                pathData->path->getTerminalsInPath();
-            const auto &segments =
-                pathData->path->getSegments();
-
             if (!terminals.isEmpty())
             {
                 // Add terminals and transportation modes
@@ -1738,8 +1708,7 @@ void PathComparisonDialog::createPathVisualization(
                     // Add transportation mode arrow for all
                     // but the last terminal
                     if (i < terminals.size() - 1
-                        && i < segments.size()
-                        && segments[i])
+                        && i < segments.size())
                     {
                         auto modeLabel =
                             new QLabel(container);
@@ -1747,12 +1716,8 @@ void PathComparisonDialog::createPathVisualization(
                             Qt::AlignCenter);
 
                         // Get transportation mode
-                        Backend::TransportationTypes::
-                            TransportationMode mode =
-                                segments[i]->getMode();
                         QString modeText =
-                            Backend::TransportationTypes::
-                                toString(mode);
+                            segments[i].modeName;
 
                         // Create mode pixmap
                         QPixmap modePixmap =
@@ -1781,14 +1746,14 @@ void PathComparisonDialog::createPathVisualization(
             // Add cost information
             QString costInfo =
                 tr("Predicted: %1, Simulated: %2")
-                    .arg(pathData->path->getTotalPathCost(),
+                    .arg(summary.predictedTotalCost,
                          0, 'f', 2)
                     .arg(
-                        pathData->m_totalSimulationPathCost
+                        pathData->simulationTotalCost
                                 >= 0
                             ? QString::number(
                                   pathData
-                                      ->m_totalSimulationPathCost,
+                                      ->simulationTotalCost,
                                   'f', 2)
                             : tr("Not simulated"));
 
@@ -1917,8 +1882,7 @@ void PathComparisonDialog::onExportButtonClicked()
         };
     const auto writeCostSnapshot =
         [&writeCostLine](
-            const Backend::PathSegment::SegmentCostSnapshot
-                &snapshot) {
+            const PathComparisonViewModel::CostSnapshot &snapshot) {
             writeCostLine(PK::Segment::TravelTime,
                           snapshot.travelTime);
             writeCostLine(PK::Segment::Distance,
@@ -2006,7 +1970,7 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            out << ",Path " << path->path->getPathId();
+            out << "," << m_viewModel.pathSummary(path).pathLabel;
         }
         else
         {
@@ -2022,7 +1986,7 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            out << "," << path->path->getPathId();
+            out << "," << m_viewModel.pathSummary(path).pathId;
         }
         else
         {
@@ -2037,8 +2001,7 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            out << ","
-                << path->path->getTerminalsInPath().size();
+            out << "," << m_viewModel.pathSummary(path).terminalCount;
         }
         else
         {
@@ -2053,7 +2016,7 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            out << "," << path->path->getSegments().size();
+            out << "," << m_viewModel.pathSummary(path).segmentCount;
         }
         else
         {
@@ -2070,8 +2033,9 @@ void PathComparisonDialog::onExportButtonClicked()
         {
             out << ","
                 << QString::number(
-                       path->path->getTotalPathCost(), 'f',
-                       2);
+                       m_viewModel.pathSummary(path)
+                           .predictedTotalCost,
+                       'f', 2);
         }
         else
         {
@@ -2085,11 +2049,11 @@ void PathComparisonDialog::onExportButtonClicked()
     for (const auto &path : m_pathData)
     {
         if (path && path->path
-            && path->m_totalSimulationPathCost >= 0)
+            && path->hasSimulationTotalCost())
         {
             out << ","
                 << QString::number(
-                       path->m_totalSimulationPathCost, 'f',
+                       path->simulationTotalCost, 'f',
                        2);
         }
         else
@@ -2105,17 +2069,11 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            try
-            {
-                out << ","
-                    << getTerminalDisplayNameByID(
-                           path->path.get(),
-                           path->path->getStartTerminal());
-            }
-            catch (const std::exception &)
-            {
-                out << ",Unknown";
-            }
+            const auto summary = m_viewModel.pathSummary(path);
+            out << ","
+                << (summary.startTerminalName.isEmpty()
+                        ? tr("Unknown")
+                        : summary.startTerminalName);
         }
         else
         {
@@ -2130,17 +2088,11 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            try
-            {
-                out << ","
-                    << getTerminalDisplayNameByID(
-                           path->path.get(),
-                           path->path->getEndTerminal());
-            }
-            catch (const std::exception &)
-            {
-                out << ",Unknown";
-            }
+            const auto summary = m_viewModel.pathSummary(path);
+            out << ","
+                << (summary.endTerminalName.isEmpty()
+                        ? tr("Unknown")
+                        : summary.endTerminalName);
         }
         else
         {
@@ -2155,32 +2107,26 @@ void PathComparisonDialog::onExportButtonClicked()
     out << "================\n\n";
 
     // Find the maximum number of terminals across all paths
-    int maxTerminals = 0;
-    for (const auto &path : m_pathData)
-    {
-        if (path && path->path)
-        {
-            maxTerminals = qMax(
-                maxTerminals,
-                path->path->getTerminalsInPath().size());
-        }
-    }
+    const int maxTerminals = m_viewModel.maxTerminals();
 
     // For each path, list all terminal details
     for (const auto &path : m_pathData)
     {
         if (path && path->path)
         {
-            out << "Path " << path->path->getPathId()
-                << " Terminals:\n";
+            const auto summary = m_viewModel.pathSummary(path);
+            const auto terminals =
+                m_viewModel.terminalEntries(path);
+            out << "Path " << summary.pathId << " Terminals:\n";
             out << "Index,Terminal Name,Terminal ID\n";
 
-            const auto &terminals =
-                path->path->getTerminalsInPath();
             for (int i = 0; i < terminals.size(); ++i)
             {
                 out << i + 1 << ","
-                    << terminals[i].displayName << ","
+                    << (terminals[i].displayName.isEmpty()
+                            ? terminals[i].canonicalName
+                            : terminals[i].displayName)
+                    << ","
                     << terminals[i].canonicalName;
                 out << "\n";
             }
@@ -2195,7 +2141,7 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            out << ",Path " << path->path->getPathId();
+            out << "," << m_viewModel.pathSummary(path).pathLabel;
         }
         else
         {
@@ -2214,12 +2160,14 @@ void PathComparisonDialog::onExportButtonClicked()
         {
             if (path && path->path)
             {
-                const auto &terminals =
-                    path->path->getTerminalsInPath();
+                const auto terminals =
+                    m_viewModel.terminalEntries(path);
                 if (i < terminals.size())
                 {
                     out << ","
-                        << terminals[i].displayName;
+                        << (terminals[i].displayName.isEmpty()
+                                ? terminals[i].canonicalName
+                                : terminals[i].displayName);
                 }
                 else
                 {
@@ -2241,66 +2189,37 @@ void PathComparisonDialog::onExportButtonClicked()
     out << "===============\n\n";
 
     // Find the maximum number of segments across all paths
-    int maxSegments = 0;
-    for (const auto &path : m_pathData)
-    {
-        if (path && path->path)
-        {
-            maxSegments =
-                qMax(maxSegments,
-                     path->path->getSegments().size());
-        }
-    }
+    const int maxSegments = m_viewModel.maxSegments();
 
     // For each path, list detailed segment information
     for (const auto &path : m_pathData)
     {
         if (path && path->path)
         {
-            int pathId = path->path->getPathId();
+            const auto summary = m_viewModel.pathSummary(path);
+            const auto segments =
+                m_viewModel.segmentEntries(path);
+            int pathId = summary.pathId;
             out << "Path " << pathId << " Segments:\n";
-
-            const auto &segments =
-                path->path->getSegments();
             for (int i = 0; i < segments.size(); ++i)
             {
-                if (!segments[i])
-                {
-                    out << "Segment " << i + 1
-                        << ": Invalid segment data\n";
-                    continue;
-                }
-
-                QString startTerminalName =
-                    getTerminalDisplayNameByID(
-                        path->path.get(),
-                        segments[i]->getStart());
-                QString endTerminalName =
-                    getTerminalDisplayNameByID(
-                        path->path.get(),
-                        segments[i]->getEnd());
+                const auto &segment = segments[i];
 
                 out << "Segment " << i + 1 << " Details:\n";
                 out << "Start Terminal,"
-                    << startTerminalName << "\n";
-                out << "End Terminal," << endTerminalName
+                    << segment.startTerminalName << "\n";
+                out << "End Terminal," << segment.endTerminalName
                     << "\n";
                 out << "Transportation Mode,"
-                    << Backend::TransportationTypes::
-                           toString(segments[i]->getMode())
+                    << segment.modeName
                     << "\n";
 
-                const auto displayValues =
-                    m_viewModel.segmentValues(path, i);
-                const auto predictedCosts =
-                    m_viewModel.segmentPredictedCosts(path, i);
-                const auto actualCosts =
-                    m_viewModel.segmentActualCosts(path, i);
-                const QJsonObject attributes =
-                    segments[i]
-                        ->toJson()
-                        .value("attributes")
-                        .toObject();
+                const auto &displayValues =
+                    segment.displayValues;
+                const auto &predictedCosts =
+                    segment.predictedCosts;
+                const auto &actualCosts =
+                    segment.actualCosts;
 
                 out << "\nEstimated Values:\n";
                 out << "Attribute,Value\n";
@@ -2388,12 +2307,12 @@ void PathComparisonDialog::onExportButtonClicked()
 
                 // Add other segment attributes if available
                 out << "\nOther Attributes:\n";
+                const QJsonObject &attributes =
+                    segment.additionalAttributes;
                 QStringList allKeys = attributes.keys();
                 for (const QString &key : allKeys)
                 {
-                    if (key != PK::Segment::ActualValues
-                        && key != PK::Segment::EstimatedCost
-                        && key != PK::Segment::ActualCost)
+                    if (key != PK::Segment::Estimated)
                     {
                         QJsonValue value = attributes[key];
                         if (value.isObject())
@@ -2433,7 +2352,7 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            out << ",Path " << path->path->getPathId();
+            out << "," << m_viewModel.pathSummary(path).pathLabel;
         }
         else
         {
@@ -2452,29 +2371,15 @@ void PathComparisonDialog::onExportButtonClicked()
         {
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
-                if (i < segments.size() && segments[i])
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
+                if (i < segments.size())
                 {
-
-                    QString startTerminalName =
-                        getTerminalDisplayNameByID(
-                            path->path.get(),
-                            segments[i]->getStart());
-                    QString endTerminalName =
-                        getTerminalDisplayNameByID(
-                            path->path.get(),
-                            segments[i]->getEnd());
-
                     QString segmentInfo =
                         QString("%1 → %2 (%3)")
-                            .arg(startTerminalName)
-                            .arg(endTerminalName)
-                            .arg(
-                                Backend::TransportationTypes::
-                                    toString(
-                                        segments[i]
-                                            ->getMode()));
+                            .arg(segments[i].startTerminalName)
+                            .arg(segments[i].endTerminalName)
+                            .arg(segments[i].modeName);
 
                     out << "," << segmentInfo;
                 }
@@ -2503,7 +2408,7 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            out << ",Path " << path->path->getPathId();
+            out << "," << m_viewModel.pathSummary(path).pathLabel;
         }
         else
         {
@@ -2518,10 +2423,10 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             out << ","
-                << QString::number(
-                       path->path->getTotalPathCost(), 'f',
-                       2);
+                << QString::number(summary.predictedTotalCost, 'f',
+                                   2);
         }
         else
         {
@@ -2535,10 +2440,10 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             out << ","
-                << QString::number(
-                       path->path->getTotalEdgeCosts(), 'f',
-                       2);
+                << QString::number(summary.predictedEdgeCost, 'f',
+                                   2);
         }
         else
         {
@@ -2552,10 +2457,10 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             out << ","
-                << QString::number(
-                       path->path->getTotalTerminalCosts(),
-                       'f', 2);
+                << QString::number(summary.predictedTerminalCost,
+                                   'f', 2);
         }
         else
         {
@@ -2569,11 +2474,11 @@ void PathComparisonDialog::onExportButtonClicked()
     for (const auto &path : m_pathData)
     {
         if (path && path->path
-            && path->m_totalSimulationPathCost >= 0)
+            && path->hasSimulationTotalCost())
         {
             out << ","
                 << QString::number(
-                       path->m_totalSimulationPathCost, 'f',
+                       path->simulationTotalCost, 'f',
                        2);
         }
         else
@@ -2587,12 +2492,12 @@ void PathComparisonDialog::onExportButtonClicked()
     for (const auto &path : m_pathData)
     {
         if (path && path->path
-            && path->m_totalSimulationEdgeCosts >= 0)
+            && path->hasSimulationEdgeCosts())
         {
             out << ","
                 << QString::number(
-                       path->m_totalSimulationEdgeCosts,
-                       'f', 2);
+                       path->simulationEdgeCosts, 'f',
+                       2);
         }
         else
         {
@@ -2605,11 +2510,11 @@ void PathComparisonDialog::onExportButtonClicked()
     for (const auto &path : m_pathData)
     {
         if (path && path->path
-            && path->m_totalSimulationTerminalCosts >= 0)
+            && path->hasSimulationTerminalCosts())
         {
             out << ","
                 << QString::number(
-                       path->m_totalSimulationTerminalCosts,
+                       path->simulationTerminalCosts,
                        'f', 2);
         }
         else
@@ -2624,13 +2529,14 @@ void PathComparisonDialog::onExportButtonClicked()
     for (const auto &path : m_pathData)
     {
         if (path && path->path
-            && path->m_totalSimulationPathCost >= 0
-            && path->path->getTotalPathCost() > 0)
+            && path->hasSimulationTotalCost()
+            && m_viewModel.pathSummary(path).predictedTotalCost > 0)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             double predictedCost =
-                path->path->getTotalPathCost();
+                summary.predictedTotalCost;
             double simulatedCost =
-                path->m_totalSimulationPathCost;
+                path->simulationTotalCost;
             double difference =
                 ((simulatedCost - predictedCost)
                  / predictedCost)
@@ -2662,7 +2568,8 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            int pathId = path->path->getPathId();
+            const auto summary = m_viewModel.pathSummary(path);
+            int pathId = summary.pathId;
             out << "Path " << pathId
                 << " Detailed Cost Breakdown:\n";
             out << "Cost "
@@ -2823,23 +2730,22 @@ void PathComparisonDialog::onExportButtonClicked()
 
             // Add total
             out << "Total,"
-                << QString::number(
-                       path->path->getTotalPathCost(), 'f',
-                       2);
-            if (path->m_totalSimulationPathCost >= 0)
+                << QString::number(summary.predictedTotalCost, 'f',
+                                   2);
+            if (path->hasSimulationTotalCost())
             {
                 out << ","
                     << QString::number(
-                           path->m_totalSimulationPathCost,
+                           path->simulationTotalCost,
                            'f', 2);
 
                 // Calculate percentage difference
-                if (path->path->getTotalPathCost() > 0)
+                if (summary.predictedTotalCost > 0)
                 {
                     double difference =
-                        ((path->m_totalSimulationPathCost
-                          - path->path->getTotalPathCost())
-                         / path->path->getTotalPathCost())
+                        ((path->simulationTotalCost
+                          - summary.predictedTotalCost)
+                         / summary.predictedTotalCost)
                         * 100.0;
 
                     if (difference > 0)
@@ -2877,9 +2783,10 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
-            out << ",Path " << path->path->getPathId()
+            const auto summary = m_viewModel.pathSummary(path);
+            out << "," << summary.pathLabel
                 << " Predicted"
-                << ",Path " << path->path->getPathId()
+                << "," << summary.pathLabel
                 << " Actual";
         }
     }
@@ -2887,7 +2794,7 @@ void PathComparisonDialog::onExportButtonClicked()
 
     writeComparisonRow(
         "Carbon Emissions",
-        [](const Backend::PathSegment::SegmentCostSnapshot
+        [](const PathComparisonViewModel::CostSnapshot
                &snapshot) {
             return snapshot.carbonEmissions;
         });
@@ -2895,7 +2802,7 @@ void PathComparisonDialog::onExportButtonClicked()
     // Output direct costs
     writeComparisonRow(
         "Direct Cost",
-        [](const Backend::PathSegment::SegmentCostSnapshot
+        [](const PathComparisonViewModel::CostSnapshot
                &snapshot) {
             return snapshot.directCost;
         });
@@ -2903,7 +2810,7 @@ void PathComparisonDialog::onExportButtonClicked()
     // Output distance-based costs
     writeComparisonRow(
         "Distance-based",
-        [](const Backend::PathSegment::SegmentCostSnapshot
+        [](const PathComparisonViewModel::CostSnapshot
                &snapshot) {
             return snapshot.distance;
         });
@@ -2911,7 +2818,7 @@ void PathComparisonDialog::onExportButtonClicked()
     // Output energy consumption costs
     writeComparisonRow(
         "Energy Consumption",
-        [](const Backend::PathSegment::SegmentCostSnapshot
+        [](const PathComparisonViewModel::CostSnapshot
                &snapshot) {
             return snapshot.energyConsumption;
         });
@@ -2919,7 +2826,7 @@ void PathComparisonDialog::onExportButtonClicked()
     // Output risk-based costs
     writeComparisonRow(
         "Risk-based",
-        [](const Backend::PathSegment::SegmentCostSnapshot
+        [](const PathComparisonViewModel::CostSnapshot
                &snapshot) {
             return snapshot.risk;
         },
@@ -2928,7 +2835,7 @@ void PathComparisonDialog::onExportButtonClicked()
     // Output travel time costs
     writeComparisonRow(
         "Travel Time",
-        [](const Backend::PathSegment::SegmentCostSnapshot
+        [](const PathComparisonViewModel::CostSnapshot
                &snapshot) {
             return snapshot.travelTime;
         });
@@ -2939,15 +2846,15 @@ void PathComparisonDialog::onExportButtonClicked()
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             out << ","
-                << QString::number(
-                       path->path->getTotalPathCost(), 'f',
-                       2);
-            if (path->m_totalSimulationPathCost >= 0)
+                << QString::number(summary.predictedTotalCost, 'f',
+                                   2);
+            if (path->hasSimulationTotalCost())
             {
                 out << ","
                     << QString::number(
-                           path->m_totalSimulationPathCost,
+                           path->simulationTotalCost,
                            'f', 2);
             }
             else
@@ -2982,12 +2889,6 @@ void PathComparisonDialog::onExportButtonClicked()
                              tr("Comprehensive path data "
                                 "has been exported to:\n%1")
                                  .arg(fileName));
-}
-
-QString PathComparisonDialog::getTerminalDisplayNameByID(
-    Backend::Path *path, const QString &terminalID)
-{
-    return m_viewModel.terminalDisplayName(path, terminalID);
 }
 
 } // namespace GUI

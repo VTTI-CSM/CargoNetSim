@@ -1,8 +1,7 @@
 #include "BackgroundPhotoItemFactory.h"
 
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/RegionDataController.h"
 #include "GUI/Items/BackgroundPhotoItem.h"
 #include "GUI/Scenario/ItemEventBinder.h"
 #include "GUI/Widgets/GraphicsScene.h"
@@ -44,15 +43,13 @@ bool BackgroundPhotoItemFactory::isGlobalRegion(const QString &region)
 void BackgroundPhotoItemFactory::publishToController(
     BackgroundPhotoItem *item, const QString &region, bool isGlobal)
 {
-    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    if (!rdc) return;
+    Backend::Application::NetworkViewService networkView;
     if (isGlobal) {
-        rdc->setGlobalVariable(
+        networkView.setGlobalVariable(
             QString::fromLatin1(kGlobalVariableKey),
             QVariant::fromValue(item));
     } else {
-        rdc->setRegionVariable(
+        networkView.setRegionVariable(
             region,
             QString::fromLatin1(kRegionVariableKey),
             QVariant::fromValue(item));
@@ -62,14 +59,13 @@ void BackgroundPhotoItemFactory::publishToController(
 void BackgroundPhotoItemFactory::unpublishFromController(
     const QString &region, bool isGlobal)
 {
-    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    if (!rdc) return;
+    Backend::Application::NetworkViewService networkView;
     if (isGlobal) {
-        rdc->removeGlobalVariable(QString::fromLatin1(kGlobalVariableKey));
+        networkView.removeGlobalVariable(
+            QString::fromLatin1(kGlobalVariableKey));
     } else {
-        if (auto *data = rdc->getRegionData(region))
-            data->removeVariable(QString::fromLatin1(kRegionVariableKey));
+        networkView.removeRegionVariable(
+            region, QString::fromLatin1(kRegionVariableKey));
     }
 }
 

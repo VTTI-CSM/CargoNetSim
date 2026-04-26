@@ -8,10 +8,10 @@
 #include "Backend/Scenario/RegionSpec.h"
 #include "Backend/Scenario/SimulationSettings.h"
 #include "Backend/Scenario/ScenarioDocument.h"
-#include "GUI/Scenario/ScenarioMutator.h"
+#include "Backend/Application/ScenarioEditService.h"
 
 using namespace CargoNetSim::Backend::Scenario;
-using namespace CargoNetSim::GUI::Scenario;
+using CargoNetSim::Backend::Application::ScenarioEditService;
 using Mode = CargoNetSim::Backend::TransportationTypes::TransportationMode;
 
 namespace {
@@ -27,7 +27,7 @@ void seedRegion(ScenarioDocument &doc, const QString &name)
 
 } // namespace
 
-class ScenarioMutatorTest : public QObject
+class ScenarioEditServiceTest : public QObject
 {
     Q_OBJECT
 private slots:
@@ -37,7 +37,7 @@ private slots:
         seedRegion(doc, "R");
         QSignalSpy addedSpy(&doc, &ScenarioDocument::terminalAdded);
 
-        const QString id = ScenarioMutator::createTerminal(
+        const QString id = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R", QPointF(0.2, 0.1));
 
         QVERIFY(!id.isEmpty());
@@ -54,7 +54,7 @@ private slots:
 
     void test_create_terminal_returns_empty_id_on_null_doc()
     {
-        QVERIFY(ScenarioMutator::createTerminal(
+        QVERIFY(ScenarioEditService::createTerminal(
                     nullptr, "Sea Port Terminal", "R", QPointF(0, 0))
                     .isEmpty());
     }
@@ -67,12 +67,12 @@ private slots:
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        const QString id = ScenarioMutator::createTerminal(
+        const QString id = ScenarioEditService::createTerminal(
             &doc, "Intermodal Land Terminal", "R", QPointF(0, 0));
         QVERIFY(!id.isEmpty());
 
         QSignalSpy changedSpy(&doc, &ScenarioDocument::terminalChanged);
-        QVERIFY(ScenarioMutator::setTerminalProperty(
+        QVERIFY(ScenarioEditService::setTerminalProperty(
             &doc, id, "initial_container_count", QVariant(42)));
 
         QCOMPARE(changedSpy.count(), 1);
@@ -89,14 +89,14 @@ private slots:
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        const QString id = ScenarioMutator::createTerminal(
+        const QString id = ScenarioEditService::createTerminal(
             &doc, "Intermodal Land Terminal", "R", QPointF(0, 0));
-        QVERIFY(ScenarioMutator::setTerminalProperty(
+        QVERIFY(ScenarioEditService::setTerminalProperty(
             &doc, id, "initial_container_count", QVariant(7)));
         QVERIFY(doc.isOrigin(id));
 
         // Invalid QVariant → key removed entirely.
-        QVERIFY(ScenarioMutator::setTerminalProperty(
+        QVERIFY(ScenarioEditService::setTerminalProperty(
             &doc, id, "initial_container_count", QVariant{}));
 
         QVERIFY(!doc.terminals[id]
@@ -108,13 +108,13 @@ private slots:
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        QVERIFY(!ScenarioMutator::setTerminalProperty(
+        QVERIFY(!ScenarioEditService::setTerminalProperty(
             &doc, "missing", "key", QVariant("x")));
     }
 
     void test_set_terminal_property_returns_false_on_null_doc()
     {
-        QVERIFY(!ScenarioMutator::setTerminalProperty(
+        QVERIFY(!ScenarioEditService::setTerminalProperty(
             nullptr, "id", "key", QVariant("x")));
     }
 
@@ -122,12 +122,12 @@ private slots:
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        const QString id = ScenarioMutator::createTerminal(
+        const QString id = ScenarioEditService::createTerminal(
             &doc, "Intermodal Land Terminal", "R", QPointF(0, 0));
         QVERIFY(!id.isEmpty());
 
         QSignalSpy linkSpy(&doc, &ScenarioDocument::linkageAdded);
-        const bool ok = ScenarioMutator::linkTerminalToNode(
+        const bool ok = ScenarioEditService::linkTerminalToNode(
             &doc, id, "rail_net_a", 42, LinkageSource::Manual);
 
         QVERIFY(ok);
@@ -141,14 +141,14 @@ private slots:
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        const QString a = ScenarioMutator::createTerminal(
+        const QString a = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R", QPointF(0, 0));
-        const QString b = ScenarioMutator::createTerminal(
+        const QString b = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R", QPointF(1, 1));
         QVERIFY(!a.isEmpty() && !b.isEmpty());
 
         QSignalSpy connSpy(&doc, &ScenarioDocument::connectionAdded);
-        const bool ok = ScenarioMutator::createConnection(
+        const bool ok = ScenarioEditService::createConnection(
             &doc, a, b, Mode::Ship);
 
         QVERIFY(ok);
@@ -163,12 +163,12 @@ private slots:
         ScenarioDocument doc;
         seedRegion(doc, "R1");
         seedRegion(doc, "R2");
-        const QString a = ScenarioMutator::createTerminal(
+        const QString a = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R1", QPointF(0, 0));
-        const QString b = ScenarioMutator::createTerminal(
+        const QString b = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R2", QPointF(1, 1));
 
-        QVERIFY(!ScenarioMutator::createConnection(&doc, a, b, Mode::Ship));
+        QVERIFY(!ScenarioEditService::createConnection(&doc, a, b, Mode::Ship));
         QVERIFY(doc.connections.isEmpty());
     }
 
@@ -178,7 +178,7 @@ private slots:
         seedRegion(doc, "R");
         QSignalSpy changedSpy(&doc, &ScenarioDocument::regionChanged);
 
-        const bool ok = ScenarioMutator::updateRegionLocalOrigin(
+        const bool ok = ScenarioEditService::updateRegionLocalOrigin(
             &doc, "R", QPointF(10.0, 20.0));  // lon=10, lat=20
 
         QVERIFY(ok);
@@ -192,19 +192,19 @@ private slots:
         ScenarioDocument doc;
         seedRegion(doc, "R1");
         seedRegion(doc, "R2");
-        const QString a = ScenarioMutator::createTerminal(
+        const QString a = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R1", QPointF(0, 0));
-        const QString b = ScenarioMutator::createTerminal(
+        const QString b = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R2", QPointF(1, 1));
 
         // Missing terminal → reject.
-        QVERIFY(!ScenarioMutator::createGlobalLink(
+        QVERIFY(!ScenarioEditService::createGlobalLink(
             &doc, "does-not-exist", b, Mode::Ship));
         QVERIFY(doc.globalLinks.isEmpty());
 
         // Both present → accept, emit globalLinkAdded.
         QSignalSpy spy(&doc, &ScenarioDocument::globalLinkAdded);
-        QVERIFY(ScenarioMutator::createGlobalLink(&doc, a, b, Mode::Ship));
+        QVERIFY(ScenarioEditService::createGlobalLink(&doc, a, b, Mode::Ship));
         QCOMPARE(spy.count(), 1);
         QCOMPARE(doc.globalLinks.size(), 1);
         QCOMPARE(doc.globalLinks.first().fromTerminalId, a);
@@ -217,14 +217,14 @@ private slots:
         ScenarioDocument doc;
         seedRegion(doc, "R1");
         seedRegion(doc, "R2");
-        const QString a = ScenarioMutator::createTerminal(
+        const QString a = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R1", QPointF(0, 0));
-        const QString b = ScenarioMutator::createTerminal(
+        const QString b = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R2", QPointF(1, 1));
-        QVERIFY(ScenarioMutator::createGlobalLink(&doc, a, b, Mode::Ship));
+        QVERIFY(ScenarioEditService::createGlobalLink(&doc, a, b, Mode::Ship));
 
         QSignalSpy spy(&doc, &ScenarioDocument::globalLinkRemoved);
-        QVERIFY(ScenarioMutator::removeGlobalLink(&doc, a, b, Mode::Ship));
+        QVERIFY(ScenarioEditService::removeGlobalLink(&doc, a, b, Mode::Ship));
         QVERIFY(doc.globalLinks.isEmpty());
         QCOMPARE(spy.count(), 1);
     }
@@ -233,11 +233,11 @@ private slots:
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        const QString id = ScenarioMutator::createTerminal(
+        const QString id = ScenarioEditService::createTerminal(
             &doc, "Origin", "R", QPointF(0, 0));
 
         QSignalSpy removedSpy(&doc, &ScenarioDocument::terminalRemoved);
-        QVERIFY(ScenarioMutator::removeTerminal(&doc, id));
+        QVERIFY(ScenarioEditService::removeTerminal(&doc, id));
         QVERIFY(!doc.terminals.contains(id));
         QCOMPARE(removedSpy.count(), 1);
     }
@@ -252,7 +252,7 @@ private slots:
         RegionSpec spec;
         spec.name  = "TestRegion";
         spec.color = "#ff0000";
-        QVERIFY(ScenarioMutator::addRegion(&doc, spec));
+        QVERIFY(ScenarioEditService::addRegion(&doc, spec));
 
         QCOMPARE(spy.count(), 1);
         QVERIFY(doc.regions.contains("TestRegion"));
@@ -263,7 +263,7 @@ private slots:
     {
         RegionSpec spec;
         spec.name = "R";
-        QVERIFY(!ScenarioMutator::addRegion(nullptr, spec));
+        QVERIFY(!ScenarioEditService::addRegion(nullptr, spec));
     }
 
     void test_addRegion_rejects_empty_name()
@@ -271,7 +271,7 @@ private slots:
         ScenarioDocument doc;
         RegionSpec spec;
         spec.name = "";
-        QVERIFY(!ScenarioMutator::addRegion(&doc, spec));
+        QVERIFY(!ScenarioEditService::addRegion(&doc, spec));
         QVERIFY(doc.regions.isEmpty());
     }
 
@@ -280,8 +280,8 @@ private slots:
         ScenarioDocument doc;
         RegionSpec spec;
         spec.name = "R";
-        QVERIFY(ScenarioMutator::addRegion(&doc, spec));
-        QVERIFY(!ScenarioMutator::addRegion(&doc, spec));
+        QVERIFY(ScenarioEditService::addRegion(&doc, spec));
+        QVERIFY(!ScenarioEditService::addRegion(&doc, spec));
         QCOMPARE(doc.regions.size(), 1);
     }
 
@@ -293,7 +293,7 @@ private slots:
         seedRegion(doc, "R");
         QSignalSpy spy(&doc, &ScenarioDocument::regionRemoved);
 
-        QVERIFY(ScenarioMutator::removeRegion(&doc, "R"));
+        QVERIFY(ScenarioEditService::removeRegion(&doc, "R"));
 
         QCOMPARE(spy.count(), 1);
         QVERIFY(!doc.regions.contains("R"));
@@ -303,13 +303,13 @@ private slots:
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        const QString id = ScenarioMutator::createTerminal(
+        const QString id = ScenarioEditService::createTerminal(
             &doc, "Sea Port Terminal", "R", QPointF(0, 0));
         QVERIFY(!id.isEmpty());
         QVERIFY(doc.terminals.contains(id));
 
         QSignalSpy termSpy(&doc, &ScenarioDocument::terminalRemoved);
-        QVERIFY(ScenarioMutator::removeRegion(&doc, "R"));
+        QVERIFY(ScenarioEditService::removeRegion(&doc, "R"));
 
         QCOMPARE(termSpy.count(), 1);
         QVERIFY(!doc.regions.contains("R"));
@@ -318,13 +318,13 @@ private slots:
 
     void test_removeRegion_rejects_null_doc()
     {
-        QVERIFY(!ScenarioMutator::removeRegion(nullptr, "R"));
+        QVERIFY(!ScenarioEditService::removeRegion(nullptr, "R"));
     }
 
     void test_removeRegion_rejects_unknown_name()
     {
         ScenarioDocument doc;
-        QVERIFY(!ScenarioMutator::removeRegion(&doc, "NoSuchRegion"));
+        QVERIFY(!ScenarioEditService::removeRegion(&doc, "NoSuchRegion"));
     }
 
     // ---- updateRegionColor ----
@@ -335,7 +335,7 @@ private slots:
         seedRegion(doc, "R");
         QSignalSpy spy(&doc, &ScenarioDocument::regionChanged);
 
-        QVERIFY(ScenarioMutator::updateRegionColor(&doc, "R", "#00ff00"));
+        QVERIFY(ScenarioEditService::updateRegionColor(&doc, "R", "#00ff00"));
 
         QCOMPARE(spy.count(), 1);
         QCOMPARE(doc.regions["R"].color, QString("#00ff00"));
@@ -343,13 +343,13 @@ private slots:
 
     void test_updateRegionColor_rejects_null_doc()
     {
-        QVERIFY(!ScenarioMutator::updateRegionColor(nullptr, "R", "#ff0000"));
+        QVERIFY(!ScenarioEditService::updateRegionColor(nullptr, "R", "#ff0000"));
     }
 
     void test_updateRegionColor_rejects_unknown_name()
     {
         ScenarioDocument doc;
-        QVERIFY(!ScenarioMutator::updateRegionColor(
+        QVERIFY(!ScenarioEditService::updateRegionColor(
             &doc, "NoSuchRegion", "#ff0000"));
     }
 
@@ -363,7 +363,7 @@ private slots:
 
         // ScenarioDocument has no simulationChanged signal yet; no QSignalSpy.
         // When ScenarioDocument::updateSimulation() is introduced, add one.
-        QVERIFY(ScenarioMutator::updateSimulationSettings(&doc, s));
+        QVERIFY(ScenarioEditService::updateSimulationSettings(&doc, s));
         QVERIFY(doc.simulation.timeStep.has_value());
         QCOMPARE(doc.simulation.timeStep.value(), 30);
         QVERIFY(doc.simulation.carbonRate.has_value());
@@ -376,7 +376,7 @@ private slots:
     {
         SimulationSettings s;
         s.timeStep = 10;
-        QVERIFY(!ScenarioMutator::updateSimulationSettings(nullptr, s));
+        QVERIFY(!ScenarioEditService::updateSimulationSettings(nullptr, s));
     }
 
     void test_updateFleet_sets_files()
@@ -386,7 +386,7 @@ private slots:
         f.trainsFiles = { "/path/to/trains.json" };
         f.shipsFiles  = { "/path/to/ships.json" };
 
-        QVERIFY(ScenarioMutator::updateFleet(&doc, f));
+        QVERIFY(ScenarioEditService::updateFleet(&doc, f));
         QCOMPARE(doc.fleet.trainsFiles, QStringList{ "/path/to/trains.json" });
         QCOMPARE(doc.fleet.shipsFiles,  QStringList{ "/path/to/ships.json" });
     }
@@ -395,7 +395,7 @@ private slots:
     {
         FleetSpec f;
         f.trainsFiles = { "/path/to/trains.json" };
-        QVERIFY(!ScenarioMutator::updateFleet(nullptr, f));
+        QVERIFY(!ScenarioEditService::updateFleet(nullptr, f));
     }
 
     // ---- networks ----
@@ -412,7 +412,7 @@ private slots:
         spec.files.insert("nodes", "/n.csv");
         spec.files.insert("links", "/l.csv");
 
-        QVERIFY(ScenarioMutator::addNetwork(&doc, "R", spec));
+        QVERIFY(ScenarioEditService::addNetwork(&doc, "R", spec));
         QCOMPARE(spy.count(), 1);
         QVERIFY(doc.regions["R"].networks.contains("Rail-A"));
     }
@@ -422,7 +422,7 @@ private slots:
         NetworkSpec spec;
         spec.name = "Rail-A";
         spec.type = NetworkSpec::Type::Rail;
-        QVERIFY(!ScenarioMutator::addNetwork(nullptr, "R", spec));
+        QVERIFY(!ScenarioEditService::addNetwork(nullptr, "R", spec));
     }
 
     void test_removeNetwork_drops_from_document()
@@ -432,24 +432,24 @@ private slots:
         NetworkSpec spec;
         spec.name = "Rail-A";
         spec.type = NetworkSpec::Type::Rail;
-        QVERIFY(ScenarioMutator::addNetwork(&doc, "R", spec));
+        QVERIFY(ScenarioEditService::addNetwork(&doc, "R", spec));
 
         QSignalSpy spy(&doc, &ScenarioDocument::networkRemoved);
-        QVERIFY(ScenarioMutator::removeNetwork(&doc, "R", "Rail-A"));
+        QVERIFY(ScenarioEditService::removeNetwork(&doc, "R", "Rail-A"));
         QCOMPARE(spy.count(), 1);
         QVERIFY(!doc.regions["R"].networks.contains("Rail-A"));
     }
 
     void test_removeNetwork_rejects_null_doc()
     {
-        QVERIFY(!ScenarioMutator::removeNetwork(nullptr, "R", "Rail-A"));
+        QVERIFY(!ScenarioEditService::removeNetwork(nullptr, "R", "Rail-A"));
     }
 
     void test_removeNetwork_rejects_unknown_network()
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        QVERIFY(!ScenarioMutator::removeNetwork(&doc, "R", "does-not-exist"));
+        QVERIFY(!ScenarioEditService::removeNetwork(&doc, "R", "does-not-exist"));
     }
 
     void test_renameNetwork_updates_key_in_document()
@@ -459,10 +459,10 @@ private slots:
         NetworkSpec spec;
         spec.name = "Rail-A";
         spec.type = NetworkSpec::Type::Rail;
-        QVERIFY(ScenarioMutator::addNetwork(&doc, "R", spec));
+        QVERIFY(ScenarioEditService::addNetwork(&doc, "R", spec));
 
         QSignalSpy spy(&doc, &ScenarioDocument::networkRenamed);
-        QVERIFY(ScenarioMutator::renameNetwork(&doc, "R", "Rail-A", "Rail-B"));
+        QVERIFY(ScenarioEditService::renameNetwork(&doc, "R", "Rail-A", "Rail-B"));
         QCOMPARE(spy.count(), 1);
         QVERIFY(!doc.regions["R"].networks.contains("Rail-A"));
         QVERIFY( doc.regions["R"].networks.contains("Rail-B"));
@@ -471,14 +471,14 @@ private slots:
 
     void test_renameNetwork_rejects_null_doc()
     {
-        QVERIFY(!ScenarioMutator::renameNetwork(nullptr, "R", "A", "B"));
+        QVERIFY(!ScenarioEditService::renameNetwork(nullptr, "R", "A", "B"));
     }
 
     void test_renameNetwork_rejects_unknown_network()
     {
         ScenarioDocument doc;
         seedRegion(doc, "R");
-        QVERIFY(!ScenarioMutator::renameNetwork(&doc, "R", "does-not-exist", "B"));
+        QVERIFY(!ScenarioEditService::renameNetwork(&doc, "R", "does-not-exist", "B"));
     }
 
     void test_create_terminal_properties_bag_has_no_region()
@@ -486,7 +486,7 @@ private slots:
         ScenarioDocument doc;
         seedRegion(doc, "R");
 
-        const QString id = ScenarioMutator::createTerminal(
+        const QString id = ScenarioEditService::createTerminal(
             &doc, "Intermodal Land Terminal", "R", QPointF(0.1, 0.2));
 
         QVERIFY(!id.isEmpty());
@@ -499,5 +499,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(ScenarioMutatorTest)
-#include "ScenarioMutatorTest.moc"
+QTEST_MAIN(ScenarioEditServiceTest)
+#include "ScenarioEditServiceTest.moc"

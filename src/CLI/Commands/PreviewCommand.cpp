@@ -6,11 +6,10 @@
 
 #include <cstdio>
 
+#include "Backend/Application/ScenarioLoadService.h"
+#include "Backend/Application/ScenarioPreviewService.h"
+#include "Backend/CliApi/ScenarioDocumentApi.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/ScenarioLinker.h"
-#include "Backend/Scenario/ScenarioRegistry.h"
-#include "Backend/Scenario/ScenarioSerializer.h"
-#include "Backend/Scenario/ScenarioValidator.h"
 #include "CLI/Commands/CommandOutput.h"
 #include "CLI/Commands/IssueFormatter.h"
 #include "CLI/ExitCodes.h"
@@ -26,8 +25,6 @@ PreviewCommand::PreviewCommand(QIODevice *outSink, QIODevice *errSink)
 
 int PreviewCommand::execute(const QStringList &args)
 {
-    using namespace Backend::Scenario;
-
     qCInfo(lcCli) << "PreviewCommand::execute: entry, args =" << args;
 
     if (args.isEmpty())
@@ -41,15 +38,18 @@ int PreviewCommand::execute(const QStringList &args)
     const QString path = args.first();
     qCInfo(lcCli) << "PreviewCommand::execute: scenario path =" << path;
 
-    // ---- Parse -----------------------------------------------------------
+    // ---- Parse + validate ------------------------------------------------
     qCDebug(lcCli) << "PreviewCommand::execute: parsing YAML...";
-    QString parseErr;
-    auto    doc = ScenarioSerializer::fromYaml(path, &parseErr);
-    if (!doc)
+    Backend::Application::ScenarioLoadService loadService;
+    auto parseResult = loadService.parseAndValidateYaml(path);
+    if (parseResult.status
+        == Backend::Application::ScenarioLoadServiceStatus::ParseFailed
+        || parseResult.status
+               == Backend::Application::ScenarioLoadServiceStatus::InvalidInput)
     {
-        const QString suffix = parseErr.isEmpty()
+        const QString suffix = parseResult.message.isEmpty()
             ? QString()
-            : QStringLiteral(": ") + parseErr;
+            : QStringLiteral(": ") + parseResult.message;
         qCCritical(lcCli) << "PreviewCommand::execute: parse failed —"
                           << path << suffix;
         streamToOr(m_err, stderr,
@@ -58,64 +58,48 @@ int PreviewCommand::execute(const QStringList &args)
         return static_cast<int>(ExitCode::ValidationFailed);
     }
 
-    qCDebug(lcCli) << "PreviewCommand::execute: parsed — regions ="
-                   << doc->regions.size()
-                   << ", terminals =" << doc->terminals.size();
-
-    // ---- Validate --------------------------------------------------------
     // Emit every issue to stderr so users see *why* preview failed,
     // not a silent exit code. Warnings are printed but don't change
     // the exit code (same rule as ValidateCommand / spec §8.3).
     bool          hasError = false;
-    const auto    issues   = ScenarioValidator::validate(*doc);
     const QString issueBuf =
-        formatValidationIssues(issues, &hasError);
+        formatValidationIssues(parseResult.issues, &hasError);
     if (!issueBuf.isEmpty())
         streamToOr(m_err, stderr, issueBuf);
-    if (hasError)
+    if (!parseResult.succeeded())
     {
-        qCCritical(lcCli) << "PreviewCommand::execute: validation failed, issues =" << issues.size();
+        qCCritical(lcCli) << "PreviewCommand::execute: validation failed, issues ="
+                          << parseResult.issues.size();
         return static_cast<int>(ExitCode::ValidationFailed);
     }
-    qCDebug(lcCli) << "PreviewCommand::execute: validation passed, issues =" << issues.size();
+    auto doc = std::move(parseResult.document);
+    qCDebug(lcCli) << "PreviewCommand::execute: parsed — regions ="
+                   << doc->regions.size()
+                   << ", terminals =" << doc->terminals.size();
+    qCDebug(lcCli) << "PreviewCommand::execute: validation passed, issues ="
+                   << parseResult.issues.size();
 
-    // ---- Load networks for preview --------------------------------------
-    // Preview-only: the linker writes graph objects into this local
-    // registry instead of mutating the live RegionDataController. The
-    // registry is destroyed when `execute` returns — nothing leaks
-    // into the rest of the process.
-    qCDebug(lcCli) << "PreviewCommand::execute: loading networks for preview...";
-    ScenarioRegistry registry;
-    QString          loadErr;
-    if (!ScenarioLinker::loadNetworksForPreview(*doc, registry, &loadErr))
+    // ---- Resolve preview document + emit JSON ---------------------------
+    qCDebug(lcCli)
+        << "PreviewCommand::execute: building preview JSON...";
+    Backend::Application::ScenarioPreviewService previewService;
+    const auto previewResult =
+        previewService.buildPreviewJson(std::move(doc));
+    if (!previewResult.succeeded())
     {
-        qCCritical(lcCli) << "PreviewCommand::execute: network load failed —" << loadErr;
+        qCCritical(lcCli)
+            << "PreviewCommand::execute: preview build failed —"
+            << previewResult.message;
         streamToOr(m_err, stderr,
                    QStringLiteral(
                        "preview: failed to load networks: %1\n")
-                       .arg(loadErr));
+                       .arg(previewResult.message));
         return static_cast<int>(ExitCode::RunFailed);
     }
 
-    // ---- Resolve auto-rules + fold into the doc -------------------------
-    // Mutation is intentional and preview-only: the emitted JSON
-    // reflects what `run` would see. Not round-trippable — re-parsing
-    // the JSON would double-count any auto-derived entries. The doc
-    // is thrown away after we serialise it.
-    qCDebug(lcCli) << "PreviewCommand::execute: resolving linkages, connections, global links...";
-    doc->linkages = ScenarioLinker::resolveLinkages(*doc, registry);
-    doc->connections = ScenarioLinker::resolveConnections(*doc, registry);
-    doc->globalLinks = ScenarioLinker::resolveGlobalLinks(*doc, registry);
-
-    qCDebug(lcCli) << "PreviewCommand::execute: linked doc — linkages ="
-                   << doc->linkages.size()
-                   << ", connections =" << doc->connections.size()
-                   << ", globalLinks =" << doc->globalLinks.size();
-
-    // ---- Emit JSON to stdout --------------------------------------------
-    const auto json = ScenarioSerializer::toJson(*doc);
     streamToOr(m_out, stdout,
-               QJsonDocument(json).toJson(QJsonDocument::Indented));
+               QJsonDocument(previewResult.previewJson)
+                   .toJson(QJsonDocument::Indented));
     qCInfo(lcCli) << "PreviewCommand::execute: JSON output written to stdout";
     return static_cast<int>(ExitCode::Success);
 }

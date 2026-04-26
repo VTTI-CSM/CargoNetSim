@@ -1,7 +1,7 @@
 #include "GraphicsObjectBase.h"
 #include "AnimationObject.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Input/ClickContext.h"
 #include "GUI/Input/InteractionController.h"
 #include "GUI/Input/Interfaces/IDraggable.h"

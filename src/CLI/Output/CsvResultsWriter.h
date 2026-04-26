@@ -3,7 +3,7 @@
 #include <QList>
 #include <QString>
 
-#include "Backend/Scenario/PathSimulationResult.h"
+#include "Backend/CliApi/ResultsApi.h"
 
 namespace CargoNetSim {
 namespace Cli {

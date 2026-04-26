@@ -3,6 +3,7 @@
 #include <QScopeGuard>
 
 #include "Backend/Clients/TerminalClient/TerminalSimulationClient.h"
+#include "Backend/Bootstrap/BackendBootstrapService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Models/PathSegment.h"
@@ -71,8 +72,12 @@ private slots:
 
         auto &controller =
             CargoNetSim::CargoNetSimController::getInstance();
-        QVERIFY(controller.initialize(/*truckExePath=*/""));
-        QVERIFY(controller.startAll());
+        BackendBootstrapService bootstrapService;
+        const auto bootstrapResult =
+            bootstrapService.initializeAndStartController(
+                /*integrationExePath=*/QString());
+        QVERIFY2(bootstrapResult.succeeded(),
+                 qPrintable(bootstrapResult.message));
         auto stopGuard = qScopeGuard([&controller]() {
             controller.stopAll();
         });

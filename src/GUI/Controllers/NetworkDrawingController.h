@@ -14,8 +14,6 @@ namespace CargoNetSim
 
 namespace Backend
 {
-class RegionData;
-
 namespace TrainClient
 {
 class NeTrainSimNetwork;
@@ -51,14 +49,14 @@ public:
         StatusReporter       *status,
         QObject              *parent = nullptr);
 
-    void drawNetwork(Backend::RegionData *regionData,
-                     NetworkType          networkType,
-                     QString             &networkName,
+    void drawNetwork(const QString      &regionName,
+                     NetworkType         networkType,
+                     const QString      &networkName,
                      bool                 skipTerminalCreation = false);
 
-    void removeNetwork(NetworkType          networkType,
-                       Backend::RegionData *regionData,
-                       QString             &networkName);
+    void removeNetwork(NetworkType    networkType,
+                       const QString &regionName,
+                       const QString &networkName);
 
     bool moveNetworkItems(NetworkType    networkType,
                           const QString &networkName,
@@ -71,19 +69,19 @@ signals:
 private:
     void drawTrainNetwork(
         Backend::TrainClient::NeTrainSimNetwork *network,
-        QString &regionName, QColor &linksColor,
+        const QString &regionName, QColor &linksColor,
         bool skipTerminalCreation,
         const QString &networkName);
 
     void drawTruckNetwork(
         Backend::TruckClient::IntegrationSimulationConfig
                 *networkConfig,
-        QString &regionName, QColor &linksColor);
+        const QString &regionName, QColor &linksColor);
 
     MapPoint *drawNode(const QString &networkNodeID,
                        const QString &nodeUniqueID,
                        QPointF        projectedPoint,
-                       QString       &regionName,
+                       const QString &regionName,
                        QColor         color,
                        const QMap<QString, QVariant> &properties =
                            QMap<QString, QVariant>());
@@ -92,7 +90,7 @@ private:
                       const QString &linkUniqueID,
                       QPointF        projectedStartPoint,
                       QPointF        projectedEndPoint,
-                      QString       &regionName,
+                      const QString &regionName,
                       QColor         color,
                       const QMap<QString, QVariant> &properties =
                           QMap<QString, QVariant>());

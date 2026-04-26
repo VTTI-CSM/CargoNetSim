@@ -35,13 +35,14 @@ struct BackgroundPhotoSpec {
  * Single construction path for BackgroundPhotoItem. Centralizes:
  *   1. Constructor + visual state application.
  *   2. Scene registration via addItemWithId.
- *   3. RDC variable publication ("backgroundPhotoItem" for a region scene,
+ *   3. Backend-owned region/global view publication
+ *      ("backgroundPhotoItem" for a region scene,
  *      "globalBackgroundPhotoItem" for the global-map scene).
  *   4. Signal wiring via ItemEventBinder.
  *
  * publish/unpublish helpers are exposed so DeleteBackgroundPhotoCommand can
- * reuse the exact same controller-variable semantics — one authoritative place
- * for "where does a BackgroundPhotoItem live in RDC".
+ * reuse the exact same backend-variable semantics — one authoritative place
+ * for "where does a BackgroundPhotoItem live in the region/global view store".
  */
 class BackgroundPhotoItemFactory {
 public:
@@ -49,12 +50,12 @@ public:
                                        GraphicsScene             *scene,
                                        MainWindow                *mw);
 
-    /// Store the item pointer under the appropriate RDC key.
+    /// Store the item pointer under the appropriate backend-owned key.
     static void publishToController(BackgroundPhotoItem *item,
                                     const QString       &region,
                                     bool                 isGlobal);
 
-    /// Remove the RDC key, leaving no dangling QVariant pointer after deletion.
+    /// Remove the backend-owned key, leaving no dangling QVariant pointer after deletion.
     static void unpublishFromController(const QString &region,
                                         bool           isGlobal);
 

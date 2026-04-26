@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Backend/Scenario/RegionSpec.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Input/Interfaces/IClickable.h"
 #include "GUI/Input/Interfaces/IDraggable.h"
 #include "GUI/Input/Interfaces/IHoverable.h"

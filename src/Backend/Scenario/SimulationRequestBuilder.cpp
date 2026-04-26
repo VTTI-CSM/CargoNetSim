@@ -62,6 +62,21 @@ SimulationRequestBuilder::SimulationRequestBuilder(
 namespace
 {
 
+QString summarizeContainerIds(
+    const QList<ContainerCore::Container *> &containers)
+{
+    QStringList ids;
+    ids.reserve(qMin(containers.size(), 3));
+    for (int i = 0; i < containers.size() && i < 3; ++i)
+    {
+        if (containers[i])
+            ids.append(containers[i]->getContainerID());
+    }
+    if (containers.size() > 3)
+        ids.append(QStringLiteral("..."));
+    return ids.join(QStringLiteral(", "));
+}
+
 struct LinkagePair
 {
     NodeLinkage start;
@@ -263,6 +278,20 @@ bool SimulationRequestBuilder::buildTrainSegment(
                 containersCopy, path, segmentIdx, containerCounter,
                 QString::number(pair.start.nodeId),
                 QString::number(pair.end.nodeId), metadata);
+            qCInfo(lcScenario)
+                << "SimulationRequestBuilder::buildTrainSegment:"
+                << "pathId=" << path->getPathId()
+                << "pathKey=" << path->canonicalPathKey()
+                << "segment=" << segmentIdx
+                << "trainId=" << trainId
+                << "network=" << networkName
+                << "scenarioStart=" << startId
+                << "scenarioEnd=" << endId
+                << "runtimeStartNode=" << pair.start.nodeId
+                << "runtimeEndNode=" << pair.end.nodeId
+                << "containerCount=" << td.containers.size()
+                << "containerIds=[" << summarizeContainerIds(td.containers)
+                << "]";
             bundle.trainData[networkName].append(td);
         }
     }
@@ -416,6 +445,19 @@ bool SimulationRequestBuilder::buildShipSegment(
             qMin(shipContainerCount, containersCopy.size()),
             containersCopy, path, segmentIdx, containerCounter,
             startId, endId, metadata);
+        qCInfo(lcScenario)
+            << "SimulationRequestBuilder::buildShipSegment:"
+            << "pathId=" << path->getPathId()
+            << "pathKey=" << path->canonicalPathKey()
+            << "segment=" << segmentIdx
+            << "shipId=" << shipId
+            << "network=" << networkName
+            << "scenarioStart=" << startId
+            << "scenarioEnd=" << endId
+            << "destinationTerminal=" << sd.destinationTerminal
+            << "containerCount=" << sd.containers.size()
+            << "containerIds=[" << summarizeContainerIds(sd.containers)
+            << "]";
         bundle.shipData[networkName].append(sd);
     }
 

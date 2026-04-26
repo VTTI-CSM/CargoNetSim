@@ -1,17 +1,23 @@
 #pragma once
 
 #include <QGraphicsItem>
+#include <QColor>
+#include <QList>
 #include <QMainWindow>
 #include <QPointF>
 #include <QString>
 #include <QToolButton>
 
-#include "Backend/Controllers/RegionDataController.h"
 #include "GUI/Commons/NetworkType.h"
 #include "GUI/Items/MapLine.h"
 
 namespace CargoNetSim
 {
+namespace Backend
+{
+struct ShortestPathResult;
+}
+
 namespace GUI
 {
 
@@ -26,23 +32,23 @@ public:
     static QString
     importNetwork(MainWindow          *mainWindow,
                   NetworkType          networkType,
-                  Backend::RegionData *regionData);
+                  const QString       &regionName);
 
     static bool
     removeNetwork(MainWindow          *mainWindow,
                   NetworkType          networkType,
                   QString             &networkName,
-                  Backend::RegionData *regionData);
+                  const QString       &regionName);
 
     static bool renameNetwork(
         MainWindow *mainWindow, NetworkType networkType,
         const QString &oldName, const QString &newName,
-        Backend::RegionData *regionData);
+        const QString &regionName);
 
     static bool changeNetworkColor(
         MainWindow *mainWindow, NetworkType networkType,
         const QString &networkName, const QColor &newColor,
-        Backend::RegionData *regionData);
+        const QString &regionName);
 
     static CargoNetSim::Backend::ShortestPathResult
     findNetworkShortestPath(const QString &regionName,
@@ -72,18 +78,18 @@ public:
     static bool moveNetwork(
         MainWindow *mainWindow, NetworkType networkType,
         const QString &networkName, const QPointF &offset,
-        Backend::RegionData *regionData);
+        const QString &regionName);
 
 protected:
     static bool
-    importTrainNetwork(MainWindow          *mainWindow,
-                       Backend::RegionData *regionData,
-                       QString             &networkName);
+    importTrainNetwork(MainWindow    *mainWindow,
+                       const QString &regionName,
+                       QString       &networkName);
 
     static bool
-    importTruckNetwork(MainWindow          *mainWindow,
-                       Backend::RegionData *regionData,
-                       QString             &networkName);
+    importTruckNetwork(MainWindow    *mainWindow,
+                       const QString &regionName,
+                       QString       &networkName);
 
 private:
     static QString getNetworkTypeString(NetworkType type);

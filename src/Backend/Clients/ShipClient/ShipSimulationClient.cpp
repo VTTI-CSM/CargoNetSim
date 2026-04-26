@@ -59,6 +59,20 @@ namespace Backend
 namespace ShipClient
 {
 
+namespace
+{
+
+QString previewContainers(const QJsonArray &containers)
+{
+    if (containers.isEmpty())
+        return QStringLiteral("<empty>");
+    return QString::fromUtf8(
+        QJsonDocument(containers.first().toObject())
+            .toJson(QJsonDocument::Compact));
+}
+
+} // namespace
+
 /**
  * @brief Constructs a ShipSimulationClient instance
  *
@@ -577,6 +591,12 @@ bool ShipSimulationClient::
         const QString &networkName, const QString &shipId,
         const QStringList &terminalNames)
 {
+    qCInfo(lcClientShip)
+        << "ShipSimulationClient::unloadContainersFromShipAtTerminalsPrivate:"
+        << "network=" << networkName
+        << "shipId=" << shipId
+        << "requestedTerminals=" << terminalNames;
+
     QJsonObject params;
     params["networkName"] = networkName;
     params["shipID"]      = shipId;
@@ -1254,6 +1274,13 @@ void ShipSimulationClient::onShipReachedDestination(
                 QStringList terminalIds =
                     m_shipsDestinationTerminals.value(
                         shipId);
+                qCInfo(lcClientShip)
+                    << "ShipSimulationClient::onShipReachedDestination:"
+                    << "network=" << networkName
+                    << "shipId=" << shipId
+                    << "containersCount=" << containersCount
+                    << "cachedDestinationTerminals="
+                    << terminalIds;
 
                 // Create and store ship state
                 ShipState *shipState =
@@ -1322,6 +1349,12 @@ void ShipSimulationClient::onShipReachedSeaport(
     QString networkName =
         message.value("networkName").toString();
     QString shipId = message.value("shipID").toString();
+    qCInfo(lcClientShip)
+        << "ShipSimulationClient::onShipReachedSeaport:"
+        << "network=" << networkName
+        << "shipId=" << shipId
+        << "seaPortCode=" << terminalId
+        << "containersCount=" << containersCount;
     unloadContainersFromShipAtTerminalsPrivate(
         networkName, shipId, QStringList{terminalId});
 
@@ -1361,11 +1394,31 @@ void ShipSimulationClient::onContainersUnloaded(
     double currentTime =
         m_simulationTime->getCurrentTime();
 
+    qCInfo(lcClientShip)
+        << "ShipSimulationClient::onContainersUnloaded:"
+        << "network=" << networkName
+        << "portName=" << portName
+        << "fullTerminalID=" << fullTerminalID
+        << "containerCount=" << containers.size()
+        << "firstContainer=" << previewContainers(containers);
+
+    if (portName.isEmpty())
+    {
+        qCWarning(lcClientShip)
+            << "ShipSimulationClient::onContainersUnloaded:"
+            << "empty portName from ShipNetSim for network"
+            << networkName
+            << "containersCount=" << containers.size();
+    }
+
     if (m_terminalClient)
     {
-        m_terminalClient->addContainers(
+        const bool addSuccess = m_terminalClient->addContainers(
             fullTerminalID, containersJson,
             currentTime, "Ship");
+        qCInfo(lcClientShip)
+            << "ShipSimulationClient::onContainersUnloaded:"
+            << "terminal handoff result=" << addSuccess;
     }
 
     if (m_logger)

@@ -106,6 +106,15 @@ set_target_properties(ConnectionsCommandTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
+add_executable(CliBackendBoundaryTest CliBackendBoundaryTest.cpp)
+target_link_libraries(CliBackendBoundaryTest PRIVATE
+    cargonetsim-cli-lib
+    Qt6::Test
+)
+set_target_properties(CliBackendBoundaryTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
 # Task 14: PreviewCommand — load → validate → link → emit JSON.
 # Uses the scenario fixtures (minimal.yml, invalid_bad_terminal_type.yml)
 # so it attaches the same POST_BUILD copy as ValidateCommandTest.
@@ -121,6 +130,21 @@ set_target_properties(PreviewCommandTest PROPERTIES
 )
 add_custom_command(
     TARGET PreviewCommandTest POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/tests/fixtures
+        ${CMAKE_BINARY_DIR}/bin/fixtures
+)
+
+add_executable(PathsCommandTest PathsCommandTest.cpp)
+target_link_libraries(PathsCommandTest PRIVATE
+    cargonetsim-cli-lib
+    Qt6::Test
+)
+set_target_properties(PathsCommandTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+add_custom_command(
+    TARGET PathsCommandTest POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_SOURCE_DIR}/tests/fixtures
         ${CMAKE_BINARY_DIR}/bin/fixtures

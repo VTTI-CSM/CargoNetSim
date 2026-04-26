@@ -2,14 +2,17 @@
 
 #include <QCoreApplication>
 #include <QIODevice>
+#include <QScopeGuard>
 #include <QString>
 #include <QTimer>
 
 #include <csignal>
 #include <cstdio>
 
+#include "Backend/Application/AvailabilityService.h"
+#include "Backend/Bootstrap/BackendBootstrapService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/SimulatorCommandAvailability.h"
+#include "Backend/Controllers/CargoNetSimController.h"
 #include "CLI/Commands/CommandOutput.h"
 #include "CLI/ExitCodes.h"
 
@@ -23,7 +26,7 @@ namespace {
 /// width 12 accommodates every documented server name (ship, train,
 /// truck, terminal) with a two-space gutter.
 QString formatStatus(
-    const Backend::Scenario::ServerStatusProbe::ServerStatus &s)
+    const Backend::Application::BackendAvailabilityStatus &s)
 {
     return QStringLiteral("%1  %2  consumers=%3\n")
         .arg(s.server, -12)
@@ -46,9 +49,10 @@ ConnectionsCommand::ConnectionsCommand(PollerFn poller, QIODevice *outSink)
     // the controller singleton.
     if (!m_poller)
     {
+        m_bootstrapsBackend = true;
         m_poller = [] {
-            Backend::Scenario::ServerStatusProbe probe;
-            return probe.pollAll();
+            Backend::Application::AvailabilityService service;
+            return service.pollAll();
         };
     }
 }
@@ -59,6 +63,48 @@ int ConnectionsCommand::execute(const QStringList &args)
 
     const bool watch = args.contains(QStringLiteral("--watch"));
     qCDebug(lcCli) << "ConnectionsCommand::execute: watch =" << watch;
+
+    bool backendStarted = false;
+    auto stopGuard = qScopeGuard([&backendStarted]() {
+        if (!backendStarted)
+            return;
+        auto *controller = CargoNetSim::CargoNetSimController::instance();
+        if (controller)
+            controller->stopAll();
+    });
+
+    if (m_bootstrapsBackend)
+    {
+        auto &controller =
+            CargoNetSim::CargoNetSimController::getInstance();
+        Q_UNUSED(controller);
+
+        Backend::BackendBootstrapService bootstrapService;
+        const auto bootstrapResult =
+            bootstrapService.initializeAndStartController(QString());
+        if (!bootstrapResult.succeeded())
+        {
+            const QString message = bootstrapResult.message.isEmpty()
+                ? QStringLiteral("backend bootstrap failed")
+                : bootstrapResult.message;
+            streamToOr(
+                nullptr, stderr,
+                QStringLiteral("connections: %1\n").arg(message));
+            return static_cast<int>(ExitCode::ConnectTimeout);
+        }
+        backendStarted = true;
+
+        // Truck/INTEGRATION startup is scenario-driven and may have no
+        // concrete clients in a status-only invocation. Settle only the
+        // always-on simulator clients so the first one-shot poll is not
+        // racing our own bootstrap work.
+        Backend::Application::AvailabilityService availabilityService;
+        availabilityService.waitForCommandAvailability(
+            {QStringLiteral("terminal"),
+             QStringLiteral("train"),
+             QStringLiteral("ship")},
+            /*timeoutMs=*/2000);
+    }
 
     // One render pass: poll, format, emit, compute exit code. Shared
     // between the one-shot path and every watch tick.

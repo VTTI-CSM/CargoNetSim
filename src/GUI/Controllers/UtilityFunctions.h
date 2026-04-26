@@ -109,15 +109,6 @@ public:
     static void getTopShortestPaths(MainWindow *mainWindow,
                                     int         PathsCount);
 
-    static bool setConnectionProperties(
-        MainWindow                       *mainWindow,
-        CargoNetSim::GUI::ConnectionLine *connection,
-        const CargoNetSim::Backend::ShortestPathResult
-                                      &pathResult,
-        CargoNetSim::GUI::NetworkType &networkType,
-        std::optional<bool> overrideUseNetworkValue =
-            std::nullopt);
-
     static bool processNetworkModeConnection(
         MainWindow                     *mainWindow,
         CargoNetSim::GUI::TerminalItem *sourceTerminal,

@@ -1,7 +1,7 @@
 # GUI/Scenario — thin bridge between GUI items and Backend/Scenario
 
 - Factories produce QGraphicsObject views from scenario data.
-- ScenarioMutator is the ONLY write path from GUI to ScenarioDocument.
+- Backend::Application::ScenarioEditService owns scenario mutation rules.
 - SceneRepopulator rebuilds the scene when documentReset fires.
 - ItemEventBinder holds the signal-wiring lambdas shared across factories.
 

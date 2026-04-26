@@ -1,4 +1,4 @@
-#include "Backend/BackendInit.h"
+#include "Backend/Bootstrap/BackendBootstrapService.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/LogMessageHandler.h"
 #include "Backend/Controllers/CargoNetSimController.h"
@@ -194,8 +194,20 @@ int main(int argc, char *argv[])
     // setting s_instance so workers can find it via instance().
     CargoNetSim::CargoNetSimController controller(logger);
 
-    // Initialize backend metatypes and bring the controller online.
-    CargoNetSim::Backend::initializeBackend("", logger);
+    // Initialize backend metatypes and bring the controller online
+    // through the explicit bootstrap contract.
+    const CargoNetSim::Backend::BackendBootstrapService
+        backendBootstrap;
+    const auto bootstrapResult =
+        backendBootstrap.initializeAndStartController("");
+    if (!bootstrapResult.succeeded())
+    {
+        qFatal("main: %s",
+               qPrintable(bootstrapResult.message.isEmpty()
+                              ? QStringLiteral(
+                                    "backend bootstrap failed")
+                              : bootstrapResult.message));
+    }
 
     // Ctrl+C graceful exit via the self-pipe pattern. The POSIX
     // handler writes one byte; a QSocketNotifier on the main

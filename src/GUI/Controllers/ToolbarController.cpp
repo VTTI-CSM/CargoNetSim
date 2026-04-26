@@ -10,6 +10,7 @@
 #include <QVBoxLayout>
 #include <QWidgetAction>
 
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
 #include "../Controllers/BasicButtonController.h"
 #include "../Controllers/NetworkController.h"
@@ -20,7 +21,6 @@
 #include "../Widgets/ShipManagerDialog.h"
 #include "../Widgets/TrainManagerDialog.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/VehicleController.h"
 #include "GUI/Controllers/ConnectionController.h"
 #include "GUI/Widgets/ScrollableToolBar.h"
 
@@ -437,10 +437,9 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
         connectVisibleTerminalsByNetworkButton,
         &QToolButton::clicked, [mainWindow]() {
             QString currentRegion =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegion();
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
             mainWindow->connectionCtrl()
                 ->connectVisibleTerminalsByNetworks(
                     currentRegion,
@@ -452,10 +451,9 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
         connectTerminalItemsByInterfaceButton,
         &QToolButton::clicked, [mainWindow]() {
             QString currentRegion =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegion();
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
             mainWindow->connectionCtrl()
                 ->connectVisibleTerminalsByInterfaces(
                     currentRegion,
@@ -478,10 +476,9 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
         disconnectAllTerminalsButton, &QToolButton::clicked,
         [mainWindow]() {
             QString currentRegion =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegion();
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
             BasicButtonController::disconnectAllTerminals(
                 mainWindow, mainWindow->getCurrentScene(),
                 (mainWindow->isRegionViewActive()
@@ -554,8 +551,7 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
             QMap<QString, QVariant> simParams =
                 CargoNetSim::CargoNetSimController::
                     getInstance()
-                        .getConfigController()
-                        ->getSimulationParams();
+                        .getSimulationParams();
             int pathsNo =
                 simParams.value("shortest_paths", 3)
                     .toInt();
@@ -683,13 +679,12 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     QObject::connect(
         trainImportButton, &QToolButton::clicked,
         [mainWindow]() {
-            auto regionData =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegionData();
+            const QString regionName =
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
             NetworkController::importNetwork(
-                mainWindow, NetworkType::Train, regionData);
+                mainWindow, NetworkType::Train, regionName);
         });
     networkImportLayout->addWidget(trainImportButton);
 
@@ -703,13 +698,12 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     QObject::connect(
         truckImportButton, &QToolButton::clicked,
         [mainWindow]() {
-            auto regionData =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegionData();
+            const QString regionName =
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
             NetworkController::importNetwork(
-                mainWindow, NetworkType::Truck, regionData);
+                mainWindow, NetworkType::Truck, regionName);
         });
     networkImportLayout->addWidget(truckImportButton);
 

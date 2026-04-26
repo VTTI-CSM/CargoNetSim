@@ -13,11 +13,7 @@
  * routes, and associated costs.
  */
 #pragma once
-#include "Backend/Models/Path.h"
-#include "Backend/Scenario/PathMetrics.h"
-#include "Backend/Scenario/PathPreparationService.h"
-#include "Backend/Scenario/ScenarioExecutionResult.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Application/PathPresentationService.h"
 #include <QBrush>
 #include <QCheckBox>
 #include <QHBoxLayout>
@@ -40,6 +36,16 @@
 
 namespace CargoNetSim
 {
+namespace Backend
+{
+namespace Scenario
+{
+class ScenarioDocument;
+class PreparedPathSet;
+class ScenarioExecutionResultSet;
+}
+}
+
 namespace GUI
 {
 
@@ -111,110 +117,7 @@ class ShortestPathsTable : public QWidget
     Q_OBJECT
 public:
     using PathIdentity = QString;
-
-    /**
-     * @struct PathData
-     * @brief Extension structure that holds Path object and
-     * additional simulation data
-     *
-     * This structure contains a pointer to a Path object
-     * along with additional simulation cost data and
-     * UI-specific properties. It provides a
-     * composition-based approach rather than inheritance
-     * since QObject-derived classes cannot be copied.
-     */
-    struct PathData
-    {
-        /**
-         * @brief Constructs a PathData instance
-         * @param path Pointer to the base Path object (will
-         * be owned by this PathData)
-         * @param simulationTotalCost Total cost from
-         * simulation (default: -1.0 indicating unavailable)
-         * @param simulationEdgeCost Edge costs from
-         * simulation (default: -1.0 indicating unavailable)
-         * @param simulationTerminalCost Terminal costs from
-         * simulation (default: -1.0 indicating unavailable)
-         *
-         * Creates a PathData object that takes ownership of
-         * the provided Path pointer and initializes
-         * simulation-specific cost fields.
-         */
-        PathData(std::shared_ptr<Backend::Path> path = {},
-                 const QString                 &pathKey = QString(),
-                 const Backend::Scenario::PreparedPathEligibility &eligibility = {},
-                 double                         simulationTotalCost = -1.0,
-                 double                         simulationEdgeCost  = -1.0,
-                 double simulationTerminalCost = -1.0)
-            : path(path)
-            , pathKey(pathKey)
-            , eligibility(eligibility)
-            , m_totalSimulationPathCost(simulationTotalCost)
-            , m_totalSimulationEdgeCosts(simulationEdgeCost)
-            , m_totalSimulationTerminalCosts(
-                  simulationTerminalCost)
-            , isVisible(true)
-        {
-        }
-
-        /**
-         * @brief Destructor that cleans up the owned Path
-         * pointer
-         */
-        ~PathData() = default;
-
-        /**
-         * @brief Pointer to the Path object (owned by this
-         * PathData)
-         */
-        std::shared_ptr<Backend::Path> path;
-
-        /**
-         * @brief Stable GUI/runtime identity derived from the
-         * backend canonical path identity
-         */
-        QString pathKey;
-
-        /**
-         * @brief Backend-produced eligibility snapshot for row state.
-         */
-        Backend::Scenario::PreparedPathEligibility eligibility;
-
-        /**
-         * @brief Total cost of the path from simulation
-         */
-        double m_totalSimulationPathCost;
-
-        /**
-         * @brief Total edge costs from simulation
-         */
-        double m_totalSimulationEdgeCosts;
-
-        /**
-         * @brief Total terminal costs from simulation
-         */
-        double m_totalSimulationTerminalCosts;
-
-        /**
-         * @brief Visibility flag for the path in the UI
-         */
-        bool isVisible;
-
-        /**
-         * @brief Backend-owned typed execution result for comparison/export.
-         */
-        std::optional<Backend::Scenario::PathExecutionResult>
-            executionResult;
-
-        // Deleted copy constructor and assignment operator
-        // to prevent accidental copying
-        PathData(const PathData &)            = delete;
-        PathData &operator=(const PathData &) = delete;
-
-        // Allow move operations
-        PathData(PathData &&other) noexcept = default;
-        PathData &operator=(PathData &&other) noexcept = default;
-    };
+    using PathData = Backend::Application::PathPresentationRecord;
 
     /**
      * @brief Constructs a ShortestPathsTable widget
@@ -250,7 +153,7 @@ public:
     /// When non-empty, predicted/actual metric columns populate per
     /// canonical path identity.
     void addPaths(
-        const QList<Backend::Path *>                              &paths,
+        const QList<Backend::Path *> &paths,
         const QHash<PathIdentity, Backend::Scenario::PathMetrics> &predicted = {},
         const QHash<PathIdentity, Backend::Scenario::PathMetrics> &actual    = {});
 
@@ -671,6 +574,8 @@ private:
     QHash<PathIdentity, Backend::Scenario::PathMetrics> m_predicted;
     QHash<PathIdentity, Backend::Scenario::PathMetrics> m_actual;
     QHash<PathIdentity /*pathKey*/, int /*row*/>        m_rowByPathKey;
+
+    PathIdentity appendPathRecord(PathData record);
 
     /// Plan 8.2/A2: rewrite metric columns for a given canonical path.
     void refreshRow(const PathIdentity &pathKey);

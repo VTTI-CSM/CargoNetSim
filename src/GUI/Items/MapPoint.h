@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Backend/Scenario/TerminalPlacement.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Input/Interfaces/IClickable.h"
 #include "GUI/Input/Interfaces/IContextMenuProvider.h"
 #include "GUI/Input/Interfaces/IHoverable.h"
@@ -92,13 +92,13 @@ public:
      *
      * The linkage carries the canonical (networkName, nodeId, terminalId,
      * source) tuple that this point represents. When bound, callers like
-     * the future ScenarioMutator delegate (Task 16) can read the linkage
+     * the backend editing service can read the linkage
      * directly instead of pulling values from m_properties.
      *
      * This is a view-only binding. `setLinkedTerminal` remains a pure
      * view call (it updates the `m_terminal` pointer + property cache
      * only); user-driven linking/unlinking that must mutate the document
-     * routes through `ScenarioMutator::linkTerminalToNode` at the
+     * routes through `ScenarioEditService::linkTerminalToNode` at the
      * ViewController layer (Task 16), not here.
      *
      * Passing nullptr unbinds.

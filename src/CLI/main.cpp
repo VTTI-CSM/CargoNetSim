@@ -18,12 +18,14 @@
 
 #include <memory>
 
+#include "Backend/Bootstrap/BackendBootstrapService.h"
 #include "Backend/Commons/LogMessageHandler.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "SubcommandDispatcher.h"
 
 #include "Commands/ConnectionsCommand.h"
 #include "Commands/HelpVersion.h"
+#include "Commands/PathsCommand.h"
 #include "Commands/PreviewCommand.h"
 #include "Commands/RunCommand.h"
 #include "Commands/ValidateCommand.h"
@@ -61,6 +63,20 @@ int main(int argc, char *argv[])
     // (e.g., RunCommand) calls initialize()/startAll().
     CargoNetSim::CargoNetSimController controller(/*logger=*/nullptr);
 
+    // CLI subcommands that do not boot the full backend can still
+    // rely on shared metatype registration.
+    const CargoNetSim::Backend::BackendBootstrapService
+        backendBootstrap;
+    const auto bootstrapResult = backendBootstrap.registerOnly();
+    if (!bootstrapResult.succeeded())
+    {
+        qFatal("cargonetsim-cli: %s",
+               qPrintable(bootstrapResult.message.isEmpty()
+                              ? QStringLiteral(
+                                    "backend metatype registration failed")
+                              : bootstrapResult.message));
+    }
+
     using namespace CargoNetSim::Cli;
 
     SubcommandDispatcher d;
@@ -71,6 +87,8 @@ int main(int argc, char *argv[])
                       std::make_shared<ValidateCommand>());
     d.registerCommand(QStringLiteral("preview"),
                       std::make_shared<PreviewCommand>());
+    d.registerCommand(QStringLiteral("paths"),
+                      std::make_shared<PathsCommand>());
     d.registerCommand(QStringLiteral("connections"),
                       std::make_shared<ConnectionsCommand>());
 

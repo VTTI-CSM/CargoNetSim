@@ -4,7 +4,7 @@
 
 #include <functional>
 
-#include "Backend/Scenario/ServerStatusProbe.h"
+#include "Backend/Application/AvailabilityService.h"
 #include "CLI/Subcommand.h"
 
 class QIODevice;
@@ -38,10 +38,10 @@ namespace Cli {
  *
  * Dependency injection:
  *   * `poller`  — callable returning the current status list. Default
- *     (empty std::function) constructs a `ServerStatusProbe` on every
- *     poll, driving `CargoNetSimController::getInstance()`. Tests pass
- *     a lambda that returns canned statuses to exercise output and
- *     exit-code logic without standing up a live controller.
+ *     (empty std::function) uses `AvailabilityService` on every poll.
+ *     Tests pass a lambda that returns canned statuses to exercise
+ *     output and exit-code logic without standing up a live
+ *     controller.
  *   * `outSink` — optional `QIODevice *` stdout override; `nullptr`
  *     writes to real stdout (production default). The injected device
  *     must outlive the command instance.
@@ -50,7 +50,7 @@ class ConnectionsCommand : public Subcommand
 {
 public:
     using PollerFn = std::function<
-        QList<Backend::Scenario::ServerStatusProbe::ServerStatus>()>;
+        QList<Backend::Application::BackendAvailabilityStatus>()>;
 
     explicit ConnectionsCommand(PollerFn   poller  = {},
                                 QIODevice *outSink = nullptr);
@@ -60,6 +60,7 @@ public:
 private:
     PollerFn   m_poller;
     QIODevice *m_out;  // not owned; nullptr → write to stdout
+    bool       m_bootstrapsBackend = false;
 };
 
 } // namespace Cli

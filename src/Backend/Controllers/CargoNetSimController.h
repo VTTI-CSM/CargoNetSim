@@ -245,6 +245,77 @@ public:
     Backend::TruckClient::TruckSimulationManager *
     getTruckManager() const;
 
+    // ==========================================
+    // GUI/CLI Façade Operations
+    // ==========================================
+
+    /**
+     * @brief Reload configuration from disk into the live controller-owned
+     *        config store.
+     * @return True if loading succeeded.
+     */
+    bool loadConfig();
+
+    /**
+     * @brief Returns the full configuration map currently held by the
+     *        controller-owned config store.
+     */
+    QVariantMap getAllConfigParams() const;
+
+    /**
+     * @brief Returns the simulation subsection of the live configuration.
+     */
+    QVariantMap getSimulationParams() const;
+
+    /**
+     * @brief Returns the canonical cost-function weights derived from the
+     *        live configuration.
+     */
+    QVariantMap getCostFunctionWeights() const;
+
+    /**
+     * @brief Replace the live configuration in memory.
+     */
+    void updateConfig(const QVariantMap &newConfig);
+
+    /**
+     * @brief Persist the live configuration to disk.
+     * @return True if saving succeeded.
+     */
+    bool saveConfig();
+
+    /**
+     * @brief Returns the current in-memory train inventory.
+     */
+    QVector<Backend::Train *> getAllTrains() const;
+
+    /**
+     * @brief Returns the current in-memory ship inventory.
+     */
+    QVector<Backend::Ship *> getAllShips() const;
+
+    /**
+     * @brief Replace the current in-memory train inventory.
+     * @return True if the update succeeded.
+     */
+    bool updateTrains(QVector<Backend::Train *> trains);
+
+    /**
+     * @brief Replace the current in-memory ship inventory.
+     * @return True if the update succeeded.
+     */
+    bool updateShips(QVector<Backend::Ship *> ships);
+
+    /**
+     * @brief Convenience read for GUI/CLI gating.
+     */
+    bool hasAnyTrains() const;
+
+    /**
+     * @brief Convenience read for GUI/CLI gating.
+     */
+    bool hasAnyShips() const;
+
     /**
      * @brief Gets the ship simulation client
      * @return Pointer to ship simulation client
@@ -383,11 +454,6 @@ signals:
 
 private slots:
     /**
-     * @brief Slot called when a thread has started
-     */
-    void onThreadStarted();
-
-    /**
      * @brief Slot called when a thread has finished
      */
     void onThreadFinished();
@@ -428,6 +494,11 @@ private:
      * @return True if initialization was successful
      */
     bool initializeTerminalClient();
+
+    void queueTruckManagerStartup();
+    void queueShipClientStartup();
+    void queueTrainClientStartup();
+    void queueTerminalClientStartup();
 
     // SimulationTime
     Backend::SimulationTime *m_simulationTime;

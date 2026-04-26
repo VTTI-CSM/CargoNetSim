@@ -2,7 +2,7 @@
 
 #include "Backend/Commons/Units.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Scenario/PropertyKeys.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Utils/IconCreator.h"
 #include <QDialog>
@@ -19,7 +19,6 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/SimulationSettings.h"
 #include "GUI/Controllers/SettingsController.h"
 
 namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
@@ -671,13 +670,10 @@ void SettingsWidget::refreshFromConfig()
     try
     {
         // load settings from the controller
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getConfigController()
-            ->loadConfig();
-        settings = CargoNetSim::CargoNetSimController::
-                       getInstance()
-                           .getConfigController()
-                           ->getAllParams();
+        auto &controller =
+            CargoNetSim::CargoNetSimController::getInstance();
+        controller.loadConfig();
+        settings = controller.getAllConfigParams();
 
         qCDebug(lcGuiUtil)
             << "SettingsWidget::refreshFromConfig: loaded"

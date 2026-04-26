@@ -13,7 +13,7 @@
 #include <QVariant>
 #include <QWidget>
 
-#include "Backend/Scenario/SimulationSettings.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
 
 namespace CargoNetSim
 {

@@ -6,9 +6,8 @@
 #include <QList>
 #include <QString>
 
-#include "Backend/Scenario/PathKey.h"
-#include "Backend/Scenario/PathMetrics.h"
-#include "Backend/Scenario/PathSimulationResult.h"
+#include "Backend/CliApi/ResultsApi.h"
+#include "Backend/CliApi/ScenarioDocumentApi.h"
 #include "CLI/ExitCodes.h"
 #include "CLI/Subcommand.h"
 
@@ -30,19 +29,21 @@ namespace Cli {
  *
  * Plan 5 Task 17. This is the orchestrator — every subsystem touched
  * by `run` is implemented elsewhere and composed here:
- *   1. `ScenarioSerializer::fromYaml`      — parse the YAML.
+ *   1. `ScenarioLoadService::parseAndValidateYaml`
+ *      — parse the YAML and collect validation issues.
  *   2. `ScenarioValidator::validate`       — surface every issue to
  *      stderr via the shared `formatValidationIssues` helper.
  *   3. `CargoNetSimController::initialize` + `startAll`.
- *   4. `ScenarioRuntime::load`             — validate + apply.
- *   5. `Backend::Scenario::PathDiscovery`  — produce the top-N paths.
+ *   4. `ScenarioLoadService::loadValidatedDocument`
+ *      — apply the validated scenario into a runtime.
+ *   5. `PreparedPathService`               — produce the top-N paths.
  *   6. `ProgressReporter` (Task 8)         — rate-limited stderr
  *      ticks driven by `ScenarioRuntime::progressChanged`.
  *   7. `ScenarioRuntime::statusMessage`    — direct stage updates
  *      streamed to the terminal during the blocking run.
- *   8. `ScenarioRuntime::startSimulation`  — spawn the executor;
- *      block the calling thread on a local `QEventLoop` until
- *      `completed` or `failed`.
+ *   8. `SimulationRunService::validateAndStart`
+ *      — preflight + spawn the executor; then block the calling
+ *      thread on a local `QEventLoop` until `completed` or `failed`.
  *   9. `JsonResultsWriter` / `CsvResultsWriter` (Tasks 6 + 7) —
  *      emit `results.{json,csv}` under the YAML's `output.directory`.
  *

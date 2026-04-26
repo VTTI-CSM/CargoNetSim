@@ -1,8 +1,8 @@
 #include "LinkTerminalMode.h"
 
+#include "../../../Backend/Application/NetworkViewService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/LinkageSource.h"
-#include "../../../Backend/Scenario/NetworkLookup.h"
 #include "../../Controllers/UtilityFunctions.h"
 #include "../../Items/MapPoint.h"
 #include "../../Items/TerminalItem.h"
@@ -85,8 +85,9 @@ Handled LinkTerminalMode::onPress(const PressEvent& e, const ClickContext& ctx)
 
     // Resolve canonical (networkName, nodeId) tuple the same way
     // TerminalController does for auto-link on drag-drop.
-    const QString networkName = Backend::Scenario::NetworkLookup::networkNameOf(
-        mp->getReferenceNetwork());
+    Backend::Application::NetworkViewService networkView;
+    const QString networkName =
+        networkView.networkNameOf(mp->getReferenceNetwork());
     const int nodeId = mp->getReferencedNetworkNodeID().toInt();
 
     if (!ctx.document || !ctx.commandBus || networkName.isEmpty()) {

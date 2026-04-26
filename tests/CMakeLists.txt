@@ -125,6 +125,16 @@ target_link_libraries(PathPreparationServiceTest PRIVATE
 set_target_properties(PathPreparationServiceTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+add_executable(PreparedPathApplicationServiceTest PreparedPathApplicationServiceTest.cpp)
+target_include_directories(PreparedPathApplicationServiceTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(PreparedPathApplicationServiceTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(PreparedPathApplicationServiceTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 add_executable(PreparedPathEligibilityServiceTest PreparedPathEligibilityServiceTest.cpp)
 target_include_directories(PreparedPathEligibilityServiceTest PRIVATE ${TEST_INCLUDE_DIRS})
 target_link_libraries(PreparedPathEligibilityServiceTest PRIVATE
@@ -194,6 +204,10 @@ target_link_libraries(MossouriScenarioRegressionTest PRIVATE
     Qt6::Test
     CargoNetSimBackend
 )
+target_compile_definitions(MossouriScenarioRegressionTest PRIVATE
+    CARGONETSIM_CLI_BINARY="$<TARGET_FILE:cargonetsim-cli>"
+)
+add_dependencies(MossouriScenarioRegressionTest cargonetsim-cli)
 set_target_properties(MossouriScenarioRegressionTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
@@ -207,6 +221,18 @@ target_link_libraries(ControllerLifetimeTest PRIVATE
     CargoNetSimBackend
 )
 set_target_properties(ControllerLifetimeTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# Network view service tests
+add_executable(NetworkViewServiceTest NetworkViewServiceTest.cpp)
+target_include_directories(NetworkViewServiceTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(NetworkViewServiceTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(NetworkViewServiceTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
@@ -314,6 +340,17 @@ set_target_properties(ScenarioRuntimeTest PROPERTIES
 
 # GUI-level tests (Plan 4)
 
+# GUI/backend architecture boundary guard
+add_executable(GuiBackendBoundaryTest GUI/GuiBackendBoundaryTest.cpp)
+target_include_directories(GuiBackendBoundaryTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(GuiBackendBoundaryTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+set_target_properties(GuiBackendBoundaryTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
 # Item event binder tests
 add_executable(ItemEventBinderTest GUI/ItemEventBinderTest.cpp)
 target_include_directories(ItemEventBinderTest PRIVATE ${TEST_INCLUDE_DIRS})
@@ -381,17 +418,17 @@ set_target_properties(RegionCenterPointFactoryTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
-# Scenario mutator tests
-add_executable(ScenarioMutatorTest GUI/ScenarioMutatorTest.cpp)
-target_include_directories(ScenarioMutatorTest PRIVATE ${TEST_INCLUDE_DIRS})
-target_link_libraries(ScenarioMutatorTest PRIVATE
+# Scenario edit service tests
+add_executable(ScenarioEditServiceTest GUI/ScenarioEditServiceTest.cpp)
+target_include_directories(ScenarioEditServiceTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(ScenarioEditServiceTest PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
     Qt6::Test
     CargoNetSimGUI
 )
-set_target_properties(ScenarioMutatorTest PROPERTIES
+set_target_properties(ScenarioEditServiceTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 

@@ -4,7 +4,6 @@
 
 namespace CargoNetSim {
 namespace Backend {
-class RegionData;
 namespace Scenario {
 struct NodeLinkage;
 } // namespace Scenario
@@ -22,14 +21,12 @@ namespace Scenario {
  * @brief Build a MapPoint that is a VIEW of a NodeLinkage.
  *
  * The factory:
- *   1. Resolves the referenced network from @p regionData by looking up
- *      @p linkage->networkName first as a rail network, then as a truck
- *      network. (NodeLinkage intentionally carries no networkType field
- *      — type is derived from the referenced network per the canonical
- *      schema.)
+ *   1. Resolves the referenced network from the owning @p regionName via
+ *      Backend::Application::NetworkViewService. (NodeLinkage intentionally
+ *      carries no networkType field — type is derived from the referenced
+ *      network per the canonical schema.)
  *   2. Computes the node's scene-space position using the mode-specific
- *      accessors (train: getX/getY × scales; truck: getXCoordinate/
- *      getYCoordinate × scales × 1000 km→m conversion).
+ *      backend projection contract.
  *   3. Constructs the MapPoint with "Network_ID" set to the linkage's
  *      node ID so that MapPoint::getReferencedNetworkNodeID() returns it.
  *   4. Stores the network pointer via setReferenceNetwork so that
@@ -45,7 +42,7 @@ class MapPointFactory
 public:
     static MapPoint *
     fromNodeLinkage(Backend::Scenario::NodeLinkage *linkage,
-                    Backend::RegionData            *regionData,
+                    const QString                  &regionName,
                     GraphicsScene                  *scene,
                     MainWindow                     *mainWindow);
 

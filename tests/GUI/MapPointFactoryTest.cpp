@@ -39,16 +39,16 @@ private slots:
     {
         GraphicsScene scene;
         QVERIFY(Scenario::MapPointFactory::fromNodeLinkage(
-                    nullptr, nullptr, &scene, nullptr)
+                    nullptr, QStringLiteral("R"), &scene, nullptr)
                 == nullptr);
     }
 
-    void test_returns_null_on_null_regiondata()
+    void test_returns_null_on_empty_region_name()
     {
         NodeLinkage   link;
         GraphicsScene scene;
         QVERIFY(Scenario::MapPointFactory::fromNodeLinkage(
-                    &link, nullptr, &scene, nullptr)
+                    &link, QString(), &scene, nullptr)
                 == nullptr);
     }
 
@@ -56,7 +56,7 @@ private slots:
     {
         NodeLinkage link;
         QVERIFY(Scenario::MapPointFactory::fromNodeLinkage(
-                    &link, nullptr, nullptr, nullptr)
+                    &link, QStringLiteral("R"), nullptr, nullptr)
                 == nullptr);
     }
 

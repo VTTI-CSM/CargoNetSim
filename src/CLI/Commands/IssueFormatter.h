@@ -4,7 +4,7 @@
 #include <QList>
 #include <QString>
 
-#include "Backend/Scenario/ValidationIssue.h"
+#include "Backend/CliApi/ValidationApi.h"
 
 namespace CargoNetSim {
 namespace Cli {

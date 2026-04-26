@@ -1,9 +1,9 @@
 #include "TerminalController.h"
 
+#include "Backend/Application/ScenarioEditService.h"
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Scenario/NetworkLookup.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Controllers/StatusReporter.h"
 #include "GUI/Controllers/ToolbarController.h"
@@ -14,7 +14,6 @@
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ItemEventBinder.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
 #include "GUI/Widgets/PropertiesPanel.h"
@@ -27,6 +26,39 @@ namespace CargoNetSim
 {
 namespace GUI
 {
+
+namespace
+{
+
+RegionCenterPoint *regionCenterPointForRegion(
+    MainWindow *mainWindow,
+    const QString &regionName,
+    bool *regionExists = nullptr)
+{
+    auto *networkView =
+        mainWindow ? mainWindow->networkViewService() : nullptr;
+    const bool exists =
+        networkView && networkView->regionExists(regionName);
+    if (regionExists)
+        *regionExists = exists;
+    if (!networkView || !exists)
+        return nullptr;
+
+    return networkView
+        ->regionVariable(regionName,
+                         QStringLiteral("regionCenterPoint"))
+        .value<RegionCenterPoint *>();
+}
+
+QString currentRegionName(MainWindow *mainWindow)
+{
+    auto *networkView =
+        mainWindow ? mainWindow->networkViewService() : nullptr;
+    return networkView ? networkView->currentRegionName()
+                       : QString();
+}
+
+} // namespace
 
 TerminalController::TerminalController(
     GraphicsScene  *regionScene,
@@ -83,23 +115,17 @@ void TerminalController::updateGlobalMapItem(
 
     if (show)
     {
-        auto regionData =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getRegionData(terminal->getRegion());
+        bool regionExists = false;
+        auto *regionCenterPoint = regionCenterPointForRegion(
+            m_mainWindow, terminal->getRegion(), &regionExists);
 
-        if (!regionData)
+        if (!regionExists)
         {
             qCDebug(lcGuiView)
                 << "TerminalController::updateGlobalMapItem:"
                 << "regionData null, returning";
             return;
         }
-
-        auto regionCenterPoint =
-            regionData->getVariableAs<RegionCenterPoint *>(
-                "regionCenterPoint", nullptr);
 
         if (!regionCenterPoint)
         {
@@ -340,12 +366,9 @@ bool TerminalController::updateTerminalPositionByGlobalPosition(
 
     QString currentRegion = terminal->getRegion();
 
-    auto regionCenterPoint =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getRegionData(currentRegion)
-            ->getVariableAs<RegionCenterPoint *>(
-                "regionCenterPoint", nullptr);
+    bool regionExists = false;
+    auto *regionCenterPoint = regionCenterPointForRegion(
+        m_mainWindow, currentRegion, &regionExists);
 
     if (!regionCenterPoint)
     {
@@ -395,11 +418,10 @@ QPointF TerminalController::globalToLocalLatLon(
     const QString &region,
     const QPointF &globalLatLon) const
 {
-    auto *regionData =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getRegionData(region);
-    if (!regionData)
+    bool regionExists = false;
+    auto *regionCenterPoint = regionCenterPointForRegion(
+        m_mainWindow, region, &regionExists);
+    if (!regionExists)
     {
         qCWarning(lcGuiView)
             << "TerminalController::globalToLocalLatLon:"
@@ -408,9 +430,6 @@ QPointF TerminalController::globalToLocalLatLon(
         return globalLatLon;
     }
 
-    auto *regionCenterPoint =
-        regionData->getVariableAs<RegionCenterPoint *>(
-            "regionCenterPoint", nullptr);
     if (!regionCenterPoint)
     {
         qCWarning(lcGuiView)
@@ -484,13 +503,13 @@ TerminalItem *TerminalController::createTerminalAtPoint(
     }
 
     const QPointF latLon = m_regionView->sceneToWGS84(point);
-    const QString id     = Scenario::ScenarioMutator::createTerminal(
+    const QString id     = Backend::Application::ScenarioEditService::createTerminal(
         doc, terminalType, region, latLon, role);
     if (id.isEmpty())
     {
         qCWarning(lcGuiView)
             << "TerminalController::createTerminalAtPoint:"
-            << "ScenarioMutator::createTerminal returned empty id";
+            << "ScenarioEditService::createTerminal returned empty id";
         return nullptr;
     }
 
@@ -540,10 +559,12 @@ bool TerminalController::linkTerminalToClosestNetworkPoint(
         NetworkType matchedType = NetworkType::Train;
         bool        isMatchingType = false;
         {
+            Backend::Application::NetworkViewService
+                networkView;
             Backend::NetworkKind kind{};
-            const bool recognised = !Backend::Scenario::NetworkLookup
-                                         ::networkNameOf(network, &kind)
-                                         .isEmpty();
+            const bool recognised =
+                !networkView.networkNameOf(network, &kind)
+                     .isEmpty();
             if (recognised
                 && kind == Backend::NetworkKind::Rail
                 && networkTypes.contains(NetworkType::Train))
@@ -637,10 +658,12 @@ bool TerminalController::linkTerminalToClosestNetworkPoint(
         UtilitiesFunctions::linkMapPointToTerminal(
             m_mainWindow, closestPoint, terminal);
 
+        Backend::Application::NetworkViewService networkView;
         Backend::NetworkKind networkKind{};
         QString              networkName =
-            Backend::Scenario::NetworkLookup::networkNameOf(
-                closestPoint->getReferenceNetwork(), &networkKind);
+            networkView.networkNameOf(
+                closestPoint->getReferenceNetwork(),
+                &networkKind);
         QString networkTypeStr = "transport";
         if (networkName.isEmpty())
         {
@@ -659,7 +682,7 @@ bool TerminalController::linkTerminalToClosestNetworkPoint(
             const int nodeId = closestPoint
                                    ->getReferencedNetworkNodeID()
                                    .toInt();
-            Scenario::ScenarioMutator::linkTerminalToNode(
+            Backend::Application::ScenarioEditService::linkTerminalToNode(
                 &m_runtime->document(),
                 terminal->getTerminalId(), networkName, nodeId,
                 Backend::Scenario::LinkageSource::Manual);
@@ -719,10 +742,8 @@ void TerminalController::linkAllVisibleTerminalsToNetwork(
         return;
     }
 
-    QString currentRegion =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getCurrentRegion();
+    const QString currentRegion =
+        currentRegionName(m_mainWindow);
 
     QList<TerminalItem *> allTerminals =
         m_regionScene->getItemsByType<TerminalItem>();
@@ -866,10 +887,12 @@ bool TerminalController::unlinkTerminalFromNetworkPoints(
 
         bool isMatchingType = false;
         {
+            Backend::Application::NetworkViewService
+                networkView;
             Backend::NetworkKind kind{};
-            const bool recognised = !Backend::Scenario::NetworkLookup
-                                         ::networkNameOf(network, &kind)
-                                         .isEmpty();
+            const bool recognised =
+                !networkView.networkNameOf(network, &kind)
+                     .isEmpty();
             if (recognised
                 && kind == Backend::NetworkKind::Rail
                 && networkTypes.contains(NetworkType::Train))
@@ -913,9 +936,10 @@ bool TerminalController::unlinkTerminalFromNetworkPoints(
     int unlinkCount = 0;
     for (MapPoint *point : linkedPoints)
     {
+        Backend::Application::NetworkViewService networkView;
         Backend::NetworkKind networkKind{};
         QString              networkName =
-            Backend::Scenario::NetworkLookup::networkNameOf(
+            networkView.networkNameOf(
                 point->getReferenceNetwork(), &networkKind);
         QString networkTypeStr = "unknown";
         if (networkName.isEmpty())
@@ -936,7 +960,7 @@ bool TerminalController::unlinkTerminalFromNetworkPoints(
         {
             const int nodeId =
                 point->getReferencedNetworkNodeID().toInt();
-            Scenario::ScenarioMutator::unlinkTerminalFromNode(
+            Backend::Application::ScenarioEditService::unlinkTerminalFromNode(
                 &m_runtime->document(),
                 terminal->getTerminalId(), networkName, nodeId);
         }
@@ -1011,10 +1035,8 @@ void TerminalController::unlinkAllVisibleTerminalsToNetwork(
         return;
     }
 
-    QString currentRegion =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getCurrentRegion();
+    const QString currentRegion =
+        currentRegionName(m_mainWindow);
 
     QList<TerminalItem *> allTerminals =
         m_regionScene->getItemsByType<TerminalItem>();

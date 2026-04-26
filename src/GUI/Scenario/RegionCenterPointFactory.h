@@ -30,7 +30,7 @@ namespace Scenario {
  *   5. Wires click signals via ItemEventBinder (currently a no-op for
  *      RegionCenterPoint — hook kept for pattern uniformity).
  *   6. Publishes the pointer under the legacy GUI-runtime key
- *      ("regionCenterPoint") via RegionDataController, so callers using
+ *      ("regionCenterPoint") via NetworkViewService, so callers using
  *      `getVariableAs<RegionCenterPoint*>("regionCenterPoint", ...)`
  *      continue to resolve correctly during the Plan-4 transition.
  *

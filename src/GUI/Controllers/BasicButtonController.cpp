@@ -30,10 +30,11 @@
 #include "../Input/Modes/MeasureMode.h"
 #include "../Input/Modes/NormalMode.h"
 #include "../Input/Modes/UnlinkTerminalMode.h"
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Application/ScenarioLoadService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/RegionSpec.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Controllers/FleetController.h"
 #include "GUI/Controllers/SceneVisibilityController.h"
@@ -222,9 +223,8 @@ void BasicButtonController::changeRegion(
 {
     try
     {
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->setCurrentRegion(region);
+        if (auto *networkView = mainWindow->networkViewService())
+            networkView->setCurrentRegion(region);
         mainWindow->sceneVisibility()->updateSceneVisibility();
         emit mainWindow->regionChanged(region);
     }
@@ -315,10 +315,9 @@ void BasicButtonController::checkNetwork(
     try
     {
         QString currentRegion =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegion();
+            mainWindow && mainWindow->networkViewService()
+                ? mainWindow->networkViewService()->currentRegionName()
+                : QString();
         QList<TerminalItem *> allRegionTerminals =
             UtilitiesFunctions::getTerminalItems(
                 scene, currentRegion,
@@ -452,10 +451,9 @@ void BasicButtonController::toggleConnectionLines(
                 ->getItemsByType<ConnectionLine>();
 
         QString currentRegion =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegion();
+            mainWindow->networkViewService()
+                ? mainWindow->networkViewService()->currentRegionName()
+                : QString();
 
         // Update visibility of connection lines
         for (ConnectionLine *connection : connectionLines)
@@ -514,10 +512,9 @@ void BasicButtonController::toggleTerminals(
         {
             if (terminal
                 && terminal->getRegion()
-                       == CargoNetSim::CargoNetSimController::
-                              getInstance()
-                                  .getRegionDataController()
-                                  ->getCurrentRegion())
+                       == (mainWindow->networkViewService()
+                               ? mainWindow->networkViewService()->currentRegionName()
+                               : QString()))
             {
                 terminal->setVisible(checked);
             }
@@ -556,11 +553,6 @@ void BasicButtonController::newProject(
 
         if (reply == QMessageBox::Yes)
         {
-            // Create an empty scenario with one default
-            // region. ScenarioRuntime::load() calls clearAll()
-            // + apply() on the backend, and setRuntime()
-            // clears scenes + wires observers + backfills —
-            // replacing all the manual cleanup that was here.
             auto doc = std::make_unique<
                 Backend::Scenario::ScenarioDocument>();
 
@@ -573,23 +565,26 @@ void BasicButtonController::newProject(
             defaultRegion.globalPosition = {0.0, 0.0};
             doc->addRegion(defaultRegion);
 
-            auto runtime = std::make_unique<
-                Backend::Scenario::ScenarioRuntime>(
-                std::move(doc));
+            Backend::Application::ScenarioLoadService loadService;
+            auto loadResult =
+                loadService.loadFromDocument(std::move(doc));
 
-            if (!runtime->load())
+            if (!loadResult.succeeded())
             {
                 qCCritical(lcGuiButton)
                     << "newProject: failed to initialize"
-                       " empty scenario";
+                       " empty scenario:"
+                    << loadResult.message;
                 QMessageBox::critical(
                     mainWindow, "New Project",
-                    "Failed to initialize empty"
-                    " scenario.");
+                    QString("Failed to initialize empty"
+                            " scenario.\n%1")
+                        .arg(loadResult.message));
                 return;
             }
 
-            mainWindow->setRuntime(std::move(runtime));
+            mainWindow->setRuntime(
+                std::move(loadResult.runtime));
             mainWindow->currentProjectPath_.clear();
 
             qCInfo(lcGuiButton)
@@ -622,44 +617,36 @@ void BasicButtonController::openScenario(
 
     qCInfo(lcGuiButton) << "BasicButtonController::openScenario:"
                         << "path=" << filePath;
-    // Parse YAML → ScenarioDocument via the thin Task-18 wrapper; it
-    // propagates the backend's human-readable error message so the
-    // user sees what went wrong.
     QString err;
     auto    doc = ProjectSerializer::loadProject(filePath, &err);
     if (!doc)
     {
-        qCWarning(lcGuiButton) << "BasicButtonController::openScenario:"
-                               << "failed to load:" << err;
+        qCWarning(lcGuiButton)
+            << "BasicButtonController::openScenario:"
+            << "failed to load:" << err;
         QMessageBox::critical(
             mainWindow, "Open Scenario",
-            QString("Failed to load scenario:\n%1").arg(err));
+            QString("Failed to load scenario:\n%1")
+                .arg(err));
         return;
     }
 
-    // Wrap the parsed document in a runtime and apply it to the backend
-    // FIRST (populates CargoNetSimController's RegionDataController,
-    // loads network files, etc.). setRuntime below then takes ownership
-    // and triggers the scene backfill — which needs the backend ready
-    // because SceneRepopulator's MapPoint rebuild reads RegionData.
-    auto runtime =
-        std::make_unique<Backend::Scenario::ScenarioRuntime>(
-            std::move(doc));
-    if (!runtime->load())
+    Backend::Application::ScenarioLoadService loadService;
+    auto loadResult =
+        loadService.loadFromDocument(std::move(doc));
+    if (!loadResult.succeeded())
     {
-        qCWarning(lcGuiButton) << "BasicButtonController::openScenario:"
-                               << "runtime->load() failed";
+        qCWarning(lcGuiButton)
+            << "BasicButtonController::openScenario:"
+            << "failed to apply:" << loadResult.message;
         QMessageBox::critical(
             mainWindow, "Open Scenario",
-            "Failed to apply scenario (validation error).");
-        return;  // runtime drops out of scope, backend stays untouched beyond the partial apply
+            QString("Failed to apply scenario:\n%1")
+                .arg(loadResult.message));
+        return;
     }
 
-    // Hand the loaded runtime to MainWindow. setRuntime clears the old
-    // scenes, wires observers on the new doc, and performs a one-shot
-    // SceneRepopulator::repopulate to backfill the scene from the
-    // document state (see MainWindow.cpp comment).
-    mainWindow->setRuntime(std::move(runtime));
+    mainWindow->setRuntime(std::move(loadResult.runtime));
 
     mainWindow->currentProjectPath_ = filePath;
     mainWindow->statusBar()->showMessage(
@@ -747,19 +734,16 @@ void BasicButtonController::showTrainManager(
     if (!mainWindow) return;
     TrainManagerDialog dialog(mainWindow);
 
-    auto trains =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController()
-            ->getAllTrains();
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    auto trains = controller.getAllTrains();
     dialog.setTrains(trains);
 
     if (dialog.exec() == QDialog::Accepted)
     {
         // Store trains
         auto newTrains = dialog.getTrains();
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController()
-            ->updateTrains(newTrains);
+        controller.updateTrains(newTrains);
         mainWindow->fleetCtrl()->appendTrainFiles(dialog.newlyLoadedFiles());
     }
 }
@@ -770,10 +754,9 @@ void BasicButtonController::showShipManager(
     if (!mainWindow) return;
     ShipManagerDialog dialog(mainWindow);
 
-    auto ships =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController()
-            ->getAllShips();
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    auto ships = controller.getAllShips();
     dialog.setShips(ships);
     dialog.updateTable();
 
@@ -781,9 +764,7 @@ void BasicButtonController::showShipManager(
     {
         // Store ships
         auto newShips = dialog.getShips();
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController()
-            ->updateShips(newShips);
+        controller.updateShips(newShips);
         mainWindow->fleetCtrl()->appendShipFiles(dialog.newlyLoadedFiles());
     }
 }
@@ -798,11 +779,10 @@ void BasicButtonController::updateRegionComboBox(
     // Clear and repopulate
     mainWindow->regionCombo_->clear();
 
-    // Get all region names from RegionDataController
     QStringList regionNames =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getAllRegionNames();
+        mainWindow->networkViewService()
+            ? mainWindow->networkViewService()->regionNames()
+            : QStringList();
     mainWindow->regionCombo_->addItems(regionNames);
 
     // Restore selection if it still exists, otherwise
@@ -820,12 +800,12 @@ void BasicButtonController::updateRegionComboBox(
         if (!mainWindow->regionCombo_->currentText()
                  .isEmpty())
         {
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->setCurrentRegion(
-                        mainWindow->regionCombo_
-                            ->currentText());
+            if (auto *networkView =
+                    mainWindow->networkViewService())
+            {
+                networkView->setCurrentRegion(
+                    mainWindow->regionCombo_->currentText());
+            }
         }
     }
 }
@@ -833,33 +813,32 @@ void BasicButtonController::updateRegionComboBox(
 void BasicButtonController::setupSignals(
     MainWindow *mainWindow)
 {
-    QObject::connect(
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController(),
-        &Backend::RegionDataController::regionAdded,
-        mainWindow,
-        [mainWindow](const QString &regionName) {
-            updateRegionComboBox(mainWindow);
-        });
+    if (auto *networkView = mainWindow->networkViewService())
+    {
+        QObject::connect(
+            networkView,
+            &Backend::Application::NetworkViewService::regionAdded,
+            mainWindow,
+            [mainWindow](const QString &) {
+                updateRegionComboBox(mainWindow);
+            });
 
-    QObject::connect(
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController(),
-        &Backend::RegionDataController::regionRenamed,
-        mainWindow,
-        [mainWindow](const QString &oldName,
-                     const QString &newName) {
-            updateRegionComboBox(mainWindow);
-        });
+        QObject::connect(
+            networkView,
+            &Backend::Application::NetworkViewService::regionRenamed,
+            mainWindow,
+            [mainWindow](const QString &, const QString &) {
+                updateRegionComboBox(mainWindow);
+            });
 
-    QObject::connect(
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController(),
-        &Backend::RegionDataController::regionRemoved,
-        mainWindow,
-        [mainWindow](const QString &regionName) {
-            updateRegionComboBox(mainWindow);
-        });
+        QObject::connect(
+            networkView,
+            &Backend::Application::NetworkViewService::regionRemoved,
+            mainWindow,
+            [mainWindow](const QString &) {
+                updateRegionComboBox(mainWindow);
+            });
+    }
 
     QObject::connect(
         mainWindow->regionCombo_,

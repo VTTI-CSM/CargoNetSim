@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Backend/Scenario/InterfaceConversion.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
 #include "GUI/Input/Interfaces/IClickable.h"
 #include "GUI/Input/Interfaces/IDraggable.h"
 #include "GUI/Input/Interfaces/IHoverable.h"

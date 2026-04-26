@@ -3,6 +3,7 @@
 #include <QMetaType>
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Controllers/CargoNetSimController.h"
 
 namespace CargoNetSim {
 namespace GUI {
@@ -18,18 +19,12 @@ void PathFindingWorker::initialize(
     const Backend::Scenario::ScenarioDocument *document,
     const Backend::Scenario::ScenarioRegistry *registry,
     int                                        count,
-    Backend::ConfigController                 *config,
-    Backend::NetworkController                *networks,
-    Backend::RegionDataController             *regionData,
-    Backend::VehicleController                *vehicles)
+    ::CargoNetSim::CargoNetSimController      *controller)
 {
     qCDebug(lcGuiUtil) << "PathFindingWorker::initialize: pathsCount" << count;
     m_document   = document;
     m_registry   = registry;
-    m_config     = config;
-    m_networks   = networks;
-    m_regionData = regionData;
-    m_vehicles   = vehicles;
+    m_controller = controller;
     pathsCount   = count;
 }
 
@@ -45,28 +40,32 @@ void PathFindingWorker::process()
         return;
     }
 
-    QString err;
-    auto prepared =
-        Backend::Scenario::PathPreparationService::
-            discoverAndPreparePaths(
-                *m_document, *m_registry, pathsCount,
-                m_config, m_networks, m_regionData,
-                m_vehicles, &err);
+    const auto result =
+        makePreparedPathService().discoverAndPrepare(
+            *m_document, *m_registry, pathsCount);
 
-    if (prepared.isEmpty())
+    if (!result.succeeded())
     {
         qCWarning(lcGuiUtil) << "PathFindingWorker::process: no paths found -"
-                             << (err.isEmpty() ? "no details" : err);
-        emit error(err.isEmpty() ? QStringLiteral("No paths found.")
-                                 : err);
+                             << (result.message.isEmpty() ? "no details"
+                                                          : result.message);
+        emit error(result.message.isEmpty()
+                       ? QStringLiteral("No paths found.")
+                       : result.message);
         emit finished();
         return;
     }
 
     qCInfo(lcGuiUtil) << "PathFindingWorker::process: prepared"
-                      << prepared.size() << "paths";
-    emit resultReady(prepared);
+                      << result.preparedPathCount << "paths";
+    emit resultReady(result.preparedPaths);
     emit finished();
+}
+
+Backend::Application::PreparedPathService
+PathFindingWorker::makePreparedPathService() const
+{
+    return Backend::Application::PreparedPathService(m_controller);
 }
 
 } // namespace GUI

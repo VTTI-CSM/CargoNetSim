@@ -2,6 +2,8 @@
 
 #include "Backend/Commons/TransportationMode.h"
 #include <QObject>
+#include <QVariantMap>
+#include <optional>
 
 class QGraphicsItem;
 
@@ -45,14 +47,16 @@ public:
 
     /**
      * @brief Creates a connection line between two terminals.
-     * Delegates to ScenarioMutator when a runtime is loaded,
-     * otherwise falls back to the legacy path.
+     * Writes through the backend route-authoring service when a runtime is
+     * loaded, otherwise falls back to the legacy unbound path.
      */
     ConnectionLine *createConnectionLine(
         QGraphicsItem *startItem,
         QGraphicsItem *endItem,
         Backend::TransportationTypes::TransportationMode
-            connectionType);
+            connectionType,
+        std::optional<QVariantMap> canonicalProperties =
+            std::nullopt);
 
     /**
      * @brief Removes a connection line from its scene.

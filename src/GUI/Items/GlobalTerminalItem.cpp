@@ -4,8 +4,7 @@
 #include "GUI/Input/Commands/CreateGlobalLinkCommand.h"
 #include "TerminalItem.h"
 
-#include "Backend/Scenario/RegionSpec.h"
-#include "Backend/Scenario/TerminalPlacement.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Items/RegionCenterPoint.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Widgets/GraphicsView.h"

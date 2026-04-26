@@ -109,7 +109,7 @@ public:
     /// MUST equal `name` (renames go through renameRegion which cascades).
     /// Returns false if the region does not exist or if the passed spec's
     /// name disagrees. Emits `regionChanged(name)` exactly once on success.
-    /// Canonical path for Plan 4's ScenarioMutator region-edit helpers so
+    /// Canonical path for Plan 4's ScenarioEditService region-edit helpers so
     /// they never write directly into `regions[name]`.
     bool updateRegion(const QString &name, const RegionSpec &spec);
 

@@ -4,10 +4,7 @@
 #include <QList>
 #include <QString>
 
-#include "Backend/Models/Path.h"
-#include "Backend/Scenario/PathKey.h"
-#include "Backend/Scenario/PathMetrics.h"
-#include "Backend/Scenario/PathSimulationResult.h"
+#include "Backend/CliApi/ResultsApi.h"
 
 namespace CargoNetSim {
 namespace Cli {

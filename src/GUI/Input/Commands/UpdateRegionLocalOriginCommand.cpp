@@ -1,8 +1,8 @@
 #include "UpdateRegionLocalOriginCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -39,7 +39,7 @@ void UpdateRegionLocalOriginCommand::redo()
         m_oldLatLon = QPointF(it->localOrigin.longitude, it->localOrigin.latitude);
         m_captured  = true;
     }
-    Scenario::ScenarioMutator::updateRegionLocalOrigin(
+    Backend::Application::ScenarioEditService::updateRegionLocalOrigin(
         m_doc.data(), m_regionName, m_newLatLon);
     qCInfo(lcGuiInputCmd) << "UpdateRegionLocalOriginCommand::redo"
                           << m_regionName
@@ -50,7 +50,7 @@ void UpdateRegionLocalOriginCommand::redo()
 void UpdateRegionLocalOriginCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::updateRegionLocalOrigin(
+    Backend::Application::ScenarioEditService::updateRegionLocalOrigin(
         m_doc.data(), m_regionName, m_oldLatLon);
     qCInfo(lcGuiInputCmd) << "UpdateRegionLocalOriginCommand::undo"
                           << m_regionName;

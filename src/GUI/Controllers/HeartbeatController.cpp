@@ -1,8 +1,7 @@
 #include "HeartbeatController.h"
 #include "../MainWindow.h"
+#include "Backend/Application/AvailabilityService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Scenario/SimulatorCommandAvailability.h"
-#include "Backend/Scenario/ServerStatusProbe.h"
 #include <QDateTime>
 #include <QDebug>
 #include <QLabel>
@@ -142,8 +141,9 @@ void HeartbeatController::checkQueueConsumers()
     }
     lastConsumerCheck = currentTime;
 
-    CargoNetSim::Backend::Scenario::ServerStatusProbe probe;
-    const auto statuses = probe.pollAll();
+    const auto statuses =
+        Backend::Application::AvailabilityService()
+            .pollAll();
     QStringList changedServers;
     qCDebug(lcGuiHeartbeat) << "HeartbeatController::checkQueueConsumers:"
                             << "serversPolled=" << statuses.size();

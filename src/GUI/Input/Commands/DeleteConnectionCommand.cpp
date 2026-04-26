@@ -1,8 +1,9 @@
 #include "DeleteConnectionCommand.h"
 
+#include "../../../Backend/Application/RouteAuthoringService.h"
 #include "../../../Backend/Commons/LogCategories.h"
+#include "../../../Backend/Controllers/CargoNetSimController.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -42,8 +43,12 @@ void DeleteConnectionCommand::redo()
             return;
         }
     }
-    Scenario::ScenarioMutator::removeConnection(
-        m_doc.data(), m_fromId, m_toId, m_mode);
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    Backend::Application::RouteAuthoringService routeAuthoringService(
+        &controller);
+    routeAuthoringService.removeRoute(
+        *m_doc, m_fromId, m_toId, m_mode);
     qCInfo(lcGuiInputCmd) << "DeleteConnectionCommand::redo"
                           << m_fromId << "->" << m_toId;
 }
@@ -51,7 +56,11 @@ void DeleteConnectionCommand::redo()
 void DeleteConnectionCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::restoreConnection(m_doc.data(), m_snapshot);
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    Backend::Application::RouteAuthoringService routeAuthoringService(
+        &controller);
+    routeAuthoringService.restoreConnection(*m_doc, m_snapshot);
     qCInfo(lcGuiInputCmd) << "DeleteConnectionCommand::undo"
                           << m_fromId << "->" << m_toId;
 }

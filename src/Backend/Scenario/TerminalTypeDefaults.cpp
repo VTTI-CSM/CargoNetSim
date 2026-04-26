@@ -100,9 +100,10 @@ QMap<QString, QVariant> defaultProperties(const QString &type)
     QMap<QString, QVariant> props;
 
     // "Name" is a placeholder — callers (TerminalItemFactory,
-    // ScenarioMutator::createTerminal) overwrite with a properly-suffixed
-    // id. Kept here so the property key set matches TerminalItem.cpp:79-90
-    // exactly (legacy readers expect "Name" to be present).
+    // ScenarioEditService::createTerminal) overwrite with a
+    // properly-suffixed id. Kept here so the property key set matches
+    // TerminalItem.cpp:79-90 exactly (legacy readers expect "Name" to be
+    // present).
     props[QStringLiteral("Name")]              = type;
     props[QStringLiteral("Show on Global Map")] = true;
 

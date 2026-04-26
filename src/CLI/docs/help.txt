@@ -15,6 +15,11 @@ SUBCOMMANDS
 
     preview     <scenario.yml>   Load, validate, run linker, emit JSON to stdout.
 
+    paths       [--top N] [--json|--details] <scenario.yml>
+                                 Discover and print candidate paths with
+                                 prepared numeric values only. Does not start
+                                 simulation or write results.
+
     connections [--watch]        Show per-server RabbitMQ connection status.
 
     --help, -h                   This help.

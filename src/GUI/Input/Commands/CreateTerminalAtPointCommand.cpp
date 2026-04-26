@@ -1,8 +1,8 @@
 #include "CreateTerminalAtPointCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -32,7 +32,7 @@ CreateTerminalAtPointCommand::CreateTerminalAtPointCommand(
 void CreateTerminalAtPointCommand::redo()
 {
     if (!m_doc) { setObsolete(true); return; }
-    const QString newId = Scenario::ScenarioMutator::createTerminal(
+    const QString newId = Backend::Application::ScenarioEditService::createTerminal(
         m_doc.data(), m_terminalType, m_region, m_localLatLon, m_role);
     if (newId.isEmpty()) {
         qCWarning(lcGuiInputCmd)
@@ -49,7 +49,7 @@ void CreateTerminalAtPointCommand::redo()
 void CreateTerminalAtPointCommand::undo()
 {
     if (!m_doc || !m_wasCreated || m_createdTerminalId.isEmpty()) return;
-    Scenario::ScenarioMutator::removeTerminal(
+    Backend::Application::ScenarioEditService::removeTerminal(
         m_doc.data(), m_createdTerminalId);
     qCInfo(lcGuiInputCmd) << "CreateTerminalAtPointCommand::undo"
                           << "id=" << m_createdTerminalId;

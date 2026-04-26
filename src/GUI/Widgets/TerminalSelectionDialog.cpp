@@ -1,7 +1,7 @@
 #include "TerminalSelectionDialog.h"
 #include "../MainWindow.h"
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Controllers/CargoNetSimController.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/GlobalTerminalItem.h"
 #include "GUI/Items/TerminalItem.h"
@@ -280,10 +280,9 @@ void TerminalSelectionDialog::populateTerminalNames()
         // Get terminal names from TerminalItems in the
         // current region
         QString currentRegion =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegion();
+            mainWindow_ && mainWindow_->networkViewService()
+                ? mainWindow_->networkViewService()->currentRegionName()
+                : QString();
 
         QList<TerminalItem *> terminals =
             scene->getItemsByType<TerminalItem>();

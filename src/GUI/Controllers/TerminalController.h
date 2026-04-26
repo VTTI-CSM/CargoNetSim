@@ -5,7 +5,7 @@
 #include <QPointF>
 #include <QString>
 
-#include "Backend/Scenario/TerminalPlacement.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Commons/NetworkType.h"
 
 namespace CargoNetSim

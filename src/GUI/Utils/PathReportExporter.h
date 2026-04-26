@@ -12,7 +12,7 @@
 
 #pragma once
 
-#include "GUI/Widgets/ShortestPathTable.h"
+#include "Backend/Application/PathPresentationService.h"
 #include "PathReportGenerator.h"
 #include <QObject>
 #include <QString>
@@ -35,6 +35,8 @@ class PathReportExporter : public QObject
     Q_OBJECT
 
 public:
+    using PathData = Backend::Application::PathPresentationRecord;
+
     /**
      * @brief Constructor for PathReportExporter
      * @param parent Parent QObject
@@ -50,8 +52,8 @@ public:
      * otherwise
      */
     bool exportSinglePath(
-        const ShortestPathsTable::PathData *pathData,
-        const QString                      &filePath);
+        const PathData *pathData,
+        const QString  &filePath);
 
     /**
      * @brief Exports multiple paths to a PDF report with
@@ -64,8 +66,7 @@ public:
      * otherwise
      */
     bool exportMultiplePaths(
-        const QList<const ShortestPathsTable::PathData *>
-                      &pathData,
+        const QList<const PathData *> &pathData,
         const QString &filePath);
 
     /**
@@ -79,8 +80,7 @@ public:
      * otherwise
      */
     bool exportPathsWithDialog(
-        const QList<const ShortestPathsTable::PathData *>
-                      &pathData,
+        const QList<const PathData *> &pathData,
         QWidget       *parent      = nullptr,
         const QString &defaultName = "path_report.pdf");
 
@@ -94,8 +94,7 @@ public:
      * false otherwise
      */
     bool previewReport(
-        const QList<const ShortestPathsTable::PathData *>
-                &pathData,
+        const QList<const PathData *> &pathData,
         QWidget *parent = nullptr);
 };
 

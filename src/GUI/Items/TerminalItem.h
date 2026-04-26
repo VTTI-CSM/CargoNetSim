@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Backend/Scenario/InterfaceConversion.h"
-#include "Backend/Scenario/TerminalPlacement.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GraphicsObjectBase.h"
 #include "GUI/Input/Interfaces/IClickable.h"
 #include "GUI/Input/Interfaces/IContextMenuProvider.h"
@@ -260,7 +260,7 @@ public:
      *
      * Cache-staleness contract: m_properties is a snapshot, not a live
      * view. All mutations of the placement are expected to round-trip
-     * through ScenarioMutator → ScenarioDocument::terminalChanged →
+     * through ScenarioEditService → ScenarioDocument::terminalChanged →
      * (Task 21) observer → setPlacement() again, which refreshes the
      * snapshot in one place.
      */

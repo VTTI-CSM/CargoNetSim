@@ -28,6 +28,20 @@ namespace Backend
 namespace TrainClient
 {
 
+namespace
+{
+
+QString previewContainers(const QJsonArray &containers)
+{
+    if (containers.isEmpty())
+        return QStringLiteral("<empty>");
+    return QString::fromUtf8(
+        QJsonDocument(containers.first().toObject())
+            .toJson(QJsonDocument::Compact));
+}
+
+} // namespace
+
 TrainSimulationClient::TrainSimulationClient(
     QObject *parent, const QString &host, int port)
     : SimulationClientBase(
@@ -522,6 +536,13 @@ bool TrainSimulationClient::unloadTrainPrivate(
     const QString &networkName, const QString &trainId,
     const QStringList &containersDestinationNames)
 {
+    qCInfo(lcClientTrain)
+        << "TrainSimulationClient::unloadTrainPrivate:"
+        << "network=" << networkName
+        << "trainId=" << trainId
+        << "requestedDestinations="
+        << containersDestinationNames;
+
     // Build command parameters
     QJsonObject params{{"networkName", networkName},
                        {"trainID", trainId},
@@ -801,6 +822,16 @@ void TrainSimulationClient::onTrainReachedDestination(
                     m_loadedTrains[state->getTrainUserId()]
                         ->getTrainPathOnNodeIds()
                         .last());
+                qCInfo(lcClientTrain)
+                    << "TrainSimulationClient::onTrainReachedDestination:"
+                    << "network=" << network
+                    << "trainId=" << state->getTrainUserId()
+                    << "containersCount=" << containersCount
+                    << "requestedDestinationId="
+                    << destinationId
+                    << "trainPathNodes="
+                    << m_loadedTrains[state->getTrainUserId()]
+                           ->getTrainPathOnNodeIds();
 
                 unloadTasks.append(std::make_tuple(
                     network, state->getTrainUserId(),
@@ -1087,6 +1118,13 @@ void TrainSimulationClient::onTrainReachedTerminal(
     if (m_terminalClient && containersCount > 0
         && !terminalId.isEmpty())
     {
+        qCInfo(lcClientTrain)
+            << "TrainSimulationClient::onTrainReachedTerminal:"
+            << "network=" << network
+            << "trainId=" << trainId
+            << "terminalId=" << terminalId
+            << "containersCount=" << containersCount
+            << "requestingUnloadAtCurrentTerminal";
         unloadTrainPrivate(network, trainId,
                            QStringList() << terminalId);
     }
@@ -1122,11 +1160,31 @@ void TrainSimulationClient::onContainersUnloaded(
 
     double currentTime = m_simulationTime->getCurrentTime();
 
+    qCInfo(lcClientTrain)
+        << "TrainSimulationClient::onContainersUnloaded:"
+        << "network=" << networkName
+        << "terminalId=" << terminalId
+        << "fullTerminalID=" << fullTerminalID
+        << "containerCount=" << containers.size()
+        << "firstContainer=" << previewContainers(containers);
+
+    if (terminalId.isEmpty())
+    {
+        qCWarning(lcClientTrain)
+            << "TrainSimulationClient::onContainersUnloaded:"
+            << "empty terminalId from NeTrainSim for network"
+            << networkName
+            << "containersCount=" << containers.size();
+    }
+
     if (m_terminalClient)
     {
-        m_terminalClient->addContainers(
+        const bool addSuccess = m_terminalClient->addContainers(
             fullTerminalID, containersJson,
             currentTime, "Train");
+        qCInfo(lcClientTrain)
+            << "TrainSimulationClient::onContainersUnloaded:"
+            << "terminal handoff result=" << addSuccess;
     }
 
     // Log event using logger if available

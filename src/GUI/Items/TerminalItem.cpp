@@ -2,9 +2,8 @@
 #include "GlobalTerminalItem.h"
 
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/TerminalPlacement.h"
-#include "Backend/Scenario/TerminalTypeDefaults.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Input/ClickContext.h"
 #include "GUI/Input/Commands/CommandBus.h"

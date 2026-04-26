@@ -1,8 +1,8 @@
 #include "LinkTerminalToMapPointCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -32,7 +32,7 @@ LinkTerminalToMapPointCommand::LinkTerminalToMapPointCommand(
 void LinkTerminalToMapPointCommand::redo()
 {
     if (!m_doc) { setObsolete(true); return; }
-    const bool ok = Scenario::ScenarioMutator::linkTerminalToNode(
+    const bool ok = Backend::Application::ScenarioEditService::linkTerminalToNode(
         m_doc.data(), m_terminalId, m_networkName, m_nodeId, m_source);
     if (!ok) {
         qCWarning(lcGuiInputCmd)
@@ -49,7 +49,7 @@ void LinkTerminalToMapPointCommand::redo()
 void LinkTerminalToMapPointCommand::undo()
 {
     if (!m_doc || !m_wasCreated) return;
-    Scenario::ScenarioMutator::unlinkTerminalFromNode(
+    Backend::Application::ScenarioEditService::unlinkTerminalFromNode(
         m_doc.data(), m_terminalId, m_networkName, m_nodeId);
     qCInfo(lcGuiInputCmd) << "LinkTerminalToMapPointCommand::undo"
                           << m_terminalId << m_networkName << "node=" << m_nodeId;

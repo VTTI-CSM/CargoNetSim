@@ -1,8 +1,7 @@
 #include "NormalMode.h"
 
+#include "../../../Backend/Application/NetworkViewService.h"
 #include "../../../Backend/Commons/LogCategories.h"
-#include "../../../Backend/Controllers/CargoNetSimController.h"
-#include "../../../Backend/Controllers/RegionDataController.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
 #include "../../Items/GraphicsObjectBase.h"
 #include "../../Items/TerminalItem.h"
@@ -106,9 +105,8 @@ Handled NormalMode::onDrop(const DropEvent& e, const ClickContext& ctx)
         return Handled::PassThrough;
     }
 
-    const QString region =
-        CargoNetSimController::getInstance()
-            .getRegionDataController()->getCurrentRegion();
+    Backend::Application::NetworkViewService networkView;
+    const QString region = networkView.currentRegionName();
 
     // Same conversion TerminalController::createTerminalAtPoint performs
     // internally (scene-point -> WGS84 lat/lon) so the command sees the

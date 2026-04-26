@@ -1,8 +1,9 @@
 #include "DeleteGlobalLinkCommand.h"
 
+#include "../../../Backend/Application/RouteAuthoringService.h"
 #include "../../../Backend/Commons/LogCategories.h"
+#include "../../../Backend/Controllers/CargoNetSimController.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -42,8 +43,12 @@ void DeleteGlobalLinkCommand::redo()
             return;
         }
     }
-    Scenario::ScenarioMutator::removeGlobalLink(
-        m_doc.data(), m_fromId, m_toId, m_mode);
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    Backend::Application::RouteAuthoringService routeAuthoringService(
+        &controller);
+    routeAuthoringService.removeRoute(
+        *m_doc, m_fromId, m_toId, m_mode);
     qCInfo(lcGuiInputCmd) << "DeleteGlobalLinkCommand::redo"
                           << m_fromId << "->" << m_toId;
 }
@@ -51,7 +56,11 @@ void DeleteGlobalLinkCommand::redo()
 void DeleteGlobalLinkCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::restoreGlobalLink(m_doc.data(), m_snapshot);
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    Backend::Application::RouteAuthoringService routeAuthoringService(
+        &controller);
+    routeAuthoringService.restoreGlobalLink(*m_doc, m_snapshot);
     qCInfo(lcGuiInputCmd) << "DeleteGlobalLinkCommand::undo"
                           << m_fromId << "->" << m_toId;
 }

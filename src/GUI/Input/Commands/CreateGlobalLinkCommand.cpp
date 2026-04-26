@@ -1,8 +1,10 @@
 #include "CreateGlobalLinkCommand.h"
 
+#include "../../../Backend/Application/RouteAuthoringService.h"
 #include "../../../Backend/Commons/LogCategories.h"
+#include "../../../Backend/Controllers/CargoNetSimController.h"
+#include "../../../Backend/Scenario/RouteMetricUnits.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -30,9 +32,17 @@ CreateGlobalLinkCommand::CreateGlobalLinkCommand(
 void CreateGlobalLinkCommand::redo()
 {
     if (!m_doc) { setObsolete(true); return; }
-    const bool ok = Scenario::ScenarioMutator::createGlobalLink(
-        m_doc.data(), m_fromId, m_toId, m_mode);
-    if (!ok) {
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    Backend::Application::RouteAuthoringService routeAuthoringService(
+        &controller);
+    const auto result =
+        routeAuthoringService.createGlobalLink(
+            *m_doc, m_fromId, m_toId, m_mode,
+            Backend::Scenario::RouteMetricUnits::
+                defaultCanonicalProperties(),
+            Backend::Scenario::LinkageSource::Manual);
+    if (!result.succeeded()) {
         qCWarning(lcGuiInputCmd)
             << "CreateGlobalLinkCommand::redo: createGlobalLink failed"
             << m_fromId << "->" << m_toId;
@@ -48,8 +58,12 @@ void CreateGlobalLinkCommand::redo()
 void CreateGlobalLinkCommand::undo()
 {
     if (!m_doc || !m_wasCreated) return;
-    Scenario::ScenarioMutator::removeGlobalLink(
-        m_doc.data(), m_fromId, m_toId, m_mode);
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    Backend::Application::RouteAuthoringService routeAuthoringService(
+        &controller);
+    routeAuthoringService.removeRoute(
+        *m_doc, m_fromId, m_toId, m_mode);
     qCInfo(lcGuiInputCmd) << "CreateGlobalLinkCommand::undo"
                           << m_fromId << "->" << m_toId;
 }

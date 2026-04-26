@@ -4,7 +4,7 @@
 #include <QList>
 #include <QWidget>
 
-#include "Backend/Scenario/ScenarioDocument.h"  // for DestinationRoute
+#include "Backend/GuiApi/ScenarioDocumentApi.h"  // for DestinationRoute
 
 class QTableWidget;
 class QPushButton;
@@ -21,7 +21,7 @@ namespace GUI {
 /// A table-based editor for the `destinations: [{terminal, fraction}]`
 /// multi-destination form. Emits `changed()` whenever the edited list
 /// is self-consistent enough to be written through
-/// `ScenarioMutator::setTerminalProperty`.
+/// `ScenarioEditService::setTerminalProperty`.
 ///
 /// Non-owning: does NOT write to any document. The hosting
 /// PropertiesPanel reads `routes()` on every `changed()` signal and

@@ -109,7 +109,8 @@ private:
     /// Plan 8: sole authoring surface for origin role + destination
     /// routing. Always visible on every terminal — any physical kind
     /// can become an origin by setting count > 0. Writes through
-    /// ScenarioMutator::setProperty so the typed store stays consistent.
+    /// ScenarioEditService::setTerminalProperty so the typed store stays
+    /// consistent.
     void addOriginConfigurationSection(TerminalItem *item);
     void addRoleSection(TerminalItem *item);
     // Helper method for coordinate fields

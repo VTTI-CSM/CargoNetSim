@@ -1,7 +1,10 @@
 #include "ConnectionController.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/RouteAuthoringService.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Commons/NetworkType.h"
 #include "GUI/Items/ConnectionLine.h"
@@ -10,7 +13,6 @@
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ConnectionLineFactory.h"
 #include "GUI/Scenario/ItemEventBinder.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
 #include "GUI/Widgets/InterfaceSelectionDialog.h"
@@ -22,6 +24,23 @@ namespace CargoNetSim
 {
 namespace GUI
 {
+
+namespace
+{
+
+void applyCanonicalPropertiesToLine(
+    ConnectionLine *line,
+    const QVariantMap &canonicalProperties)
+{
+    if (!line) return;
+    for (auto it = canonicalProperties.constBegin();
+         it != canonicalProperties.constEnd(); ++it)
+    {
+        line->setProperty(it.key(), it.value());
+    }
+}
+
+} // namespace
 
 ConnectionController::ConnectionController(
     GraphicsScene  *regionScene,
@@ -138,7 +157,8 @@ ConnectionLine *ConnectionController::createConnectionLine(
     QGraphicsItem *startItem,
     QGraphicsItem *endItem,
     Backend::TransportationTypes::TransportationMode
-        connectionType)
+        connectionType,
+    std::optional<QVariantMap> canonicalProperties)
 {
     qCDebug(lcGuiView)
         << "ConnectionController::createConnectionLine:"
@@ -170,7 +190,7 @@ ConnectionLine *ConnectionController::createConnectionLine(
     auto *doc         = &m_runtime->document();
 
     // Case 1: two region-view TerminalItems in the same
-    // region -> delegate to ScenarioMutator::createConnection.
+    // region -> create a document-owned regional connection.
     auto *SP = dynamic_cast<TerminalItem *>(startItem);
     auto *EP = dynamic_cast<TerminalItem *>(endItem);
     qCDebug(lcGuiView) << "createConnectionLine: SP=" << SP << "EP=" << EP;
@@ -179,6 +199,10 @@ ConnectionLine *ConnectionController::createConnectionLine(
         qCDebug(lcGuiView) << "createConnectionLine: Case1 same-region";
         const QString sId = SP->getTerminalId();
         const QString eId = EP->getTerminalId();
+        auto &controller =
+            CargoNetSim::CargoNetSimController::getInstance();
+        Backend::Application::RouteAuthoringService routeAuthoringService(
+            &controller);
         if (sId.isEmpty() || eId.isEmpty())
             return createConnectionLineLegacy(startItem,
                                               endItem,
@@ -186,23 +210,69 @@ ConnectionLine *ConnectionController::createConnectionLine(
         if (auto *existingLine =
                 Scenario::ConnectionLineFactory::findRegionConnection(
                     m_regionScene, sId, eId, connectionType))
+        {
+            if (canonicalProperties.has_value())
+            {
+                const auto updateResult =
+                    routeAuthoringService.setCanonicalRouteProperties(
+                        *doc, sId, eId, connectionType,
+                        canonicalProperties.value());
+                if (updateResult.succeeded())
+                    applyCanonicalPropertiesToLine(
+                        existingLine, canonicalProperties.value());
+            }
             return existingLine;
+        }
         if (auto *existing = doc->findConnection(
                 sId, eId, connectionType))
-            return Scenario::ConnectionLineFactory::fromConnection(
-                doc, existing, m_regionScene, m_mainWindow);
+        {
+            if (canonicalProperties.has_value())
+            {
+                const auto updateResult =
+                    routeAuthoringService.setCanonicalRouteProperties(
+                        *doc, sId, eId, connectionType,
+                        canonicalProperties.value());
+                if (updateResult.succeeded())
+                    existing = doc->findConnection(
+                        sId, eId, connectionType);
+            }
+            auto *line =
+                Scenario::ConnectionLineFactory::fromConnection(
+                    doc, existing, m_regionScene, m_mainWindow);
+            if (line && canonicalProperties.has_value())
+                applyCanonicalPropertiesToLine(
+                    line, canonicalProperties.value());
+            return line;
+        }
         if (checkExistingConnection(startItem, endItem, connectionType))
         {
             qCDebug(lcGuiView)
                 << "createConnectionLine: visual connection already exists in reverse direction";
             return nullptr;
         }
-        if (!Scenario::ScenarioMutator::createConnection(
-                doc, sId, eId, connectionType))
+        const auto createResult =
+            routeAuthoringService.createConnection(
+                *doc, sId, eId, connectionType,
+                canonicalProperties.value_or(
+                    Backend::Scenario::RouteMetricUnits::
+                        defaultCanonicalProperties()),
+                Backend::Scenario::LinkageSource::Manual);
+        if (!createResult.succeeded())
+        {
+            m_status->showError(
+                createResult.message.isEmpty()
+                    ? QStringLiteral("Failed to create connection.")
+                    : createResult.message,
+                3000);
             return nullptr;
-        return Scenario::ConnectionLineFactory::
+        }
+        auto *line = Scenario::ConnectionLineFactory::
             findRegionConnection(m_regionScene, sId, eId,
                                  connectionType);
+        if (line && canonicalProperties.has_value())
+            applyCanonicalPropertiesToLine(
+                line, canonicalProperties.value());
+        return line;
     }
 
     // Case 2: two region-view TerminalItems in different
@@ -236,6 +306,10 @@ ConnectionLine *ConnectionController::createConnectionLine(
 
         const QString sId = sTerm->getTerminalId();
         const QString eId = eTerm->getTerminalId();
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    Backend::Application::RouteAuthoringService routeAuthoringService(
+        &controller);
         qCDebug(lcGuiView) << "createConnectionLine: Case3 diff-region sId=" << sId << "eId=" << eId;
         if (sId.isEmpty() || eId.isEmpty())
             return createConnectionLineLegacy(startItem,
@@ -244,28 +318,68 @@ ConnectionLine *ConnectionController::createConnectionLine(
         if (auto *existingLine =
                 Scenario::ConnectionLineFactory::findGlobalLink(
                     m_globalMapScene, sId, eId, connectionType))
+        {
+            if (canonicalProperties.has_value())
+            {
+                const auto updateResult =
+                    routeAuthoringService.setCanonicalRouteProperties(
+                        *doc, sId, eId, connectionType,
+                        canonicalProperties.value());
+                if (updateResult.succeeded())
+                    applyCanonicalPropertiesToLine(
+                        existingLine, canonicalProperties.value());
+            }
             return existingLine;
+        }
         if (auto *existing = doc->findGlobalLink(
                 sId, eId, connectionType))
-            return Scenario::ConnectionLineFactory::fromGlobalLink(
-                doc, existing, m_globalMapScene, m_mainWindow);
+        {
+            if (canonicalProperties.has_value())
+            {
+                const auto updateResult =
+                    routeAuthoringService.setCanonicalRouteProperties(
+                        *doc, sId, eId, connectionType,
+                        canonicalProperties.value());
+                if (updateResult.succeeded())
+                    existing = doc->findGlobalLink(
+                        sId, eId, connectionType);
+            }
+            auto *line =
+                Scenario::ConnectionLineFactory::fromGlobalLink(
+                    doc, existing, m_globalMapScene, m_mainWindow);
+            if (line && canonicalProperties.has_value())
+                applyCanonicalPropertiesToLine(
+                    line, canonicalProperties.value());
+            return line;
+        }
         if (checkExistingConnection(startItem, endItem, connectionType))
         {
             qCDebug(lcGuiView)
                 << "createConnectionLine: visual global link already exists in reverse direction";
             return nullptr;
         }
-        qCDebug(lcGuiView) << "createConnectionLine: calling createGlobalLink";
-        if (!Scenario::ScenarioMutator::createGlobalLink(
-                doc, sId, eId, connectionType))
+        const auto createResult =
+            routeAuthoringService.createGlobalLink(
+                *doc, sId, eId, connectionType,
+                canonicalProperties.value_or(
+                    Backend::Scenario::RouteMetricUnits::
+                        defaultCanonicalProperties()),
+                Backend::Scenario::LinkageSource::Manual);
+        if (!createResult.succeeded())
         {
-            qCDebug(lcGuiView) << "createConnectionLine: createGlobalLink failed";
+            m_status->showError(
+                createResult.message.isEmpty()
+                    ? QStringLiteral("Failed to create connection.")
+                    : createResult.message,
+                3000);
             return nullptr;
         }
-        qCDebug(lcGuiView) << "createConnectionLine: calling findGlobalLink";
         auto *found = Scenario::ConnectionLineFactory::
             findGlobalLink(m_globalMapScene, sId, eId,
                            connectionType);
+        if (found && canonicalProperties.has_value())
+            applyCanonicalPropertiesToLine(
+                found, canonicalProperties.value());
         qCDebug(lcGuiView) << "createConnectionLine: findGlobalLink=" << found;
         return found;
     }
@@ -387,38 +501,52 @@ bool ConnectionController::removeConnectionLine(
         if (m_runtime && connectionLine->isConnectionBinding())
         {
             auto *doc = &m_runtime->document();
-            const bool removed = Scenario::ScenarioMutator::removeConnection(
-                doc,
-                connectionLine->boundFromTerminalId(),
-                connectionLine->boundToTerminalId(),
-                connectionLine->connectionType());
-            if (removed)
+            auto &controller =
+                CargoNetSim::CargoNetSimController::getInstance();
+            Backend::Application::RouteAuthoringService routeAuthoringService(
+                &controller);
+            const auto removeResult =
+                routeAuthoringService.removeRoute(
+                    *doc,
+                    connectionLine->boundFromTerminalId(),
+                    connectionLine->boundToTerminalId(),
+                    connectionLine->connectionType());
+            if (removeResult.succeeded())
                 m_status->showMessage(
                     QString("Connection removed successfully."),
                     2000);
             else
                 m_status->showError(
-                    QString("Failed to remove connection."),
+                    removeResult.message.isEmpty()
+                        ? QStringLiteral("Failed to remove connection.")
+                        : removeResult.message,
                     3000);
-            return removed;
+            return removeResult.succeeded();
         }
         if (m_runtime && connectionLine->isGlobalLinkBinding())
         {
             auto *doc = &m_runtime->document();
-            const bool removed = Scenario::ScenarioMutator::removeGlobalLink(
-                doc,
-                connectionLine->boundFromTerminalId(),
-                connectionLine->boundToTerminalId(),
-                connectionLine->connectionType());
-            if (removed)
+            auto &controller =
+                CargoNetSim::CargoNetSimController::getInstance();
+            Backend::Application::RouteAuthoringService routeAuthoringService(
+                &controller);
+            const auto removeResult =
+                routeAuthoringService.removeRoute(
+                    *doc,
+                    connectionLine->boundFromTerminalId(),
+                    connectionLine->boundToTerminalId(),
+                    connectionLine->connectionType());
+            if (removeResult.succeeded())
                 m_status->showMessage(
                     QString("Connection removed successfully."),
                     2000);
             else
                 m_status->showError(
-                    QString("Failed to remove connection."),
+                    removeResult.message.isEmpty()
+                        ? QStringLiteral("Failed to remove connection.")
+                        : removeResult.message,
                     3000);
-            return removed;
+            return removeResult.succeeded();
         }
 
         // Determine which scene the connection belongs to
@@ -489,17 +617,16 @@ void ConnectionController::
         << "ConnectionController::"
            "connectVisibleTerminalsByNetworks: enter";
 
-    auto vehicleController =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController();
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
 
-    if (vehicleController->getAllShips().isEmpty())
+    if (!controller.hasAnyShips())
     {
         m_status->showError(
             "No ships available! Load ships first!", 3000);
         return;
     }
-    if (vehicleController->getAllTrains().isEmpty())
+    if (!controller.hasAnyTrains())
     {
         m_status->showError(
             "No trains available! Load trains first!",
@@ -576,20 +703,18 @@ void ConnectionController::
 
         QApplication::processEvents();
 
-        auto regionData =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegionData();
-
-        if (regionData)
+        if (m_mainWindow && m_mainWindow->networkViewService())
         {
-            if (!regionData->getTrainNetworks().isEmpty())
+            if (!m_mainWindow->networkViewService()
+                     ->trainNetworkNames(currentRegion)
+                     .isEmpty())
             {
                 availableNetworks.insert("Rail");
             }
 
-            if (!regionData->getTruckNetworks().isEmpty())
+            if (!m_mainWindow->networkViewService()
+                     ->truckNetworkNames(currentRegion)
+                     .isEmpty())
             {
                 availableNetworks.insert("Truck");
             }
@@ -737,15 +862,16 @@ void ConnectionController::
                             sourceTerminal, targetTerminal);
                 using Mode = Backend::TransportationTypes::
                     TransportationMode;
+                auto *networkView =
+                    m_mainWindow
+                        ? m_mainWindow->networkViewService()
+                        : nullptr;
 
                 if (selectedNetworks.contains("Rail")
                     && commonModes.contains(Mode::Train)
-                    && !CargoNetSim::CargoNetSimController::
-                            getInstance()
-                                .getRegionDataController()
-                                ->getCurrentRegionData()
-                                ->getTrainNetworks()
-                                .isEmpty())
+                    && networkView
+                    && !networkView->trainNetworkNames(currentRegion)
+                            .isEmpty())
                 {
                     bool isConnected =
                         UtilitiesFunctions::
@@ -761,12 +887,9 @@ void ConnectionController::
 
                 if (selectedNetworks.contains("Truck")
                     && commonModes.contains(Mode::Truck)
-                    && !CargoNetSim::CargoNetSimController::
-                            getInstance()
-                                .getRegionDataController()
-                                ->getCurrentRegionData()
-                                ->getTruckNetworks()
-                                .isEmpty())
+                    && networkView
+                    && !networkView->truckNetworkNames(currentRegion)
+                            .isEmpty())
                 {
                     bool isConnected =
                         UtilitiesFunctions::
@@ -858,53 +981,49 @@ void ConnectionController::
 
                     if (handled)
                     {
+                        auto &controller =
+                            CargoNetSim::CargoNetSimController::getInstance();
+                        Backend::Application::RouteAuthoringService routeAuthoringService(
+                            &controller);
+
+                        CargoNetSim::Backend::ShortestPathResult result;
+
+                        QPointF sourceGeoPoint =
+                            m_mainWindow->globalMapView()
+                                ->sceneToWGS84(
+                                    sourceTerminal
+                                        ->pos());
+                        QPointF targetGeoPoint =
+                            m_mainWindow->globalMapView()
+                                ->sceneToWGS84(
+                                    targetTerminal
+                                        ->pos());
+
+                        result.totalLength =
+                            UtilitiesFunctions::
+                                getApproximateGeoDistance(
+                                    sourceGeoPoint,
+                                    targetGeoPoint);
+                        result.optimizationCriterion =
+                            "distance";
+
+                        const auto propertyResult =
+                            routeAuthoringService.computeCanonicalRouteProperties(
+                                result, connectionType);
+                        if (!propertyResult.succeeded())
+                        {
+                            errorOccurred = true;
+                            break;
+                        }
+
                         auto connectionLine =
                             createConnectionLine(
                                 sourceTerminal,
                                 targetTerminal,
-                                connectionType);
+                                connectionType,
+                                propertyResult.canonicalProperties);
                         if (connectionLine)
                         {
-                            CargoNetSim::Backend::
-                                ShortestPathResult result;
-
-                            QPointF sourceGeoPoint =
-                                m_mainWindow->globalMapView()
-                                    ->sceneToWGS84(
-                                        sourceTerminal
-                                            ->pos());
-                            QPointF targetGeoPoint =
-                                m_mainWindow->globalMapView()
-                                    ->sceneToWGS84(
-                                        targetTerminal
-                                            ->pos());
-
-                            result.totalLength =
-                                UtilitiesFunctions::
-                                    getApproximateGeoDistance(
-                                        sourceGeoPoint,
-                                        targetGeoPoint);
-                            result.optimizationCriterion =
-                                "distance";
-
-                            NetworkType networkType =
-                                NetworkType::Ship;
-
-                            bool propertiesSet =
-                                UtilitiesFunctions::
-                                    setConnectionProperties(
-                                        m_mainWindow,
-                                        connectionLine,
-                                        result,
-                                        networkType);
-                            if (!propertiesSet)
-                            {
-                                removeConnectionLine(
-                                    connectionLine);
-                                errorOccurred = true;
-                                break;
-                            }
-
                             anyConnectionCreated = true;
                         }
                     }
@@ -1180,12 +1299,11 @@ void ConnectionController::
             return;
         }
 
-        auto vehicleController =
+        auto &controller =
             CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getVehicleController();
+                getInstance();
 
-        if (vehicleController->getAllShips().isEmpty())
+        if (!controller.hasAnyShips())
         {
             m_status->showError(
                 "No ships available! Load ships first.",
@@ -1196,7 +1314,7 @@ void ConnectionController::
             return;
         }
 
-        if (vehicleController->getAllTrains().isEmpty())
+        if (!controller.hasAnyTrains())
         {
             m_status->showError(
                 "No trains available! Load trains first.",
@@ -1328,6 +1446,74 @@ void ConnectionController::
                         && selectedInterfaces.contains(
                             modeLabel))
                     {
+                        std::optional<QVariantMap> canonicalProperties;
+                        if (useCoordinateDistance)
+                        {
+                        auto &controller =
+                            CargoNetSim::CargoNetSimController::getInstance();
+                        Backend::Application::RouteAuthoringService routeAuthoringService(
+                                &controller);
+
+                            QPointF sourcePos;
+                            QPointF targetPos;
+
+                            if (isGlobalView)
+                            {
+                                sourcePos =
+                                    m_mainWindow
+                                        ->globalMapView()
+                                        ->sceneToWGS84(
+                                            sourceItem
+                                                ->pos());
+                                targetPos =
+                                    m_mainWindow
+                                        ->globalMapView()
+                                        ->sceneToWGS84(
+                                            targetItem
+                                                ->pos());
+                            }
+                            else
+                            {
+                                sourcePos =
+                                    m_mainWindow
+                                        ->regionView()
+                                        ->sceneToWGS84(
+                                            sourceItem
+                                                ->pos());
+                                targetPos =
+                                    m_mainWindow
+                                        ->regionView()
+                                        ->sceneToWGS84(
+                                            targetItem
+                                                ->pos());
+                            }
+
+                            double distanceMeters =
+                                UtilitiesFunctions::
+                                    getApproximateGeoDistance(
+                                        sourcePos,
+                                        targetPos);
+
+                            CargoNetSim::Backend::
+                                ShortestPathResult
+                                    result;
+                            result.totalLength =
+                                distanceMeters;
+                            result
+                                .optimizationCriterion =
+                                "distance";
+
+                            const auto propertyResult =
+                                routeAuthoringService.computeCanonicalRouteProperties(
+                                    result, mode, false);
+                            if (!propertyResult.succeeded())
+                            {
+                                continue;
+                            }
+                            canonicalProperties =
+                                propertyResult.canonicalProperties;
+                        }
+
                         qCDebug(lcGuiView)
                             << "connectVisibleTerminalsByInterfaces:"
                             << "calling createConnectionLine mode="
@@ -1335,92 +1521,14 @@ void ConnectionController::
                         ConnectionLine *connection =
                             createConnectionLine(
                                 sourceItem, targetItem,
-                                mode);
+                                mode,
+                                canonicalProperties);
                         qCDebug(lcGuiView)
                             << "connectVisibleTerminalsByInterfaces:"
                             << "createConnectionLine returned"
                             << (connection ? "non-null" : "null");
                         if (connection)
                         {
-                            if (useCoordinateDistance)
-                            {
-                                QPointF sourcePos;
-                                QPointF targetPos;
-
-                                if (isGlobalView)
-                                {
-                                    sourcePos =
-                                        m_mainWindow
-                                            ->globalMapView()
-                                            ->sceneToWGS84(
-                                                sourceItem
-                                                    ->pos());
-                                    targetPos =
-                                        m_mainWindow
-                                            ->globalMapView()
-                                            ->sceneToWGS84(
-                                                targetItem
-                                                    ->pos());
-                                }
-                                else
-                                {
-                                    sourcePos =
-                                        m_mainWindow
-                                            ->regionView()
-                                            ->sceneToWGS84(
-                                                sourceItem
-                                                    ->pos());
-                                    targetPos =
-                                        m_mainWindow
-                                            ->regionView()
-                                            ->sceneToWGS84(
-                                                targetItem
-                                                    ->pos());
-                                }
-
-                                double distanceMeters =
-                                    UtilitiesFunctions::
-                                        getApproximateGeoDistance(
-                                            sourcePos,
-                                            targetPos);
-
-                                CargoNetSim::Backend::
-                                    ShortestPathResult
-                                        result;
-                                result.totalLength =
-                                    distanceMeters;
-                                result
-                                    .optimizationCriterion =
-                                    "distance";
-
-                                using Mode =
-                                    Backend::
-                                        TransportationTypes::
-                                            TransportationMode;
-                                NetworkType networkType;
-                                if (mode == Mode::Train)
-                                {
-                                    networkType =
-                                        NetworkType::Train;
-                                }
-                                else if (mode == Mode::Truck)
-                                {
-                                    networkType =
-                                        NetworkType::Truck;
-                                }
-                                else
-                                {
-                                    networkType =
-                                        NetworkType::Ship;
-                                }
-
-                                UtilitiesFunctions::
-                                    setConnectionProperties(
-                                        m_mainWindow,
-                                        connection, result,
-                                        networkType, false);
-                            }
-
                             connectionsCreated++;
                         }
                     }

@@ -1,11 +1,11 @@
 #include "FleetController.h"
 
+#include "Backend/Application/ScenarioEditService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/FleetSpec.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/MainWindow.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 
 namespace CargoNetSim
 {
@@ -27,7 +27,7 @@ void FleetController::appendTrainFiles(const QStringList &paths)
     Backend::Scenario::FleetSpec updated =
         m_mainWindow->runtime()->document().fleet;
     updated.trainsFiles.append(paths);
-    GUI::Scenario::ScenarioMutator::updateFleet(
+    Backend::Application::ScenarioEditService::updateFleet(
         &m_mainWindow->runtime()->document(), updated);
 }
 
@@ -39,7 +39,7 @@ void FleetController::appendShipFiles(const QStringList &paths)
     Backend::Scenario::FleetSpec updated =
         m_mainWindow->runtime()->document().fleet;
     updated.shipsFiles.append(paths);
-    GUI::Scenario::ScenarioMutator::updateFleet(
+    Backend::Application::ScenarioEditService::updateFleet(
         &m_mainWindow->runtime()->document(), updated);
 }
 

@@ -1,12 +1,11 @@
 #include "RegionCenterPoint.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Input/ClickContext.h"
 #include "GUI/Input/Commands/CommandBus.h"
 #include "GUI/Input/Commands/UpdateRegionLocalOriginCommand.h"
 #include "GUI/MainWindow.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Widgets/GraphicsView.h"
 
 #include <QApplication>

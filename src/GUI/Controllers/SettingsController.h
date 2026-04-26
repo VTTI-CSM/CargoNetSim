@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Backend/Scenario/SimulationSettings.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
 #include <QObject>
 #include <QVariantMap>
 
@@ -34,9 +34,9 @@ signals:
     void configChanged();
 
 private:
-    /// Convert @p s to the QVariantMap format expected by
-    /// ConfigController::updateConfig(). Reads the current config first so
-    /// unrelated keys are not wiped.
+    /// Convert @p s to the QVariantMap format expected by the controller-owned
+    /// config façade update. Reads the current config first so unrelated keys
+    /// are not wiped.
     static QVariantMap toConfigMap(
         const Backend::Scenario::SimulationSettings &s);
 

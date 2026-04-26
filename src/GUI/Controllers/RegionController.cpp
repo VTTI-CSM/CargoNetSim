@@ -1,8 +1,8 @@
 #include "RegionController.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/ScenarioEditService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Scenario/RegionSpec.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Controllers/SceneVisibilityController.h"
@@ -13,7 +13,6 @@
 #include "GUI/Items/RegionCenterPoint.h"
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/Scenario/ItemEventBinder.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Widgets/GraphicsScene.h"
 
 namespace CargoNetSim
@@ -62,11 +61,10 @@ RegionController::createRegionCenter(
     Scenario::ItemEventBinder::bindRegionCenterPoint(centerPoint,
                                                      m_mainWindow);
 
-    CargoNetSim::CargoNetSimController::getInstance()
-        .getRegionDataController()
-        ->setRegionVariable(
-            regionName, "regionCenterPoint",
-            QVariant::fromValue(centerPoint));
+    Backend::Application::NetworkViewService networkView;
+    networkView.setRegionVariable(
+        regionName, "regionCenterPoint",
+        QVariant::fromValue(centerPoint));
 
     centerPoint->setVisible(keepVisible);
     return centerPoint;
@@ -166,11 +164,12 @@ void RegionController::renameRegion(
     if (m_mainWindow && m_mainWindow->runtime())
     {
         auto &doc = m_mainWindow->runtime()->document();
-        if (!doc.renameRegion(oldRegionName, newName))
+        if (!Backend::Application::ScenarioEditService::renameRegion(
+                &doc, oldRegionName, newName))
         {
             qCWarning(lcGuiView)
                 << "RegionController::renameRegion:"
-                << "ScenarioDocument::renameRegion failed"
+                << "ScenarioEditService::renameRegion failed"
                 << "for" << oldRegionName;
         }
         else
@@ -203,16 +202,16 @@ void RegionController::addRegion(const QString &name,
 {
     qCDebug(lcGuiView) << "RegionController::addRegion:" << name;
 
-    // Step 1: RDC — factory's publishToControllerLegacyKey writes the
-    // "regionCenterPoint" variable, so the region must exist in RDC first.
-    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    rdc->addRegion(name);
+    // Step 1: backend view store — factory's publishToControllerLegacyKey
+    // writes the "regionCenterPoint" variable, so the region must exist in
+    // the region view store first.
+    Backend::Application::NetworkViewService networkView;
+    networkView.addRegion(name);
     qCInfo(lcGuiView)
         << "RegionController::addRegion: setRegionVariable color"
         << "region=" << name << "color=" << color.name()
         << "as QVariant(QColor)";
-    rdc->setRegionVariable(name, "color", color);
+    networkView.setRegionVariable(name, "color", color);
 
     // Step 2: doc — the ScenarioDocument::regionAdded handler wired in
     // MainWindow drives the scene-item creation via RegionCenterPointFactory,
@@ -223,11 +222,11 @@ void RegionController::addRegion(const QString &name,
         CargoNetSim::Backend::Scenario::RegionSpec spec;
         spec.name  = name;
         spec.color = color.name();
-        if (!GUI::Scenario::ScenarioMutator::addRegion(
+        if (!Backend::Application::ScenarioEditService::addRegion(
                 &m_mainWindow->runtime()->document(), spec))
             qCWarning(lcGuiView)
                 << "RegionController::addRegion:"
-                << "ScenarioMutator::addRegion failed for" << name;
+                << "ScenarioEditService::addRegion failed for" << name;
     }
 
     // Step 3: hide the freshly created center point unless its region is
@@ -255,12 +254,12 @@ void RegionController::removeRegion(const QString &name)
     // consistent scene + registry and use the registry-aware removal path.
     if (m_mainWindow && m_mainWindow->runtime())
     {
-        if (!GUI::Scenario::ScenarioMutator::removeRegion(
+        if (!Backend::Application::ScenarioEditService::removeRegion(
                 &m_mainWindow->runtime()->document(), name))
         {
             qCWarning(lcGuiView)
                 << "RegionController::removeRegion:"
-                << "ScenarioMutator::removeRegion failed for" << name;
+                << "ScenarioEditService::removeRegion failed for" << name;
             return;
         }
     }
@@ -307,10 +306,10 @@ void RegionController::removeRegion(const QString &name)
         << "mapLines=" << mapLineKeys.size()
         << "backgroundPhotos=" << backgroundPhotoKeys.size();
 
-    // Step 3 — RegionDataController. Last, so any observer above that
-    // queries RDC during cascade still sees consistent region metadata.
-    CargoNetSim::CargoNetSimController::getInstance()
-        .getRegionDataController()->removeRegion(name);
+    // Step 3 — backend view store. Last, so any observer above that
+    // queries region metadata during cascade still sees consistent data.
+    Backend::Application::NetworkViewService networkView;
+    networkView.removeRegion(name);
 
     if (m_sceneVisibility)
         m_sceneVisibility->updateSceneVisibility();
@@ -339,20 +338,18 @@ void RegionController::updateRegionColor(const QString &name,
         }
     }
 
-    // Step 2: RDC
-    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    if (auto *data = rdc->getRegionData(name))
-        data->setVariable("color", color);
+    // Step 2: backend view store
+    Backend::Application::NetworkViewService networkView;
+    networkView.setRegionVariable(name, "color", color);
 
     // Step 3: doc
     if (m_mainWindow && m_mainWindow->runtime())
     {
-        if (!GUI::Scenario::ScenarioMutator::updateRegionColor(
+        if (!Backend::Application::ScenarioEditService::updateRegionColor(
                 &m_mainWindow->runtime()->document(), name, color.name()))
             qCWarning(lcGuiView)
                 << "RegionController::updateRegionColor:"
-                << "ScenarioMutator::updateRegionColor failed for" << name;
+                << "ScenarioEditService::updateRegionColor failed for" << name;
     }
 }
 
@@ -360,10 +357,8 @@ void RegionController::clearRegions()
 {
     qCDebug(lcGuiView) << "RegionController::clearRegions";
     // Snapshot names before iterating — each removeRegion call mutates RDC.
-    const QStringList all =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getAllRegionNames();
+    Backend::Application::NetworkViewService networkView;
+    const QStringList all = networkView.regionNames();
     for (const QString &name : all)
     {
         if (name != QStringLiteral("Default Region"))

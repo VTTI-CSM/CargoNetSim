@@ -17,8 +17,8 @@ namespace Scenario
 
 /// Canonical backend-side list of terminal types + their default interface
 /// sets + their default property bag. Single source of truth shared by
-/// Backend/Scenario/* and GUI factories (TerminalItemFactory,
-/// ScenarioMutator::createTerminal). GUI icons live in
+/// Backend/Scenario/* and GUI/backend authoring flows (TerminalItemFactory,
+/// ScenarioEditService::createTerminal). GUI icons live in
 /// GUI/Utils/IconCreator.cpp keyed off `allTypes()`.
 ///
 /// Origin/Destination as terminal kinds were removed in Plan 8 — origin

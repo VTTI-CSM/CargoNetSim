@@ -3,14 +3,11 @@
 #include <QObject>
 #include <QString>
 
-#include "Backend/Scenario/PathPreparationService.h"
+#include "Backend/Application/PreparedPathService.h"
 
 namespace CargoNetSim {
+class CargoNetSimController;
 namespace Backend {
-class ConfigController;
-class NetworkController;
-class RegionDataController;
-class VehicleController;
 namespace Scenario {
 class ScenarioDocument;
 class ScenarioRegistry;
@@ -48,10 +45,7 @@ public:
         const Backend::Scenario::ScenarioDocument *document,
         const Backend::Scenario::ScenarioRegistry *registry,
         int                                        count,
-        Backend::ConfigController                 *config,
-        Backend::NetworkController                *networks,
-        Backend::RegionDataController             *regionData,
-        Backend::VehicleController                *vehicles);
+        ::CargoNetSim::CargoNetSimController      *controller);
 
 public slots:
     /// Entry point on the worker thread. Always emits exactly one
@@ -65,12 +59,12 @@ signals:
     void finished();
 
 private:
+    Backend::Application::PreparedPathService
+    makePreparedPathService() const;
+
     const Backend::Scenario::ScenarioDocument *m_document = nullptr;
     const Backend::Scenario::ScenarioRegistry *m_registry = nullptr;
-    Backend::ConfigController                 *m_config = nullptr;
-    Backend::NetworkController                *m_networks = nullptr;
-    Backend::RegionDataController             *m_regionData = nullptr;
-    Backend::VehicleController                *m_vehicles = nullptr;
+    ::CargoNetSim::CargoNetSimController      *m_controller = nullptr;
     int                                        pathsCount = 0;
 };
 

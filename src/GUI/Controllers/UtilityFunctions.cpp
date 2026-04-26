@@ -16,19 +16,16 @@
 #include "GUI/Utils/PathFindingWorker.h"
 #include "GUI/Widgets/TerminalSelectionDialog.h"
 
-#include "Backend/Scenario/NetworkLookup.h"
-#include "Backend/Scenario/Connection.h"
-#include "Backend/Scenario/GlobalLink.h"
-#include "Backend/Scenario/PathMetricsCalculator.h"
-#include "Backend/Scenario/PathPreparationService.h"
-#include "Backend/Scenario/RouteMetricUnits.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/RouteAuthoringService.h"
+#include "Backend/Application/SimulationRunService.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 
 #include "Backend/Commons/GeoDistance.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
-#include "Backend/Scenario/PropertyKeys.h"
 #include "../Commons/TransportationModeConversion.h"
 
 namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
@@ -311,9 +308,10 @@ QList<CargoNetSim::GUI::MapPoint *> CargoNetSim::GUI::
             throw std::runtime_error(
                 "Ship network is not supported yet.");
         }
+        Backend::Application::NetworkViewService networkView;
         Backend::NetworkKind kind{};
         const QString        refNetworkName =
-            Backend::Scenario::NetworkLookup::networkNameOf(
+            networkView.networkNameOf(
                 mapPoint->getReferenceNetwork(), &kind);
         const bool networkTypeMatches =
             !refNetworkName.isEmpty()
@@ -552,13 +550,14 @@ CargoNetSim::GUI::UtilitiesFunctions::
 
         if (firstPoint && secondPoint)
         {
+            Backend::Application::NetworkViewService
+                networkView;
             Backend::NetworkKind kind{};
-            const bool recognised = !Backend::Scenario::NetworkLookup
-                                         ::networkNameOf(
-                                             firstPoint
-                                                 ->getReferenceNetwork(),
-                                             &kind)
-                                         .isEmpty();
+            const bool recognised =
+                !networkView.networkNameOf(
+                     firstPoint->getReferenceNetwork(),
+                     &kind)
+                     .isEmpty();
             const bool matches =
                 recognised
                 && ((networkType == NetworkType::Train
@@ -620,12 +619,8 @@ void CargoNetSim::GUI::UtilitiesFunctions::
     auto              *rt     = mainWindow->runtime();
     auto              &ctl =
         CargoNetSim::CargoNetSimController::getInstance();
-    auto *cfg  = ctl.getConfigController();
-    auto *nets = ctl.getNetworkController();
-    auto *rgn  = ctl.getRegionDataController();
-    auto *veh  = ctl.getVehicleController();
     worker->initialize(&rt->document(), &rt->registry(),
-                       PathsCount, cfg, nets, rgn, veh);
+                       PathsCount, &ctl);
 
     // Set up connections
     QObject::connect(thread, &QThread::started, worker,
@@ -688,135 +683,6 @@ void CargoNetSim::GUI::UtilitiesFunctions::
     mainWindow->showStatusBarMessage(
         "Finding shortest paths in background...", 3000);
     thread->start();
-}
-
-bool CargoNetSim::GUI::UtilitiesFunctions::
-    setConnectionProperties(
-        MainWindow                                      *mainWindow,
-        CargoNetSim::GUI::ConnectionLine                *connection,
-        const CargoNetSim::Backend::ShortestPathResult  &pathResult,
-        CargoNetSim::GUI::NetworkType                   &networkType,
-        std::optional<bool>                              overrideUseNetworkValue)
-{
-    qCDebug(lcGuiUtil) << "UtilitiesFunctions::setConnectionProperties: begin";
-    // Plan 8.1: thin orchestrator. Pre-flight document invariant
-    // (at least one origin), gather inputs from controllers once,
-    // optionally override `use_network` in the inputs (the single
-    // runtime toggle any caller has today), invoke the pure calculator,
-    // stamp values on the ConnectionLine property bag. All formula
-    // work lives in PathMetricsCalculator.
-    if (!mainWindow || !connection) return false;
-    if (!mainWindow->runtime()
-        || !mainWindow->runtime()->document().hasAnyOrigin())
-    {
-        qCWarning(lcGuiUtil) << "setConnectionProperties: no runtime or no origin terminals";
-        mainWindow->showStatusBarError(
-            "No origin terminal in this scenario.", 3000);
-        return false;
-    }
-
-    using namespace CargoNetSim::Backend::Scenario;
-    using Mode = CargoNetSim::Backend::TransportationTypes::TransportationMode;
-
-    auto &ctl  = CargoNetSim::CargoNetSimController::getInstance();
-    auto *cfg  = ctl.getConfigController();
-    auto *veh  = ctl.getVehicleController();
-    if (!cfg) return false;
-
-    const Mode mode = transportationModeFromNetworkType(networkType);
-    auto       inputs = PathMetricsCalculator::gatherInputs(mode, *cfg, veh);
-
-    // Runtime override: the historical caller at ViewController.cpp:3199
-    // passes `false` here to force the distance/averageSpeed branch.
-    // Applying the override at the input layer keeps the calculator
-    // pure and the adapter unchanged — one place to inject, one
-    // formula downstream.
-    if (overrideUseNetworkValue.has_value())
-    {
-        inputs.modeProperties[PK::Mode::UseNetwork] =
-            overrideUseNetworkValue.value();
-    }
-
-    const auto m = PathMetricsCalculator::compute(
-        pathResult.totalLength, pathResult.minTravelTime, mode, inputs);
-
-    if (!m.valid) return false;
-
-    QVariantMap displayRouteProperties;
-    displayRouteProperties.insert("distance", m.distanceKm);
-    displayRouteProperties.insert("travelTime",
-                                  m.travelTimeHours);
-    displayRouteProperties.insert("risk", m.riskPerVehicle);
-    displayRouteProperties.insert("energyConsumption",
-                                  m.energyPerVehicle);
-    displayRouteProperties.insert("carbonEmissions",
-                                  m.carbonPerVehicle);
-
-    const QVariantMap canonicalRouteProperties =
-        CargoNetSim::Backend::Scenario::RouteMetricUnits::
-            canonicalPropertiesFromDisplay(
-                displayRouteProperties);
-
-    auto *doc = &mainWindow->runtime()->document();
-
-    if (connection->isConnectionBinding())
-    {
-        if (auto *model = connection->connectionModel())
-        {
-            Backend::Scenario::Connection updated = *model;
-            for (auto it = canonicalRouteProperties.constBegin();
-                 it != canonicalRouteProperties.constEnd(); ++it)
-            {
-                updated.properties[it.key()] = it.value();
-            }
-            const bool ok = doc->updateConnection(
-                updated.fromTerminalId, updated.toTerminalId,
-                updated.mode, updated);
-            if (ok)
-            {
-                for (auto it = canonicalRouteProperties.constBegin();
-                     it != canonicalRouteProperties.constEnd(); ++it)
-                    connection->setProperty(it.key(), it.value());
-            }
-            return ok;
-        }
-        qCWarning(lcGuiUtil)
-            << "setConnectionProperties: line is bound as connection"
-            << "but no live model entry was found";
-        return false;
-    }
-
-    if (connection->isGlobalLinkBinding())
-    {
-        if (auto *model = connection->globalLinkModel())
-        {
-            Backend::Scenario::GlobalLink updated = *model;
-            for (auto it = canonicalRouteProperties.constBegin();
-                 it != canonicalRouteProperties.constEnd(); ++it)
-            {
-                updated.properties[it.key()] = it.value();
-            }
-            const bool ok = doc->updateGlobalLink(
-                updated.fromTerminalId, updated.toTerminalId,
-                updated.mode, updated);
-            if (ok)
-            {
-                for (auto it = canonicalRouteProperties.constBegin();
-                     it != canonicalRouteProperties.constEnd(); ++it)
-                    connection->setProperty(it.key(), it.value());
-            }
-            return ok;
-        }
-        qCWarning(lcGuiUtil)
-            << "setConnectionProperties: line is bound as global link"
-            << "but no live model entry was found";
-        return false;
-    }
-
-    qCWarning(lcGuiUtil)
-        << "setConnectionProperties: connection line is not bound to a"
-        << "scenario model entry";
-    return false;
 }
 
 bool CargoNetSim::GUI::UtilitiesFunctions::
@@ -905,8 +771,9 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
         targetNetworks;
 
     auto getNetworkName = [](GUI::MapPoint *point) {
+        Backend::Application::NetworkViewService networkView;
         QString networkName =
-            Backend::Scenario::NetworkLookup::networkNameOf(
+            networkView.networkNameOf(
                 point->getReferenceNetwork());
         return networkName;
     };
@@ -992,6 +859,21 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
                     if (!result.pathNodes.empty()
                         && result.pathNodes.size() > 1)
                     {
+                        auto &ctl =
+                            CargoNetSim::CargoNetSimController::getInstance();
+                        Backend::Application::RouteAuthoringService routeAuthoringService(
+                            &ctl);
+                        const auto propertyResult =
+                            routeAuthoringService.computeCanonicalRouteProperties(
+                                result, mode);
+                        if (!propertyResult.succeeded())
+                        {
+                            qCWarning(lcGuiUtil)
+                                << "processNetworkModeConnection: failed to compute route properties:"
+                                << propertyResult.message;
+                            return false;
+                        }
+
                         // Create connection
                         CargoNetSim::GUI::ConnectionLine
                             *connection =
@@ -999,24 +881,12 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
                                     ->createConnectionLine(
                                         sourceTerminal,
                                         targetTerminal,
-                                        mode);
+                                        mode,
+                                        propertyResult.canonicalProperties);
 
                         if (!connection)
                         {
                             continue;
-                        }
-
-                        // Set connection properties
-                        bool propertiesSet =
-                            setConnectionProperties(
-                                mainWindow, connection,
-                                result, networkType);
-                        if (!propertiesSet)
-                        {
-                            mainWindow->connectionCtrl()
-                                ->removeConnectionLine(
-                                    connection);
-                            return false;
                         }
 
                         // We found a valid path, so break
@@ -1093,29 +963,18 @@ void CargoNetSim::GUI::UtilitiesFunctions::
         return;
     }
 
-    QString selectionError;
-    if (!rt->setSelectedPathKeys(selectedPathKeys,
-                                 &selectionError))
-    {
-        mainWindow->showErrorDialog(
-            selectionError.isEmpty()
-                ? QStringLiteral(
-                      "Selected paths are no longer available for validation.")
-                : selectionError);
-        return;
-    }
-
-    rt->refreshPreparedPathEligibility();
+    Backend::Application::SimulationRunService runService;
+    const auto selectionResult =
+        runService.selectAndValidate(*rt, selectedPathKeys);
     mainWindow->shortestPathTable_->setPathEligibility(
         rt->preparedPathEligibility());
-    if (!rt->validateCurrentSelectionForSimulation(
-            &selectionError))
+    if (!selectionResult.succeeded())
     {
         mainWindow->showErrorDialog(
-            selectionError.isEmpty()
+            selectionResult.message.isEmpty()
                 ? QStringLiteral(
                       "Selected paths cannot be simulated with the current backend availability.")
-                : selectionError);
+                : selectionResult.message);
         return;
     }
 
@@ -1178,7 +1037,19 @@ void CargoNetSim::GUI::UtilitiesFunctions::
         "Starting simulation validation in background...", 3000);
     mainWindow->startStatusProgress();
     mainWindow->validatePathsButton_->setEnabled(false);
-    rt->startSimulation();
+    const auto startResult =
+        runService.validateAndStart(*rt);
+    if (!startResult.succeeded()
+        && startResult.status
+               != Backend::Application::SimulationRunServiceStatus::StartFailed)
+    {
+        teardown();
+        mainWindow->showErrorDialog(
+            startResult.message.isEmpty()
+                ? QStringLiteral(
+                      "Selected paths cannot be simulated with the current backend availability.")
+                : startResult.message);
+    }
 }
 
 void CargoNetSim::GUI::UtilitiesFunctions::
@@ -1424,11 +1295,11 @@ void CargoNetSim::GUI::UtilitiesFunctions::
     if (!mainWindow)
         return;
 
+    Backend::Application::NetworkViewService networkView;
+
     // Get the current region
-    QString currentRegion =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getCurrentRegion();
+    const QString currentRegion =
+        networkView.currentRegionName();
 
     if (currentRegion.isEmpty())
     {
@@ -1437,23 +1308,10 @@ void CargoNetSim::GUI::UtilitiesFunctions::
         return;
     }
 
-    // Get region data
-    Backend::RegionData *regionData =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getCurrentRegionData();
-
-    if (!regionData)
-    {
-        mainWindow->showStatusBarError(
-            "Region data not available.", 3000);
-        return;
-    }
-
     // Check if there are any networks in the region
     bool hasNetworks =
-        !regionData->getTrainNetworks().isEmpty()
-        || !regionData->getTruckNetworks().isEmpty();
+        !networkView.trainNetworkNames(currentRegion).isEmpty()
+        || !networkView.truckNetworkNames(currentRegion).isEmpty();
 
     if (!hasNetworks)
     {
@@ -1527,6 +1385,6 @@ void CargoNetSim::GUI::UtilitiesFunctions::
         // Move the network
         NetworkController::moveNetwork(
             mainWindow, networkType, networkName, offset,
-            regionData);
+            currentRegion);
     }
 }

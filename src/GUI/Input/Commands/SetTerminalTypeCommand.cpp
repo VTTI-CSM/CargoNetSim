@@ -1,8 +1,8 @@
 #include "SetTerminalTypeCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -40,7 +40,7 @@ void SetTerminalTypeCommand::redo()
         m_oldType  = it->type;
         m_captured = true;
     }
-    Scenario::ScenarioMutator::setTerminalType(
+    Backend::Application::ScenarioEditService::setTerminalType(
         m_doc.data(), m_terminalId, m_newType);
     qCInfo(lcGuiInputCmd) << "SetTerminalTypeCommand::redo"
                           << m_terminalId << "type=" << m_newType;
@@ -49,7 +49,7 @@ void SetTerminalTypeCommand::redo()
 void SetTerminalTypeCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::setTerminalType(
+    Backend::Application::ScenarioEditService::setTerminalType(
         m_doc.data(), m_terminalId, m_oldType);
     qCInfo(lcGuiInputCmd) << "SetTerminalTypeCommand::undo"
                           << m_terminalId << "type=" << m_oldType;

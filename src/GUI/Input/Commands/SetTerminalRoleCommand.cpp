@@ -1,8 +1,8 @@
 #include "SetTerminalRoleCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -39,7 +39,7 @@ void SetTerminalRoleCommand::redo()
         m_oldRole  = it->role;
         m_captured = true;
     }
-    Scenario::ScenarioMutator::setTerminalRole(
+    Backend::Application::ScenarioEditService::setTerminalRole(
         m_doc.data(), m_terminalId, m_newRole);
     qCInfo(lcGuiInputCmd) << "SetTerminalRoleCommand::redo"
                           << m_terminalId
@@ -49,7 +49,7 @@ void SetTerminalRoleCommand::redo()
 void SetTerminalRoleCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::setTerminalRole(
+    Backend::Application::ScenarioEditService::setTerminalRole(
         m_doc.data(), m_terminalId, m_oldRole);
     qCInfo(lcGuiInputCmd) << "SetTerminalRoleCommand::undo"
                           << m_terminalId

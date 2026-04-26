@@ -6,26 +6,17 @@
 #include <QScopeGuard>
 
 #include <cstdio>
+#include <functional>
 
-#include "Backend/Clients/BaseClient/RabbitMQHandler.h"
-#include "Backend/Clients/BaseClient/SimulationClientBase.h"
+#include "Backend/Application/PreparedPathService.h"
+#include "Backend/Application/ScenarioLoadService.h"
+#include "Backend/Application/SimulationRunService.h"
+#include "Backend/Bootstrap/BackendBootstrapService.h"
+#include "Backend/CliApi/ResultsApi.h"
+#include "Backend/CliApi/ScenarioDocumentApi.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Models/Path.h"
-#include "Backend/Models/PathSegment.h"
-#include "Backend/Scenario/ContainerAllocator.h"
-#include "Backend/Scenario/PathAllocation.h"
-#include "Backend/Scenario/PathDiscovery.h"
-#include "Backend/Scenario/PathDistancePopulator.h"
-#include "Backend/Scenario/EstimatedPhysicsPopulator.h"
-#include "Backend/Scenario/PathPreparationService.h"
-#include "Backend/Scenario/PathMetrics.h"
-#include "Backend/Scenario/PathMetricsCalculator.h"
-#include "Backend/Scenario/PathMetricsInputs.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
-#include "Backend/Scenario/ScenarioSerializer.h"
-#include "Backend/Scenario/ScenarioValidator.h"
 #include "CLI/Commands/CommandOutput.h"
 #include "CLI/Commands/IssueFormatter.h"
 #include "CLI/ExitCodes.h"
@@ -94,7 +85,8 @@ void emitStatus(QIODevice *sink, const QString &message)
 }
 
 bool waitForSimulationEnd(Backend::Scenario::ScenarioRuntime &rt,
-                          QString                            *failMsg)
+                          QString                            *failMsg,
+                          const std::function<bool()>       &starter)
 {
     QEventLoop loop;
     bool       completed = false;
@@ -112,12 +104,8 @@ bool waitForSimulationEnd(Backend::Scenario::ScenarioRuntime &rt,
                          loop.quit();
                      });
 
-    if (!rt.startSimulation())
-    {
-        if (failMsg && failMsg->isEmpty())
-            *failMsg = QStringLiteral("startSimulation failed");
+    if (!starter())
         return false;
-    }
 
     if (!completed && !failed)
         loop.exec();
@@ -262,14 +250,15 @@ int RunCommand::execute(const QStringList &args)
 
     // ---- 2. Parse + validate -------------------------------------------
     qCDebug(lcCli) << "RunCommand::execute: [stage 2] parsing YAML...";
-    QString parseErr;
-    auto    doc = ScenarioSerializer::fromYaml(opt.scenarioPath,
-                                               &parseErr);
-    if (!doc)
+    Backend::Application::ScenarioLoadService loadService;
+    auto parseResult =
+        loadService.parseAndValidateYaml(opt.scenarioPath);
+    if (parseResult.status == Backend::Application::ScenarioLoadServiceStatus::ParseFailed
+        || parseResult.status == Backend::Application::ScenarioLoadServiceStatus::InvalidInput)
     {
-        const QString suffix = parseErr.isEmpty()
+        const QString suffix = parseResult.message.isEmpty()
             ? QString()
-            : QStringLiteral(": ") + parseErr;
+            : QStringLiteral(": ") + parseResult.message;
         qCCritical(lcCli) << "RunCommand::execute: YAML parse failed —"
                           << opt.scenarioPath << suffix;
         streamToOr(m_err, stderr,
@@ -278,97 +267,97 @@ int RunCommand::execute(const QStringList &args)
         return static_cast<int>(ExitCode::ValidationFailed);
     }
 
+    bool hasError = false;
+    const QString buffer =
+        formatValidationIssues(parseResult.issues, &hasError);
+    if (!buffer.isEmpty())
+        streamToOr(m_err, stderr, buffer);
+    if (!parseResult.succeeded())
+    {
+        qCCritical(lcCli) << "RunCommand::execute: validation failed with errors";
+        return static_cast<int>(ExitCode::ValidationFailed);
+    }
+
+    auto doc = std::move(parseResult.document);
     qCDebug(lcCli) << "RunCommand::execute: YAML parsed — regions ="
                    << doc->regions.size()
                    << ", terminals =" << doc->terminals.size()
                    << ", linkages =" << doc->linkages.size();
 
-    {
-        bool          hasError = false;
-        const auto    issues   = ScenarioValidator::validate(*doc);
-        qCDebug(lcCli) << "RunCommand::execute: [stage 2] validation complete — issues ="
-                       << issues.size() << ", hasError =" << hasError;
-        const QString buffer   =
-            formatValidationIssues(issues, &hasError);
-        if (!buffer.isEmpty())
-            streamToOr(m_err, stderr, buffer);
-        if (hasError)
-        {
-            qCCritical(lcCli) << "RunCommand::execute: validation failed with errors";
-            return static_cast<int>(ExitCode::ValidationFailed);
-        }
-    }
-
-    // ---- 3. Init controller + startAll ---------------------------------
-    qCDebug(lcCli) << "RunCommand::execute: [stage 3] initializing controller...";
+    // ---- 3. Bootstrap controller ---------------------------------------
+    qCDebug(lcCli) << "RunCommand::execute: [stage 3] bootstrapping controller...";
     auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
-    if (!ctl.initialize(/*truckExePath=*/QString()))
+    Backend::BackendBootstrapService bootstrapService;
+    const auto bootstrapResult =
+        bootstrapService.initializeAndStartController(
+            /*integrationExePath=*/QString());
+    if (!bootstrapResult.succeeded())
     {
-        qCCritical(lcCli) << "RunCommand::execute: controller init failed";
+        const QString reason = bootstrapResult.message.isEmpty()
+            ? QStringLiteral("backend bootstrap failed")
+            : bootstrapResult.message;
+        qCCritical(lcCli)
+            << "RunCommand::execute: controller bootstrap failed —"
+            << reason;
         streamToOr(m_err, stderr,
-                   QStringLiteral("run: controller init failed\n"));
+                   QStringLiteral("run: %1\n").arg(reason));
         return static_cast<int>(ExitCode::ConnectTimeout);
     }
 
     // stopAll fires on every exit path from here on — success OR
     // failure. No leaked client threads.
     auto ctlGuard = qScopeGuard([&ctl] { ctl.stopAll(); });
-
-    qCDebug(lcCli) << "RunCommand::execute: calling startAll...";
-    if (!ctl.startAll())
-    {
-        qCCritical(lcCli) << "RunCommand::execute: startAll failed";
-        streamToOr(m_err, stderr,
-                   QStringLiteral("run: startAll failed\n"));
-        return static_cast<int>(ExitCode::ConnectTimeout);
-    }
     emitStatus(m_err, QStringLiteral("backend clients started"));
 
     // ---- 4. Construct runtime + apply scenario -------------------------
     qCDebug(lcCli) << "RunCommand::execute: [stage 4] constructing runtime and applying scenario...";
-    ScenarioRuntime rt(std::move(doc));
-    if (!rt.load())
+    auto loadResult =
+        loadService.loadValidatedDocument(std::move(doc));
+    if (!loadResult.succeeded())
     {
         qCCritical(lcCli) << "RunCommand::execute: scenario apply (load) failed";
         streamToOr(m_err, stderr,
-                   QStringLiteral("run: scenario apply failed\n"));
+                   QStringLiteral("run: scenario apply failed: %1\n")
+                       .arg(loadResult.message));
         return static_cast<int>(ExitCode::RunFailed);
     }
+    ScenarioRuntime &rt = *loadResult.runtime;
     qCDebug(lcCli) << "RunCommand::execute: scenario applied successfully";
     emitStatus(m_err, QStringLiteral("scenario loaded"));
 
     // ---- 5. Path discovery ---------------------------------------------
-    const int n = ctl.getConfigController()->getSimulationParams()
+    const int n = ctl.getSimulationParams()
                       .value("shortest_paths", 5).toInt();
     qCDebug(lcCli) << "RunCommand::execute: [stage 5] running path discovery (shortestPathsN ="
                    << n << ")...";
-    PathDiscovery pd;
-    QString       pdErr;
     emitStatus(m_err, QStringLiteral("discovering candidate paths"));
-    auto          paths =
-        pd.findTopPaths(rt.document(), rt.registry(), n, &pdErr);
-    if (paths.isEmpty())
+    Backend::Application::PreparedPathService preparedPathService(
+        &ctl);
+    auto preparedResult =
+        preparedPathService.discoverAndPrepare(rt, n);
+    if (!preparedResult.succeeded())
     {
-        const QString reason = pdErr.isEmpty()
-            ? QStringLiteral("no origin/destination pairs in scenario")
-            : pdErr;
+        const QString reason = preparedResult.message.isEmpty()
+            ? QStringLiteral("prepared-path workflow failed")
+            : preparedResult.message;
         qCCritical(lcCli) << "RunCommand::execute: path discovery failed —" << reason;
         streamToOr(m_err, stderr,
                    QStringLiteral("run: path discovery failed: %1\n")
                        .arg(reason));
-        return static_cast<int>(ExitCode::RunFailed);
+        return static_cast<int>(
+            preparedResult.status
+                == Backend::Application::PreparedPathServiceStatus::BackendUnavailable
+            ? ExitCode::ConnectTimeout
+            : ExitCode::RunFailed);
     }
-    qCDebug(lcCli) << "RunCommand::execute: path discovery found" << paths.size() << "paths";
+    qCDebug(lcCli) << "RunCommand::execute: path discovery found"
+                   << preparedResult.preparedPathCount
+                   << "paths";
     emitStatus(m_err,
                QStringLiteral("discovered %1 path(s)")
-                   .arg(paths.size()));
+                   .arg(preparedResult.preparedPathCount));
 
-    auto prepared =
-        PathPreparationService::prepareDiscoveredPaths(
-            paths, rt.document(), ctl.getConfigController(),
-            ctl.getNetworkController(),
-            ctl.getRegionDataController(),
-            ctl.getVehicleController());
+    auto prepared = std::move(preparedResult.preparedPaths);
     rt.setPreparedPaths(prepared);
     const auto predictedMetricsByCanonicalPath =
         prepared.predictedMetricsByCanonicalPath();
@@ -376,19 +365,25 @@ int RunCommand::execute(const QStringList &args)
         prepared.pathKeysByCanonicalPath();
 
     // ---- 6. Determine the selected simulation set ----------------------
-    QString selectionErr;
+    Backend::Application::SimulationRunService runService;
     if (opt.selectAll)
     {
-        if (!rt.setSelectedPathKeys(prepared.pathIdentities(),
-                                    &selectionErr))
+        const auto selectionResult =
+            runService.selectAndValidate(
+                rt, prepared.pathIdentities());
+        if (!selectionResult.succeeded())
         {
             streamToOr(m_err, stderr,
                        QStringLiteral("run: %1\n")
-                           .arg(selectionErr.isEmpty()
+                           .arg(selectionResult.message.isEmpty()
                                     ? QStringLiteral(
                                           "failed to select prepared paths")
-                                    : selectionErr));
-            return static_cast<int>(ExitCode::RunFailed);
+                                    : selectionResult.message));
+            return static_cast<int>(
+                selectionResult.status
+                    == Backend::Application::SimulationRunServiceStatus::ValidationFailed
+                ? ExitCode::ConnectTimeout
+                : ExitCode::RunFailed);
         }
     }
 
@@ -405,23 +400,10 @@ int RunCommand::execute(const QStringList &args)
                QStringLiteral("selected %1 path(s) for simulation")
                    .arg(simulationSet.size()));
 
-    // ---- 7. Preflight required simulators ------------------------------
-    QString preflightErr;
-    if (!rt.validateCurrentSelectionForSimulation(&preflightErr))
-    {
-        streamToOr(m_err, stderr,
-                   QStringLiteral("run: %1\n")
-                       .arg(preflightErr.isEmpty()
-                                ? QStringLiteral(
-                                      "selected paths cannot be simulated")
-                                : preflightErr));
-        return static_cast<int>(ExitCode::ConnectTimeout);
-    }
-
-    // ---- 8. Progress reporter + status streaming -----------------------
+    // ---- 7. Progress reporter + status streaming -----------------------
     // Routes through the same sink as our diagnostics so tests (and
     // users who redirect stderr) capture everything in one stream.
-    qCDebug(lcCli) << "RunCommand::execute: [stage 8] attaching progress reporter...";
+    qCDebug(lcCli) << "RunCommand::execute: [stage 7] attaching progress reporter...";
     ProgressReporter reporter(/*quiet=*/false, m_err);
     QObject::connect(&rt, &ScenarioRuntime::progressChanged,
                      [&reporter](double t, double p) {
@@ -432,15 +414,40 @@ int RunCommand::execute(const QStringList &args)
                          emitStatus(m_err, message);
                      });
 
-    // ---- 9. Start + block until completed / failed ---------------------
-    qCInfo(lcCli) << "RunCommand::execute: [stage 9] starting simulation...";
+    // ---- 8. Start + block until completed / failed ---------------------
+    qCInfo(lcCli) << "RunCommand::execute: [stage 8] starting simulation...";
     emitStatus(m_err, QStringLiteral("starting simulation"));
     QString       failMsg;
-    const bool    okRun = waitForSimulationEnd(rt, &failMsg);
+    Backend::Application::SimulationRunServiceResult startResult;
+    const bool okRun = waitForSimulationEnd(
+        rt, &failMsg,
+        [&] {
+            startResult = runService.validateAndStart(rt);
+            if (!startResult.succeeded())
+            {
+                if (failMsg.isEmpty())
+                    failMsg = startResult.message.isEmpty()
+                        ? QStringLiteral("failed to start simulation")
+                        : startResult.message;
+                return false;
+            }
+            return true;
+        });
     reporter.emitFinal(rt.progress());
 
     if (!okRun)
     {
+        if (!startResult.succeeded())
+        {
+            streamToOr(m_err, stderr,
+                       QStringLiteral("run: %1\n")
+                           .arg(failMsg));
+            return static_cast<int>(
+                startResult.status
+                    == Backend::Application::SimulationRunServiceStatus::ValidationFailed
+                ? ExitCode::ConnectTimeout
+                : ExitCode::RunFailed);
+        }
         qCCritical(lcCli) << "RunCommand::execute: simulation failed —" << failMsg;
         streamToOr(m_err, stderr,
                    QStringLiteral("run: %1\n").arg(failMsg));
@@ -448,8 +455,8 @@ int RunCommand::execute(const QStringList &args)
     }
     qCInfo(lcCli) << "RunCommand::execute: simulation completed successfully";
 
-    // ---- 10. Write outputs ---------------------------------------------
-    qCDebug(lcCli) << "RunCommand::execute: [stage 10] writing results...";
+    // ---- 9. Write outputs ----------------------------------------------
+    qCDebug(lcCli) << "RunCommand::execute: [stage 9] writing results...";
     const auto results = rt.results();
     const int writeCode =
         writeOutputs(rt.document(), results, rt.paths(),

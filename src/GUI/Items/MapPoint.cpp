@@ -1,8 +1,8 @@
 #include "MapPoint.h"
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/LinkageSource.h"
-#include "Backend/Scenario/NetworkLookup.h"
-#include "Backend/Scenario/NodeLinkage.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Controllers/UtilityFunctions.h"
 #include "GUI/Controllers/TerminalController.h"
 #include "GUI/Input/ClickContext.h"
@@ -10,9 +10,7 @@
 #include "GUI/Input/Commands/CreateTerminalAtMapPointCommand.h"
 #include "GUI/Input/Commands/UnlinkTerminalCommand.h"
 #include "GUI/Input/InteractionController.h"
-#include "Backend/Scenario/ScenarioDocument.h"
 #include "GUI/MainWindow.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 #include "GUI/Widgets/GraphicsView.h"
 #include "TerminalItem.h"
 
@@ -413,8 +411,9 @@ void MapPoint::createTerminalAtPosition(
 
     const QString region =
         m_properties.value("region", "Default Region").toString();
+    Backend::Application::NetworkViewService networkView;
     const QString networkName =
-        Backend::Scenario::NetworkLookup::networkNameOf(m_referenceNetwork);
+        networkView.networkNameOf(m_referenceNetwork);
     const int     nodeId      = getReferencedNetworkNodeID().toInt();
 
     // Preferred path: submit the composite command so creation + linkage

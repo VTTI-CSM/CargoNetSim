@@ -1,16 +1,12 @@
 #include "JsonResultsWriter.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
-#include "Backend/Models/Path.h"
-#include "Backend/Models/PathSegment.h"
 
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
-
-#include "Backend/Scenario/PropertyKeys.h"
 
 namespace CargoNetSim {
 namespace Cli {

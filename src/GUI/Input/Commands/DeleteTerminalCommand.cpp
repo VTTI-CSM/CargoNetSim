@@ -1,8 +1,8 @@
 #include "DeleteTerminalCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -37,14 +37,16 @@ void DeleteTerminalCommand::redo()
         m_snapshot = *it;
         m_captured = true;
     }
-    Scenario::ScenarioMutator::removeTerminal(m_doc.data(), m_terminalId);
+    Backend::Application::ScenarioEditService::removeTerminal(
+        m_doc.data(), m_terminalId);
     qCInfo(lcGuiInputCmd) << "DeleteTerminalCommand::redo" << m_terminalId;
 }
 
 void DeleteTerminalCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::restoreTerminal(m_doc.data(), m_snapshot);
+    Backend::Application::ScenarioEditService::restoreTerminal(
+        m_doc.data(), m_snapshot);
     qCInfo(lcGuiInputCmd) << "DeleteTerminalCommand::undo" << m_terminalId;
 }
 

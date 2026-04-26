@@ -1,9 +1,9 @@
 #include "CreateTerminalAtMapPointCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/LinkageSource.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -38,7 +38,7 @@ void CreateTerminalAtMapPointCommand::redo()
 {
     if (!m_doc) { setObsolete(true); return; }
 
-    const QString newId = Scenario::ScenarioMutator::createTerminal(
+    const QString newId = Backend::Application::ScenarioEditService::createTerminal(
         m_doc.data(), m_terminalType, m_region, m_localLatLon, m_role);
     if (newId.isEmpty()) {
         qCWarning(lcGuiInputCmd)
@@ -48,13 +48,14 @@ void CreateTerminalAtMapPointCommand::redo()
     }
     m_createdTerminalId = newId;
 
-    const bool linked = Scenario::ScenarioMutator::linkTerminalToNode(
+    const bool linked = Backend::Application::ScenarioEditService::linkTerminalToNode(
         m_doc.data(), newId, m_networkName, m_nodeId,
         Backend::Scenario::LinkageSource::Manual);
     if (!linked) {
         qCWarning(lcGuiInputCmd)
             << "CreateTerminalAtMapPointCommand::redo: linkTerminalToNode failed; rolling back";
-        Scenario::ScenarioMutator::removeTerminal(m_doc.data(), newId);
+        Backend::Application::ScenarioEditService::removeTerminal(
+            m_doc.data(), newId);
         m_createdTerminalId.clear();
         setObsolete(true);
         return;
@@ -69,9 +70,9 @@ void CreateTerminalAtMapPointCommand::redo()
 void CreateTerminalAtMapPointCommand::undo()
 {
     if (!m_doc || !m_wasCreated || m_createdTerminalId.isEmpty()) return;
-    Scenario::ScenarioMutator::unlinkTerminalFromNode(
+    Backend::Application::ScenarioEditService::unlinkTerminalFromNode(
         m_doc.data(), m_createdTerminalId, m_networkName, m_nodeId);
-    Scenario::ScenarioMutator::removeTerminal(
+    Backend::Application::ScenarioEditService::removeTerminal(
         m_doc.data(), m_createdTerminalId);
     qCInfo(lcGuiInputCmd) << "CreateTerminalAtMapPointCommand::undo"
                           << "id=" << m_createdTerminalId;

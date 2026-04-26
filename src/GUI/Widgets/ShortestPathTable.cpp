@@ -12,16 +12,14 @@
  */
 
 #include "ShortestPathTable.h"
+#include "Backend/Application/PathPresentationService.h"
+#include "Backend/Application/ScenarioPersistenceService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/ConfigController.h"
-#include "Backend/Scenario/ScenarioSerializer.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Utils/IconCreator.h" // For icon creation utilities
 #include "GUI/Utils/PathReportExporter.h"
 #include "GUI/Widgets/PathComparisonDialog.h"
 #include <QApplication>
-#include <QCryptographicHash>
-#include <QDateTime>
 #include <QFileDialog>
 #include <QIcon>
 #include <QJsonArray>
@@ -79,19 +77,6 @@ enum TableColumn : int
     ColumnCount
 };
 
-PathIdentity basePathKey(const Backend::Path *path)
-{
-    if (!path)
-        return QString();
-
-    const QString canonicalKey = path->canonicalPathKey();
-    if (!canonicalKey.isEmpty())
-        return canonicalKey;
-
-    return QStringLiteral("path_id|%1")
-        .arg(path->getPathId());
-}
-
 PathIdentity makeUniquePathKey(
     const PathIdentity &baseKey,
     const QMap<PathIdentity, ShortestPathsTable::PathData *> &existing)
@@ -107,78 +92,6 @@ PathIdentity makeUniquePathKey(
                         .arg(suffix++);
     }
     return candidate;
-}
-
-PathIdentity snapshotPathKey(const QJsonObject &snapshot,
-                             const Backend::Path *path)
-{
-    const QString pathIdentity =
-        snapshot.value(QStringLiteral("path_identity"))
-            .toString();
-    if (!pathIdentity.isEmpty())
-        return pathIdentity;
-
-    const QString topLevelKey =
-        snapshot.value(QStringLiteral("canonical_path_key"))
-            .toString();
-    if (!topLevelKey.isEmpty())
-        return topLevelKey;
-
-    const QString pathUid =
-        snapshot.value(QStringLiteral("path_uid")).toString();
-    if (!pathUid.isEmpty())
-        return pathUid;
-
-    return basePathKey(path);
-}
-
-QJsonArray vehicleBreakdownToJson(
-    const QList<Backend::Scenario::PathMetrics::VehicleRequirement>
-        &requirements)
-{
-    QJsonArray json;
-    for (const auto &requirement : requirements)
-    {
-        QJsonObject entry;
-        entry[QStringLiteral("segment_index")] =
-            requirement.segmentIndex;
-        entry[QStringLiteral("mode")] =
-            static_cast<int>(requirement.mode);
-        entry[QStringLiteral("vehicles_needed")] =
-            requirement.vehiclesNeeded;
-        json.append(entry);
-    }
-    return json;
-}
-
-QList<Backend::Scenario::PathMetrics::VehicleRequirement>
-vehicleBreakdownFromJson(const QJsonValue &value)
-{
-    QList<Backend::Scenario::PathMetrics::VehicleRequirement>
-        requirements;
-    if (!value.isArray())
-        return requirements;
-
-    const auto json = value.toArray();
-    requirements.reserve(json.size());
-    for (const auto &entryValue : json)
-    {
-        if (!entryValue.isObject())
-            continue;
-        const auto entry = entryValue.toObject();
-        Backend::Scenario::PathMetrics::VehicleRequirement requirement;
-        requirement.segmentIndex =
-            entry.value(QStringLiteral("segment_index")).toInt(-1);
-        requirement.mode = static_cast<
-            Backend::TransportationTypes::TransportationMode>(
-            entry.value(QStringLiteral("mode")).toInt(
-                static_cast<int>(
-                    Backend::TransportationTypes::TransportationMode::Any)));
-        requirement.vehiclesNeeded =
-            entry.value(QStringLiteral("vehicles_needed")).toInt(0);
-        requirements.append(requirement);
-    }
-    return requirements;
 }
 
 QString vehicleBreakdownLabel(
@@ -201,88 +114,6 @@ QString vehicleBreakdownLabel(
                          .arg(requirement.vehiclesNeeded));
     }
     return parts.join(QStringLiteral(" | "));
-}
-
-QJsonObject metricsToJson(
-    const Backend::Scenario::PathMetrics &metrics)
-{
-    QJsonObject o;
-    o[QStringLiteral("valid")] = metrics.valid;
-    o[QStringLiteral("distance_km")] = metrics.distanceKm;
-    o[QStringLiteral("travel_time_hours")] = metrics.travelTimeHours;
-    o[QStringLiteral("risk_per_vehicle")] = metrics.riskPerVehicle;
-    o[QStringLiteral("fuel_per_vehicle")] = metrics.fuelPerVehicle;
-    o[QStringLiteral("energy_per_vehicle")] = metrics.energyPerVehicle;
-    o[QStringLiteral("carbon_per_vehicle")] = metrics.carbonPerVehicle;
-    o[QStringLiteral("fuel_type")] = metrics.fuelType;
-    o[QStringLiteral("preview_container_count")] =
-        metrics.containerCount;
-    o[QStringLiteral("preview_vehicles_needed")] =
-        metrics.vehiclesNeeded;
-    o[QStringLiteral("preview_vehicle_breakdown")] =
-        vehicleBreakdownToJson(metrics.previewVehicleBreakdown);
-    o[QStringLiteral("container_count")] = metrics.containerCount;
-    o[QStringLiteral("fuel_per_container")] = metrics.fuelPerContainer;
-    o[QStringLiteral("energy_per_container")] = metrics.energyPerContainer;
-    o[QStringLiteral("carbon_per_container")] = metrics.carbonPerContainer;
-    o[QStringLiteral("risk_per_container")] = metrics.riskPerContainer;
-    o[QStringLiteral("vehicles_needed")] = metrics.vehiclesNeeded;
-    return o;
-}
-
-Backend::Scenario::PathMetrics metricsFromJson(
-    const QJsonObject &o)
-{
-    Backend::Scenario::PathMetrics metrics;
-    metrics.valid = o.value(QStringLiteral("valid")).toBool(false);
-    metrics.setDistance(Backend::Units::kilometers(
-        o.value(QStringLiteral("distance_km")).toDouble(0.0)));
-    metrics.setTravelTime(Backend::Units::hours(
-        o.value(QStringLiteral("travel_time_hours")).toDouble(0.0)));
-    metrics.setRiskPerVehicle(Backend::Units::scalar(
-        o.value(QStringLiteral("risk_per_vehicle")).toDouble(0.0)));
-    metrics.fuelPerVehicle =
-        o.value(QStringLiteral("fuel_per_vehicle")).toDouble(0.0);
-    metrics.setEnergyPerVehicle(Backend::Units::kilowattHours(
-        o.value(QStringLiteral("energy_per_vehicle")).toDouble(0.0)));
-    metrics.setCarbonPerVehicle(Backend::Units::metricTons(
-        o.value(QStringLiteral("carbon_per_vehicle")).toDouble(0.0)));
-    metrics.fuelType =
-        o.value(QStringLiteral("fuel_type")).toString();
-    metrics.containerCount =
-        o.contains(QStringLiteral("preview_container_count"))
-            ? o.value(QStringLiteral("preview_container_count"))
-                  .toInt(0)
-            :
-        o.value(QStringLiteral("container_count")).toInt(0);
-    metrics.fuelPerContainer =
-        o.value(QStringLiteral("fuel_per_container")).toDouble(0.0);
-    metrics.energyPerContainer =
-        o.value(QStringLiteral("energy_per_container")).toDouble(0.0);
-    metrics.carbonPerContainer =
-        o.value(QStringLiteral("carbon_per_container")).toDouble(0.0);
-    metrics.riskPerContainer =
-        o.value(QStringLiteral("risk_per_container")).toDouble(0.0);
-    metrics.vehiclesNeeded =
-        o.contains(QStringLiteral("preview_vehicles_needed"))
-            ? o.value(QStringLiteral("preview_vehicles_needed"))
-                  .toInt(0)
-            :
-        o.value(QStringLiteral("vehicles_needed")).toInt(0);
-    metrics.previewVehicleBreakdown =
-        vehicleBreakdownFromJson(
-            o.value(QStringLiteral("preview_vehicle_breakdown")));
-    return metrics;
-}
-
-QString sha256Hex(const QJsonObject &o)
-{
-    const QByteArray payload =
-        QJsonDocument(o).toJson(QJsonDocument::Compact);
-    return QString::fromLatin1(
-        QCryptographicHash::hash(
-            payload, QCryptographicHash::Sha256)
-            .toHex());
 }
 
 QString statusMessage(
@@ -347,115 +178,6 @@ void styleStatusItem(
 
     item->setBackground(QColor(232, 245, 236));
     item->setForeground(QBrush(QColor(31, 101, 58)));
-}
-
-QJsonObject buildPathSnapshotJson(const ShortestPathsTable::PathData &pathData)
-{
-    const auto *path = pathData.path.get();
-    QJsonObject pathJson;
-    if (!path)
-        return pathJson;
-
-    pathJson[QStringLiteral("path_id")] = path->getPathId();
-    pathJson[QStringLiteral("path_uid")] = path->getPathUid();
-    pathJson[QStringLiteral("canonical_path_key")] =
-        path->canonicalPathKey();
-    pathJson[QStringLiteral("total_path_cost")] =
-        path->getTotalPathCost();
-    pathJson[QStringLiteral("total_edge_costs")] =
-        path->getTotalEdgeCosts();
-    pathJson[QStringLiteral("total_terminal_costs")] =
-        path->getTotalTerminalCosts();
-    pathJson[QStringLiteral("ranking_cost")] =
-        path->getRankingCost();
-    pathJson[QStringLiteral("start_terminal")] =
-        path->getOriginId();
-    pathJson[QStringLiteral("end_terminal")] =
-        path->getDestinationId();
-    pathJson[QStringLiteral("rank")] = path->getRank();
-    pathJson[QStringLiteral("requested_mode")] =
-        path->getRequestedMode();
-    pathJson[QStringLiteral("requested_top_n")] =
-        path->getRequestedTopN();
-    pathJson[QStringLiteral("skip_same_mode_terminal_delays_and_costs")] =
-        path->skipSameModeTerminalDelaysAndCosts();
-    pathJson[QStringLiteral("effective_container_count")] =
-        path->getEffectiveContainerCount();
-    pathJson[QStringLiteral("weighted_terminal_delay_total")] =
-        path->getWeightedTerminalDelayTotal();
-    pathJson[QStringLiteral("weighted_terminal_direct_cost_total")] =
-        path->getWeightedTerminalDirectCostTotal();
-    pathJson[QStringLiteral("raw_terminal_delay_total")] =
-        path->getRawTerminalDelayTotal();
-    pathJson[QStringLiteral("raw_terminal_cost_total")] =
-        path->getRawTerminalCostTotal();
-    if (!path->getCostBreakdown().isEmpty())
-        pathJson[QStringLiteral("cost_breakdown")] =
-            path->getCostBreakdown();
-
-    QJsonObject discoveryContext;
-    discoveryContext[QStringLiteral("start_terminal")] =
-        path->getOriginId();
-    discoveryContext[QStringLiteral("end_terminal")] =
-        path->getDestinationId();
-    discoveryContext[QStringLiteral("requested_mode")] =
-        path->getRequestedMode();
-    discoveryContext[QStringLiteral("requested_top_n")] =
-        path->getRequestedTopN();
-    discoveryContext[QStringLiteral("skip_same_mode_terminal_delays_and_costs")] =
-        path->skipSameModeTerminalDelaysAndCosts();
-    pathJson[QStringLiteral("discovery_context")] =
-        discoveryContext;
-
-    QJsonArray terminals;
-    for (const auto &terminal : path->getTerminalsInPath())
-    {
-        QJsonObject o;
-        o[QStringLiteral("terminal")] = terminal.id;
-        o[QStringLiteral("display_name")] = terminal.displayName;
-        o[QStringLiteral("canonical_name")] = terminal.canonicalName;
-        o[QStringLiteral("sequence_index")] = terminal.sequenceIndex;
-        o[QStringLiteral("handling_time")] = terminal.handlingTime;
-        o[QStringLiteral("cost")] = terminal.rawCost;
-        o[QStringLiteral("costs_skipped")] = terminal.costsSkipped;
-        o[QStringLiteral("weighted_terminal_delay_contribution")] =
-            terminal.weightedTerminalDelayContribution;
-        o[QStringLiteral("weighted_terminal_cost_contribution")] =
-            terminal.weightedTerminalCostContribution;
-        o[QStringLiteral("weighted_terminal_total_contribution")] =
-            terminal.weightedTerminalTotalContribution;
-        if (!terminal.skipReason.isEmpty())
-            o[QStringLiteral("skip_reason")] =
-                terminal.skipReason;
-        terminals.append(o);
-    }
-    pathJson[QStringLiteral("terminals_in_path")] = terminals;
-
-    QJsonArray segments;
-    for (const auto *segment : path->getSegments())
-    {
-        if (!segment)
-            continue;
-        QJsonObject o;
-        o[QStringLiteral("from")] = segment->getStart();
-        o[QStringLiteral("to")] = segment->getEnd();
-        o[QStringLiteral("mode")] =
-            Backend::TransportationTypes::toInt(
-                segment->getMode());
-        o[QStringLiteral("sequence_index")] =
-            segment->sequenceIndex();
-        o[QStringLiteral("ranking_cost_contribution")] =
-            segment->rankingCostContribution();
-        o[QStringLiteral("weighted_edge_cost")] =
-            segment->weightedEdgeCost();
-        o[QStringLiteral("weighted_terminal_cost_embedded_in_segment")] =
-            segment->weightedTerminalCostEmbeddedInSegment();
-        o[QStringLiteral("attributes")] =
-            segment->getAttributes();
-        segments.append(o);
-    }
-    pathJson[QStringLiteral("segments")] = segments;
-    return pathJson;
 }
 
 } // namespace
@@ -844,81 +566,12 @@ void ShortestPathsTable::addPaths(
 {
     qCDebug(lcGuiPathTable) << "ShortestPathsTable::addPaths:"
                             << "pathCount=" << paths.size();
-    // Plan 8.2: merge any supplied per-path metrics. Existing
-    // callers that pass only the path list leave these maps empty,
-    // so legacy behavior is preserved byte-for-byte.
-    for (auto it = predicted.constBegin();
-         it != predicted.constEnd(); ++it)
-        m_predicted.insert(it.key(), it.value());
-    for (auto it = actual.constBegin();
-         it != actual.constEnd(); ++it)
-        m_actual.insert(it.key(), it.value());
-
-    // Sort the paths by total path cost
-    QVector<Backend::Path *> tempPaths(paths.begin(),
-                                       paths.end());
-    std::sort(tempPaths.begin(), tempPaths.end(),
-              [](Backend::Path *a, Backend::Path *b) {
-                  return a->getTotalPathCost()
-                         < b->getTotalPathCost();
-              });
-
-    // Process each path from the list
-    for (Backend::Path *path : tempPaths)
+    const auto records =
+        Backend::Application::PathPresentationService()
+            .recordsFromRawPaths(paths, predicted, actual);
+    for (auto record : records)
     {
-        if (!path)
-        {
-            // Skip null paths
-            qCWarning(lcGuiPathTable) << "Skipping null path in addPaths";
-            continue;
-        }
-
-        try
-        {
-            const PathIdentity canonicalKey =
-                basePathKey(path);
-            const PathIdentity resolvedKey =
-                makeUniquePathKey(canonicalKey, m_pathData);
-
-            // Create a new PathData pointer
-            PathData *pathDataPtr = new PathData(
-                std::shared_ptr<Backend::Path>(path), resolvedKey, {},
-                -1.0, -1.0, -1.0);
-            m_pathData.insert(resolvedKey, pathDataPtr);
-            m_displayOrder.append(resolvedKey);
-
-            if (resolvedKey != canonicalKey)
-            {
-                qCWarning(lcGuiPathTable)
-                    << "Duplicate canonical path identity detected;"
-                    << "using compatibility key" << resolvedKey
-                    << "for canonical key" << canonicalKey;
-
-                if (!canonicalKey.isEmpty())
-                {
-                    if (m_predicted.contains(canonicalKey)
-                        && !m_predicted.contains(resolvedKey))
-                    {
-                        m_predicted.insert(
-                            resolvedKey,
-                            m_predicted.value(canonicalKey));
-                    }
-                    if (m_actual.contains(canonicalKey)
-                        && !m_actual.contains(resolvedKey))
-                    {
-                        m_actual.insert(
-                            resolvedKey,
-                            m_actual.value(canonicalKey));
-                    }
-                }
-            }
-        }
-        catch (const std::exception &ex)
-        {
-            // Handle any exceptions during path processing
-            qCWarning(lcGuiPathTable) << "Error adding path:" << ex.what();
-            delete path; // Clean up on error
-        }
+        appendPathRecord(std::move(record));
     }
 
     // Refresh the table with the new paths
@@ -936,56 +589,13 @@ void ShortestPathsTable::setPreparedPaths(
 {
     clear();
 
-    for (auto it = prepared.predictedMetricsByPathIdentity().constBegin();
-         it != prepared.predictedMetricsByPathIdentity().constEnd(); ++it)
+    const auto records =
+        Backend::Application::PathPresentationService()
+            .recordsFromPreparedPaths(prepared, actual,
+                                      eligibility);
+    for (auto record : records)
     {
-        m_predicted.insert(it.key(), it.value());
-    }
-    for (auto it = actual.constBegin(); it != actual.constEnd(); ++it)
-        m_actual.insert(it.key(), it.value());
-
-    for (const auto &record : prepared.records())
-    {
-        if (!record.path)
-            continue;
-
-        const PathIdentity preferredKey =
-            record.pathIdentity.isEmpty()
-                ? basePathKey(record.path.get())
-                : record.pathIdentity;
-        const PathIdentity resolvedKey =
-            makeUniquePathKey(preferredKey, m_pathData);
-
-        const auto resolvedEligibility =
-            eligibility.value(record.pathIdentity,
-                              Backend::Scenario::
-                                  PreparedPathEligibility{});
-        auto *pathData = new PathData(record.path, resolvedKey,
-                                      resolvedEligibility,
-                                      -1.0, -1.0, -1.0);
-        m_pathData.insert(resolvedKey, pathData);
-        m_displayOrder.append(resolvedKey);
-
-        if (resolvedKey != preferredKey)
-        {
-            qCWarning(lcGuiPathTable)
-                << "Prepared path identity collision detected;"
-                << "using compatibility key" << resolvedKey
-                << "for prepared identity" << preferredKey;
-
-            if (m_predicted.contains(preferredKey)
-                && !m_predicted.contains(resolvedKey))
-            {
-                m_predicted.insert(resolvedKey,
-                                   m_predicted.value(preferredKey));
-            }
-            if (m_actual.contains(preferredKey)
-                && !m_actual.contains(resolvedKey))
-            {
-                m_actual.insert(resolvedKey,
-                                m_actual.value(preferredKey));
-            }
-        }
+        appendPathRecord(std::move(record));
     }
 
     refreshTable();
@@ -1236,19 +846,19 @@ void ShortestPathsTable::updateSimulationCosts(
     // Update simulation costs if values are valid (>= 0)
     if (simulationTotalCost >= 0)
     {
-        pathData->m_totalSimulationPathCost =
+        pathData->simulationTotalCost =
             simulationTotalCost;
     }
 
     if (simulationEdgeCost >= 0)
     {
-        pathData->m_totalSimulationEdgeCosts =
+        pathData->simulationEdgeCosts =
             simulationEdgeCost;
     }
 
     if (simulationTerminalCost >= 0)
     {
-        pathData->m_totalSimulationTerminalCosts =
+        pathData->simulationTerminalCosts =
             simulationTerminalCost;
     }
 
@@ -1652,10 +1262,10 @@ void ShortestPathsTable::refreshTable()
 
         // Add Actual Cost cell
         QString actualCostText;
-        if (pathData->m_totalSimulationPathCost >= 0)
+        if (pathData->hasSimulationTotalCost())
         {
             actualCostText = QString::number(
-                pathData->m_totalSimulationPathCost, 'f',
+                pathData->simulationTotalCost, 'f',
                 2);
         }
         else
@@ -1827,31 +1437,9 @@ void ShortestPathsTable::clear()
 QList<QJsonObject> ShortestPathsTable::buildComparisonSnapshots(
     const Backend::Scenario::ScenarioDocument &doc) const
 {
-    QList<QJsonObject> snapshots;
-
-    QJsonObject topology;
-    topology[QStringLiteral("regions")] = doc.regions.size();
-    topology[QStringLiteral("terminals")] = doc.terminals.size();
-    topology[QStringLiteral("linkages")] = doc.linkages.size();
-    topology[QStringLiteral("connections")] = doc.connections.size();
-    topology[QStringLiteral("global_links")] = doc.globalLinks.size();
-
     QVariantMap costWeights;
     auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
-    if (auto *cfg = ctl.getConfigController())
-        costWeights = cfg->getCostFunctionWeights();
-
-    const QString discoveredAtUtc =
-        QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    QJsonObject scenarioSnapshot =
-        Backend::Scenario::ScenarioSerializer::toJson(doc);
-    scenarioSnapshot.remove(QStringLiteral("comparison_snapshots"));
-    const QString scenarioFingerprint =
-        sha256Hex(scenarioSnapshot);
-
-    const QString topologyFingerprint = sha256Hex(topology);
-    const QString costFingerprint = sha256Hex(
-        QJsonObject::fromVariantMap(costWeights));
+    costWeights = ctl.getCostFunctionWeights();
 
     const QVector<PathIdentity> checkedPathKeys =
         getCheckedPathKeys();
@@ -1859,6 +1447,9 @@ QList<QJsonObject> ShortestPathsTable::buildComparisonSnapshots(
     for (const auto &pathKey : checkedPathKeys)
         checkedSet.insert(pathKey);
 
+    QList<Backend::Application::PathPresentationRecord>
+        records;
+    records.reserve(m_displayOrder.size());
     for (const auto &pathKey : std::as_const(m_displayOrder))
     {
         const PathData *pathData =
@@ -1866,88 +1457,19 @@ QList<QJsonObject> ShortestPathsTable::buildComparisonSnapshots(
         if (!pathData || !pathData->path)
             continue;
 
-        QJsonObject snapshot;
-        snapshot[QStringLiteral("schema_version")] = 2;
-        snapshot[QStringLiteral("path_identity")] =
-            pathData->pathKey;
-        snapshot[QStringLiteral("canonical_path_key")] =
-            pathData->path->canonicalPathKey();
-        snapshot[QStringLiteral("path_uid")] =
-            pathData->path->getPathUid();
-
-        QJsonObject selection;
-        selection[QStringLiteral("is_visible")] =
-            pathData->isVisible;
-        selection[QStringLiteral("is_selected")] =
+        Backend::Application::PathPresentationRecord
+            record = *pathData;
+        record.pathIdentity = pathData->pathKey;
+        record.pathKey = pathData->pathKey;
+        record.isSelected =
             checkedSet.contains(pathKey);
-        snapshot[QStringLiteral("selection")] = selection;
-
-        QJsonObject queryContext;
-        queryContext[QStringLiteral("origin")] =
-            pathData->path->getOriginId();
-        queryContext[QStringLiteral("destination")] =
-            pathData->path->getDestinationId();
-        queryContext[QStringLiteral("rank")] =
-            pathData->path->getRank();
-        queryContext[QStringLiteral("requested_mode")] =
-            pathData->path->getRequestedMode();
-        queryContext[QStringLiteral("requested_top_n")] =
-            pathData->path->getRequestedTopN();
-        queryContext[QStringLiteral("skip_same_mode_terminal_delays_and_costs")] =
-            pathData->path->skipSameModeTerminalDelaysAndCosts();
-        snapshot[QStringLiteral("query_context")] =
-            queryContext;
-
-        QJsonObject provenance;
-        provenance[QStringLiteral("discovered_at")] =
-            discoveredAtUtc;
-        provenance[QStringLiteral("scenario_fingerprint")] =
-            scenarioFingerprint;
-        provenance[QStringLiteral("topology_fingerprint")] =
-            topologyFingerprint;
-        provenance[QStringLiteral("cost_weights_fingerprint")] =
-            costFingerprint;
-        provenance[QStringLiteral("cost_weights")] =
-            QJsonObject::fromVariantMap(costWeights);
-        snapshot[QStringLiteral("discovery_provenance")] =
-            provenance;
-
-        const auto predicted = m_predicted.value(pathKey);
-        const auto actual = m_actual.value(pathKey);
-        snapshot[QStringLiteral("predicted_metrics")] =
-            metricsToJson(predicted);
-        snapshot[QStringLiteral("actual_metrics")] =
-            metricsToJson(actual);
-
-        QJsonObject simulation;
-        simulation[QStringLiteral("state")] =
-            pathData->m_totalSimulationPathCost >= 0.0
-                ? QStringLiteral("simulated")
-                : QStringLiteral("not_simulated");
-        simulation[QStringLiteral("total_cost")] =
-            pathData->m_totalSimulationPathCost;
-        simulation[QStringLiteral("edge_costs")] =
-            pathData->m_totalSimulationEdgeCosts;
-        simulation[QStringLiteral("terminal_costs")] =
-            pathData->m_totalSimulationTerminalCosts;
-        simulation[QStringLiteral("effective_container_count")] =
-            pathData->executionResult.has_value()
-                ? pathData->executionResult->effectiveContainerCount
-                : pathData->path->getEffectiveContainerCount();
-        snapshot[QStringLiteral("simulation")] =
-            simulation;
-        if (pathData->executionResult.has_value())
-        {
-            snapshot[QStringLiteral("execution_result")] =
-                pathData->executionResult->toJson();
-        }
-
-        snapshot[QStringLiteral("path")] =
-            buildPathSnapshotJson(*pathData);
-        snapshots.append(snapshot);
+        record.predictedMetrics = m_predicted.value(pathKey);
+        record.actualMetrics = m_actual.value(pathKey);
+        records.append(std::move(record));
     }
 
-    return snapshots;
+    return Backend::Application::PathPresentationService()
+        .buildComparisonSnapshots(doc, records, costWeights);
 }
 
 void ShortestPathsTable::loadComparisonSnapshots(
@@ -1956,53 +1478,17 @@ void ShortestPathsTable::loadComparisonSnapshots(
     clear();
 
     QSet<PathIdentity> selectedPathKeys;
-    for (const QJsonObject &snapshot : snapshots)
+    const auto records =
+        Backend::Application::PathPresentationService()
+            .loadComparisonSnapshots(snapshots);
+    for (const auto &record : records)
     {
-        const QJsonObject pathJson =
-            snapshot.value(QStringLiteral("path")).toObject();
-        if (pathJson.isEmpty())
+        if (!record.path)
             continue;
 
-        auto *path = Backend::Path::fromJson(pathJson, {});
-        if (!path)
-            continue;
-
-        const PathIdentity storedKey = makeUniquePathKey(
-            snapshotPathKey(snapshot, path), m_pathData);
-        m_predicted.insert(
-            storedKey,
-            metricsFromJson(
-                snapshot.value(QStringLiteral("predicted_metrics"))
-                    .toObject()));
-        m_actual.insert(
-            storedKey,
-            metricsFromJson(
-                snapshot.value(QStringLiteral("actual_metrics"))
-                    .toObject()));
-
-        const QJsonObject simulation =
-            snapshot.value(QStringLiteral("simulation")).toObject();
-        const QJsonObject selection =
-            snapshot.value(QStringLiteral("selection")).toObject();
-        auto *pathData = new PathData(
-            std::shared_ptr<Backend::Path>(path), storedKey,
-            {},
-            simulation.value(QStringLiteral("total_cost")).toDouble(-1.0),
-            simulation.value(QStringLiteral("edge_costs")).toDouble(-1.0),
-            simulation.value(QStringLiteral("terminal_costs")).toDouble(-1.0));
-        const QJsonObject executionResult =
-            snapshot.value(QStringLiteral("execution_result")).toObject();
-        if (!executionResult.isEmpty())
-        {
-            pathData->executionResult =
-                Backend::Scenario::PathExecutionResult::fromJson(
-                    executionResult);
-        }
-        pathData->isVisible =
-            selection.value(QStringLiteral("is_visible")).toBool(true);
-        m_pathData.insert(storedKey, pathData);
-        m_displayOrder.append(storedKey);
-        if (selection.value(QStringLiteral("is_selected")).toBool(false))
+        const PathIdentity storedKey =
+            appendPathRecord(record);
+        if (record.isSelected)
             selectedPathKeys.insert(storedKey);
     }
 
@@ -2358,6 +1844,8 @@ void ShortestPathsTable::setActualMetrics(
          it != actual.constEnd(); ++it)
     {
         m_actual.insert(it.key(), it.value());
+        if (auto *pathData = m_pathData.value(it.key(), nullptr))
+            pathData->actualMetrics = it.value();
         refreshRow(it.key());
     }
 }
@@ -2387,6 +1875,47 @@ void ShortestPathsTable::setExecutionResults(
                               result.edgeCosts,
                               result.terminalCosts);
     }
+}
+
+ShortestPathsTable::PathIdentity
+ShortestPathsTable::appendPathRecord(PathData record)
+{
+    if (!record.path)
+    {
+        qCWarning(lcGuiPathTable)
+            << "Skipping null path presentation record";
+        return {};
+    }
+
+    const PathIdentity preferredKey =
+        record.pathIdentity.isEmpty()
+            ? record.path->canonicalPathKey().isEmpty()
+                  ? QStringLiteral("path_id|%1")
+                        .arg(record.path->getPathId())
+                  : record.path->canonicalPathKey()
+            : record.pathIdentity;
+    const PathIdentity resolvedKey =
+        makeUniquePathKey(preferredKey, m_pathData);
+
+    record.pathIdentity = resolvedKey;
+    record.pathKey = resolvedKey;
+
+    m_predicted.insert(resolvedKey, record.predictedMetrics);
+    m_actual.insert(resolvedKey, record.actualMetrics);
+
+    auto *pathData = new PathData(std::move(record));
+    m_pathData.insert(resolvedKey, pathData);
+    m_displayOrder.append(resolvedKey);
+
+    if (resolvedKey != preferredKey)
+    {
+        qCWarning(lcGuiPathTable)
+            << "Path identity collision detected;"
+            << "using compatibility key" << resolvedKey
+            << "for preferred identity" << preferredKey;
+    }
+
+    return resolvedKey;
 }
 
 void ShortestPathsTable::refreshRow(

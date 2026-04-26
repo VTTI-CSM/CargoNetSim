@@ -3,8 +3,7 @@
 #include <QList>
 #include <QTest>
 
-#include "Backend/Scenario/SimulatorCommandAvailability.h"
-#include "Backend/Scenario/ServerStatusProbe.h"
+#include "Backend/Application/AvailabilityService.h"
 #include "CLI/Commands/ConnectionsCommand.h"
 #include "CLI/ExitCodes.h"
 
@@ -24,8 +23,8 @@ class ConnectionsCommandTest : public QObject
     Q_OBJECT
 
 private:
-    using Status = CargoNetSim::Backend::Scenario
-                   ::ServerStatusProbe::ServerStatus;
+    using Status =
+        CargoNetSim::Backend::Application::BackendAvailabilityStatus;
 
     /// Convenience factory: build a Status with explicit flags.
     static Status make(const QString &name, bool connected,
@@ -36,9 +35,7 @@ private:
         s.clientExists = true;
         s.connected    = connected;
         s.hasConsumers = hasConsumers;
-        s.commandAvailable =
-            CargoNetSim::Backend::Scenario::isCommandAvailable(
-                connected, hasConsumers);
+        s.commandAvailable = connected && hasConsumers;
         return s;
     }
 

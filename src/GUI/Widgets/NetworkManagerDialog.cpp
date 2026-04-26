@@ -13,11 +13,11 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
 #include "../Controllers/NetworkController.h"
 #include "../MainWindow.h"
 #include "../Widgets/ColorPickerDialog.h"
-#include "Backend/Controllers/CargoNetSimController.h"
 #include "GUI/Controllers/SceneVisibilityController.h"
 
 namespace CargoNetSim
@@ -178,12 +178,12 @@ void NetworkManagerDialog::addNetwork(
     if (!mainWindow)
         return;
 
-    Backend::RegionData *regionData =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getCurrentRegionData();
+    auto *networkView = mainWindow->networkViewService();
+    const QString regionName =
+        networkView ? networkView->currentRegionName()
+                    : QString();
 
-    if (!regionData)
+    if (regionName.isEmpty())
         return;
 
     // Import the new network using NetworkController which
@@ -195,7 +195,7 @@ void NetworkManagerDialog::addNetwork(
         if (networkType == "Rail Network")
         {
             networkName = NetworkController::importNetwork(
-                mainWindow, NetworkType::Train, regionData);
+                mainWindow, NetworkType::Train, regionName);
 
             // Network list is now updated within
             // importNetwork if successful
@@ -203,7 +203,7 @@ void NetworkManagerDialog::addNetwork(
         else if (networkType == "Truck Network")
         {
             networkName = NetworkController::importNetwork(
-                mainWindow, NetworkType::Truck, regionData);
+                mainWindow, NetworkType::Truck, regionName);
 
             // Network list is now updated within
             // importNetwork if successful
@@ -260,18 +260,17 @@ void NetworkManagerDialog::deleteNetwork(
     {
         try
         {
-            Backend::RegionData *regionData =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegionData();
+            auto *networkView = mainWindow->networkViewService();
+            const QString regionName =
+                networkView ? networkView->currentRegionName()
+                            : QString();
 
             NetworkType type =
                 (networkType == "Rail Network")
                     ? NetworkType::Train
                     : NetworkType::Truck;
             NetworkController::removeNetwork(
-                mainWindow, type, networkName, regionData);
+                mainWindow, type, networkName, regionName);
         }
         catch (const std::exception &e)
         {
@@ -306,14 +305,10 @@ void NetworkManagerDialog::renameNetwork(
     }
 
     QString              oldName = currentItem->text();
-    Backend::RegionData *regionData =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getRegionData(
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegion());
+    auto *networkView = mainWindow->networkViewService();
+    const QString regionName =
+        networkView ? networkView->currentRegionName()
+                    : QString();
     NetworkType type = (networkType == "Rail Network")
                            ? NetworkType::Train
                            : NetworkType::Truck;
@@ -333,7 +328,7 @@ void NetworkManagerDialog::renameNetwork(
         // Call the controller method to rename the network
         if (NetworkController::renameNetwork(
                 mainWindow, type, oldName, newName,
-                regionData))
+                regionName))
             break;
         else
             return; // Break out if rename failed
@@ -375,10 +370,10 @@ void NetworkManagerDialog::changeNetworkColor(
     }
 
     QString networkName = currentItem->text();
-    Backend::RegionData *regionData =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getCurrentRegionData();
+    auto *networkView = mainWindow->networkViewService();
+    const QString regionName =
+        networkView ? networkView->currentRegionName()
+                    : QString();
 
     NetworkType type = (networkType == "Rail Network")
                            ? NetworkType::Train
@@ -388,7 +383,7 @@ void NetworkManagerDialog::changeNetworkColor(
     // color
     if (NetworkController::changeNetworkColor(
             mainWindow, type, networkName, newColor,
-            regionData))
+            regionName))
     {
         // Update the icon in the list widget
         currentItem->setIcon(
@@ -436,20 +431,20 @@ void NetworkManagerDialog::updateNetworkList(
     listWidget->clear();
 
     // Get the current region data
-    auto regionController =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController();
-    CargoNetSim::Backend::RegionData *regionData =
-        regionController->getCurrentRegionData();
-    if (!regionData)
+    auto *networkView = mainWindow->networkViewService();
+    const QString regionName =
+        networkView ? networkView->currentRegionName()
+                    : QString();
+    if (regionName.isEmpty() || !networkView)
         return;
 
     // Get network names and prefix based on network type
     const QString prefix = "";
     // isTrainNetwork ? "rail_" : "truck_";
     const QStringList networkNames =
-        isTrainNetwork ? regionData->getTrainNetworks()
-                       : regionData->getTruckNetworks();
+        isTrainNetwork
+            ? networkView->trainNetworkNames(regionName)
+            : networkView->truckNetworkNames(regionName);
 
     int selectedIndex = -1;
 
@@ -457,21 +452,11 @@ void NetworkManagerDialog::updateNetworkList(
     for (int i = 0; i < networkNames.size(); i++)
     {
         const auto  &networkName = networkNames[i];
-        BaseNetwork *network =
-            isTrainNetwork
-                ? static_cast<BaseNetwork *>(
-                      regionData->getTrainNetwork(
-                          networkName))
-                : static_cast<BaseNetwork *>(
-                      regionData->getTruckNetwork(
-                          networkName));
-
-        if (!network)
-            continue;
-
-        // Get network color
         QColor color =
-            network->getVariableAs<QColor>("color");
+            networkView->networkVariable(
+                           regionName, networkName,
+                           QStringLiteral("color"))
+                .value<QColor>();
 
         // Create display name
         QString displayName = networkName;

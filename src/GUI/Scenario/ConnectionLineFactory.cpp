@@ -1,8 +1,7 @@
 #include "ConnectionLineFactory.h"
 
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/Connection.h"
-#include "Backend/Scenario/GlobalLink.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/GlobalTerminalItem.h"
 #include "GUI/Items/TerminalItem.h"

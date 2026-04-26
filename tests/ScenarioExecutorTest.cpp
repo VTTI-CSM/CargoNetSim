@@ -4,6 +4,7 @@
 #include <QSignalSpy>
 #include <QTest>
 
+#include "Backend/Bootstrap/BackendBootstrapService.h"
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Models/Path.h"
@@ -74,8 +75,12 @@ private slots:
         // 1. Initialize the singleton controller (brings up clients).
         auto &controller =
             CargoNetSim::CargoNetSimController::getInstance();
-        QVERIFY(controller.initialize(/*truckExePath=*/""));
-        QVERIFY(controller.startAll());
+        BackendBootstrapService bootstrapService;
+        const auto bootstrapResult =
+            bootstrapService.initializeAndStartController(
+                /*integrationExePath=*/QString());
+        QVERIFY2(bootstrapResult.succeeded(),
+                 qPrintable(bootstrapResult.message));
 
         // 2. Load YAML → document (serializer is static; see plan
         //    deviation).

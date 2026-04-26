@@ -9,17 +9,15 @@ namespace Cli {
 
 /**
  * @brief `cargonetsim-cli preview <scenario.yml>` — load, validate,
- *        run the linker (preview mode) and emit the resolved document
- *        as indented JSON to stdout.
+ *        build a preview-linked document and emit it as indented JSON
+ *        to stdout.
  *
- * Plan 5 Task 14. The linker's preview-mode path
- * (`ScenarioLinker::loadNetworksForPreview`) loads graph-dependent
- * inputs into a stand-alone `ScenarioRegistry` — no mutation of the
- * live `RegionDataController`. Auto-rules for linkages / connections /
- * global links are evaluated against that registry and the results
- * are folded into a *copy* of the document for JSON emission. The
- * document is thrown away when `execute()` returns; the live backend
- * is never touched.
+ * Plan 5 Task 14. Preview linking is owned by the backend
+ * `ScenarioPreviewService`: graph-dependent inputs are loaded into a
+ * stand-alone preview registry, auto-rules for linkages / connections /
+ * global links are evaluated there, and the results are folded into a
+ * copy of the document for JSON emission. The live backend is never
+ * touched.
  *
  * Exit codes:
  *   * `Success (0)`          — JSON emitted.

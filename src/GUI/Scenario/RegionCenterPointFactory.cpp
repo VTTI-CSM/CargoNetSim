@@ -1,10 +1,8 @@
 #include "RegionCenterPointFactory.h"
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
 
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/RegionDataController.h"
-#include "Backend/Scenario/RegionSpec.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/Items/RegionCenterPoint.h"
 #include "GUI/MainWindow.h"
@@ -48,11 +46,9 @@ buildProperties(const Backend::Scenario::RegionSpec &region)
 void publishToControllerLegacyKey(RegionCenterPoint *cp,
                                   const QString      &regionName)
 {
-    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    if (!rdc) return;
-    rdc->setRegionVariable(regionName, "regionCenterPoint",
-                           QVariant::fromValue(cp));
+    Backend::Application::NetworkViewService networkView;
+    networkView.setRegionVariable(
+        regionName, "regionCenterPoint", QVariant::fromValue(cp));
 }
 
 } // namespace

@@ -5,9 +5,9 @@
 
 #include <cstdio>
 
+#include "Backend/Application/ScenarioLoadService.h"
+#include "Backend/CliApi/ScenarioDocumentApi.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/ScenarioSerializer.h"
-#include "Backend/Scenario/ScenarioValidator.h"
 #include "CLI/Commands/CommandOutput.h"
 #include "CLI/Commands/IssueFormatter.h"
 #include "CLI/ExitCodes.h"
@@ -35,16 +35,16 @@ int ValidateCommand::execute(const QStringList &args)
     const QString path = args.first();
     qCInfo(lcCli) << "ValidateCommand::execute: scenario path =" << path;
 
-    // Parse path — `fromYaml` is static, returns unique_ptr<ScenarioDocument>,
-    // and fills @p err with a human-readable reason on failure.
-    QString parseErr;
-    auto    doc =
-        Backend::Scenario::ScenarioSerializer::fromYaml(path, &parseErr);
-    if (!doc)
+    Backend::Application::ScenarioLoadService loadService;
+    auto parseResult = loadService.parseAndValidateYaml(path);
+    if (parseResult.status
+        == Backend::Application::ScenarioLoadServiceStatus::ParseFailed
+        || parseResult.status
+               == Backend::Application::ScenarioLoadServiceStatus::InvalidInput)
     {
-        const QString suffix = parseErr.isEmpty()
+        const QString suffix = parseResult.message.isEmpty()
             ? QString()
-            : QStringLiteral(": ") + parseErr;
+            : QStringLiteral(": ") + parseResult.message;
         qCCritical(lcCli) << "ValidateCommand::execute: parse failed —"
                           << path << suffix;
         streamToOr(m_err, stderr,
@@ -53,26 +53,27 @@ int ValidateCommand::execute(const QStringList &args)
         return static_cast<int>(ExitCode::ValidationFailed);
     }
 
-    qCDebug(lcCli) << "ValidateCommand::execute: parsed doc — regions ="
-                   << doc->regions.size()
-                   << ", terminals =" << doc->terminals.size()
-                   << ", linkages =" << doc->linkages.size();
+    if (parseResult.document)
+    {
+        qCDebug(lcCli) << "ValidateCommand::execute: parsed doc — regions ="
+                       << parseResult.document->regions.size()
+                       << ", terminals =" << parseResult.document->terminals.size()
+                       << ", linkages =" << parseResult.document->linkages.size();
+    }
 
     // Format every issue via the shared helper — same line format
     // the `preview` command uses. Warnings are reported but do not
     // change the exit code (per spec §8.3); only Error severity
     // bumps the exit to ValidationFailed.
     bool          hasError = false;
-    const auto    issues   =
-        Backend::Scenario::ScenarioValidator::validate(*doc);
     const QString buffer   =
-        formatValidationIssues(issues, &hasError);
+        formatValidationIssues(parseResult.issues, &hasError);
     if (!buffer.isEmpty())
         streamToOr(m_err, stderr, buffer);
 
     qCInfo(lcCli) << "ValidateCommand::execute: validation"
                   << (hasError ? "FAILED" : "PASSED")
-                  << "— issues =" << issues.size();
+                  << "— issues =" << parseResult.issues.size();
 
     return hasError
         ? static_cast<int>(ExitCode::ValidationFailed)

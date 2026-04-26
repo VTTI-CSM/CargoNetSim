@@ -1,12 +1,12 @@
 #include "SettingsController.h"
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Application/ScenarioEditService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Scenario/PropertyKeys.h"
-#include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "GUI/MainWindow.h"
-#include "GUI/Scenario/ScenarioMutator.h"
 
 namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
 
@@ -29,10 +29,10 @@ void SettingsController::applySettings(
     qCDebug(lcGuiView) << "SettingsController::applySettings";
 
     // 1. ConfigController (config.xml)
-    auto *cfg = CargoNetSim::CargoNetSimController::getInstance()
-                    .getConfigController();
-    cfg->updateConfig(toConfigMap(settings));
-    cfg->saveConfig();
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    controller.updateConfig(toConfigMap(settings));
+    controller.saveConfig();
 
     // 2. ScenarioDocument — preserve YAML-only fields not owned by the GUI
     if (m_mainWindow && m_mainWindow->runtime())
@@ -47,7 +47,7 @@ void SettingsController::applySettings(
         if (!merged.dwellParams.has_value())
             merged.dwellParams = existing.dwellParams;
 
-        if (!GUI::Scenario::ScenarioMutator::updateSimulationSettings(
+        if (!Backend::Application::ScenarioEditService::updateSimulationSettings(
                 &m_mainWindow->runtime()->document(), merged))
             qCWarning(lcGuiView)
                 << "SettingsController::applySettings:"
@@ -68,9 +68,9 @@ void SettingsController::loadFromDocument()
 QVariantMap SettingsController::toConfigMap(
     const Backend::Scenario::SimulationSettings &s)
 {
-    auto *cfg = CargoNetSim::CargoNetSimController::getInstance()
-                    .getConfigController();
-    QVariantMap root = cfg->getAllParams();
+    QVariantMap root =
+        CargoNetSim::CargoNetSimController::getInstance()
+            .getAllConfigParams();
 
     // Simulation section
     QVariantMap sim = root.value("simulation").toMap();

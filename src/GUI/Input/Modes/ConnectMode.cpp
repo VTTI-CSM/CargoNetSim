@@ -115,7 +115,7 @@ Handled ConnectMode::onPress(const PressEvent& e, const ClickContext& ctx)
     // (e.g., GlobalLink attempted on a same-region pair, Connection
     // attempted on a cross-region pair). We do NOT re-implement the
     // domain check in the view: one source of truth lives in the
-    // ScenarioMutator.
+    // backend edit/authoring services.
     const bool submitted = ctx.commandBus->submit(std::move(cmd));
     if (!submitted) {
         qCWarning(lcGuiInputMode)

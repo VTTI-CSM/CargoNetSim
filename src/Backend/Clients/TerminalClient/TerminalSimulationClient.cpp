@@ -613,6 +613,12 @@ bool TerminalSimulationClient::addContainers(
     const QString &terminalId, QString &containers,
     double addTime, const QString &arrivalMode)
 {
+    qCInfo(lcClientTerminal)
+        << "TerminalSimulationClient::addContainers(string):"
+        << "terminalId=" << terminalId
+        << "arrivalMode=" << arrivalMode
+        << "payloadBytes=" << containers.toUtf8().size();
+
     // Execute containers addition serially
     return executeSerializedCommand([&]() {
         // Prepare parameters for containers addition
@@ -629,8 +635,14 @@ bool TerminalSimulationClient::addContainers(
             params["arrival_mode"] = arrivalMode;
         }
         // Send containers addition command
-        return sendCommandAndWait("add_containers", params,
-                                  {"containersAdded"});
+        const bool success = sendCommandAndWait(
+            "add_containers", params, {"containersAdded"});
+        qCInfo(lcClientTerminal)
+            << "TerminalSimulationClient::addContainers(string):"
+            << "terminalId=" << terminalId
+            << "arrivalMode=" << arrivalMode
+            << "success=" << success;
+        return success;
     });
 }
 
@@ -1404,13 +1416,16 @@ void TerminalSimulationClient::onContainersAdded(
     // Extract parameters and results
     QJsonObject params = message["params"].toObject();
     QString terminalId = params["terminal_id"].toString();
+    QString arrivalMode = params["arrival_mode"].toString();
 
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
 
     // Log event for auditing
-    qCInfo(lcClientTerminal) << "Containers added to terminal:"
-             << terminalId;
+    qCInfo(lcClientTerminal)
+        << "Containers added to terminal:"
+        << terminalId
+        << "arrivalMode=" << arrivalMode;
 }
 
 // Handle server reset event

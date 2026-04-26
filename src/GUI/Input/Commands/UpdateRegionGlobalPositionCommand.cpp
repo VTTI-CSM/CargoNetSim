@@ -1,8 +1,8 @@
 #include "UpdateRegionGlobalPositionCommand.h"
 
+#include "../../../Backend/Application/ScenarioEditService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Scenario/ScenarioMutator.h"
 
 #include <QLoggingCategory>
 #include <QObject>
@@ -40,7 +40,7 @@ void UpdateRegionGlobalPositionCommand::redo()
                               it->globalPosition.latitude);
         m_captured  = true;
     }
-    Scenario::ScenarioMutator::updateRegionGlobalPosition(
+    Backend::Application::ScenarioEditService::updateRegionGlobalPosition(
         m_doc.data(), m_regionName, m_newLatLon);
     qCInfo(lcGuiInputCmd) << "UpdateRegionGlobalPositionCommand::redo"
                           << m_regionName
@@ -51,7 +51,7 @@ void UpdateRegionGlobalPositionCommand::redo()
 void UpdateRegionGlobalPositionCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Scenario::ScenarioMutator::updateRegionGlobalPosition(
+    Backend::Application::ScenarioEditService::updateRegionGlobalPosition(
         m_doc.data(), m_regionName, m_oldLatLon);
     qCInfo(lcGuiInputCmd) << "UpdateRegionGlobalPositionCommand::undo"
                           << m_regionName;

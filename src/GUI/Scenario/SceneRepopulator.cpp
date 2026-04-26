@@ -1,14 +1,8 @@
 #include "SceneRepopulator.h"
 
+#include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/RegionDataController.h"
-#include "Backend/Scenario/Connection.h"
-#include "Backend/Scenario/GlobalLink.h"
-#include "Backend/Scenario/NodeLinkage.h"
-#include "Backend/Scenario/RegionSpec.h"
-#include "Backend/Scenario/ScenarioDocument.h"
-#include "Backend/Scenario/TerminalPlacement.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "GUI/Items/MapPoint.h"
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
@@ -41,17 +35,6 @@ QString linkageKey(const QString &networkName, int nodeId)
     return networkName + QLatin1Char(':') + QString::number(nodeId);
 }
 
-/// Does @p rd host this network (rail or truck)? Answered from the
-/// cached name lists so we never pay the cost of lazy network
-/// instantiation during scene rebuild. `RegionData::findNetworkByName`
-/// would also answer this, but it materialises the network object —
-/// unnecessary here since we only need a boolean.
-bool regionOwnsNetwork(Backend::RegionData *rd, const QString &name)
-{
-    return rd && (rd->getTrainNetworks().contains(name)
-                  || rd->getTruckNetworks().contains(name));
-}
-
 void rebuildRegionCenters(Doc *doc, GraphicsScene *scene, MainWindow *mw)
 {
     for (auto it = doc->regions.begin(); it != doc->regions.end(); ++it)
@@ -62,19 +45,19 @@ QHash<QString, MapPoint *>
 rebuildMapPoints(Doc *doc, GraphicsScene *scene, MainWindow *mw)
 {
     QHash<QString, MapPoint *> index;
-    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    if (!rdc) return index;
+    Backend::Application::NetworkViewService networkView;
 
     for (auto it = doc->regions.begin(); it != doc->regions.end(); ++it)
     {
-        auto *rd = rdc->getRegionData(it.key());
-        if (!rd) continue;
         for (auto &link : doc->linkages)
         {
-            if (!regionOwnsNetwork(rd, link.networkName)) continue;
+            if (!networkView.regionOwnsNetwork(
+                    it.key(), link.networkName))
+            {
+                continue;
+            }
             if (auto *mp = MapPointFactory::fromNodeLinkage(
-                    &link, rd, scene, mw))
+                    &link, it.key(), scene, mw))
                 index.insert(linkageKey(link.networkName, link.nodeId), mp);
         }
     }
@@ -108,16 +91,10 @@ void relinkMapPointsToTerminals(
 void rebuildNetworks(Doc *doc, MainWindow *mw)
 {
     if (!mw || !mw->networkDrawing()) return;
-    auto *rdc = CargoNetSim::CargoNetSimController::getInstance()
-                    .getRegionDataController();
-    if (!rdc) return;
 
     for (auto it = doc->regions.constBegin();
          it != doc->regions.constEnd(); ++it)
     {
-        auto *rd = rdc->getRegionData(it.key());
-        if (!rd) continue;
-
         for (auto nit = it.value().networks.constBegin();
              nit != it.value().networks.constEnd(); ++nit)
         {
@@ -133,7 +110,8 @@ void rebuildNetworks(Doc *doc, MainWindow *mw)
                 continue;
             }
             // Terminals are restored separately; skip duplicate creation.
-            mw->networkDrawing()->drawNetwork(rd, type, name, true);
+            mw->networkDrawing()->drawNetwork(
+                it.key(), type, name, true);
         }
     }
 }

@@ -50,6 +50,8 @@ set(CLI_LIB_SOURCES
     Commands/ConnectionsCommand.cpp
     Commands/PreviewCommand.h
     Commands/PreviewCommand.cpp
+    Commands/PathsCommand.h
+    Commands/PathsCommand.cpp
     Commands/RunCommand.h
     Commands/RunCommand.cpp
     # AUTORCC (enabled at root) compiles this into the library so

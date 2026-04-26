@@ -39,6 +39,9 @@
 namespace CargoNetSim
 {
 namespace Backend {
+namespace Application {
+class NetworkViewService;
+} // namespace Application
 namespace Scenario {
 class ScenarioRuntime;
 } // namespace Scenario
@@ -208,6 +211,8 @@ public:
     { return m_settingsCtrl; }
     FleetController *fleetCtrl() const
     { return m_fleetCtrl; }
+    Backend::Application::NetworkViewService *networkViewService() const
+    { return m_networkViewService; }
 
     Input::CommandBus*            commandBus()             const { return m_commandBus; }
     Input::PickCoordinator*       pickCoordinator()        const { return m_pickCoordinator; }
@@ -564,6 +569,7 @@ protected:
     RegionController           *m_regionCtrl       = nullptr;
     SettingsController         *m_settingsCtrl     = nullptr;
     FleetController            *m_fleetCtrl        = nullptr;
+    Backend::Application::NetworkViewService *m_networkViewService = nullptr;
 
     Input::CommandBus*            m_commandBus            = nullptr;   // shared by both controllers
     Input::PickCoordinator*       m_pickCoordinator       = nullptr;   // shared by both controllers
