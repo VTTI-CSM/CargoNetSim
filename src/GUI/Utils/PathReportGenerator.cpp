@@ -13,7 +13,7 @@
 
 #include "PathReportGenerator.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Scenario/MetricDisplayUnits.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Scenario/PropertyKeys.h"
 #include <KDReportsPreviewDialog.h>
 #include <KDReportsPreviewWidget.h>
@@ -807,9 +807,10 @@ void PathReportGenerator::addPathSegments(
             attrTable, rowIndex, 1,
             predictedValues.available
                 ? QString::number(
-                      Backend::Scenario::MetricDisplayUnits::
-                          distanceKmFromMetres(
-                              predictedValues.distance),
+                      Backend::Units::LengthMeters(
+                          predictedValues.distance)
+                          .convert<units::length::kilometer>()
+                          .value(),
                       'f', 2)
                 : tr("N/A"));
         styleTableCell(attrTable, rowIndex, 2,
@@ -861,9 +862,10 @@ void PathReportGenerator::addPathSegments(
             attrTable, rowIndex, 1,
             predictedValues.available
                 ? QString::number(
-                      Backend::Scenario::MetricDisplayUnits::
-                          travelTimeHoursFromSeconds(
-                              predictedValues.travelTime),
+                      Backend::Units::TimeSeconds(
+                          predictedValues.travelTime)
+                          .convert<units::time::hour>()
+                          .value(),
                       'f', 2)
                 : tr("N/A"));
         styleTableCell(

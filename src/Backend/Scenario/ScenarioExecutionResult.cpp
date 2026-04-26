@@ -1,8 +1,8 @@
 #include "ScenarioExecutionResult.h"
 
+#include "Backend/Commons/Units.h"
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/ConfigController.h"
-#include "MetricDisplayUnits.h"
 #include "PathMetricsCalculator.h"
 #include "PropertyKeys.h"
 
@@ -327,15 +327,15 @@ PathMetrics PathExecutionResult::toActualMetrics(
         return metrics;
 
     metrics.valid = true;
-    metrics.distanceKm =
-        MetricDisplayUnits::distanceKmFromMetres(
-            totals.distance);
-    metrics.travelTimeHours =
-        MetricDisplayUnits::travelTimeHoursFromSeconds(
-            totals.travelTime);
-    metrics.energyPerVehicle = totals.energyConsumption;
-    metrics.carbonPerVehicle = totals.carbonEmissions;
-    metrics.riskPerVehicle = totals.risk;
+    metrics.setDistance(
+        Units::toKilometers(Units::meters(totals.distance)));
+    metrics.setTravelTime(
+        Units::toHours(Units::seconds(totals.travelTime)));
+    metrics.setEnergyPerVehicle(
+        Units::kilowattHours(totals.energyConsumption));
+    metrics.setCarbonPerVehicle(
+        Units::metricTons(totals.carbonEmissions));
+    metrics.setRiskPerVehicle(Units::scalar(totals.risk));
 
     if (effectiveContainerCount > 0)
     {

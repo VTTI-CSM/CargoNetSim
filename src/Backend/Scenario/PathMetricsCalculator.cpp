@@ -2,6 +2,7 @@
 #include "PathMetricsCalculator.h"
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Controllers/VehicleController.h"
 #include "Backend/Models/TrainSystem.h"
@@ -84,11 +85,13 @@ PathMetrics compute(double                                     distanceMeters,
         && inputs.modeProperties
                .value(PK::Mode::UseNetwork, false).toBool();
 
-    out.distanceKm = distanceMeters / 1000.0;
+    out.setDistance(Units::toKilometers(
+        Units::meters(distanceMeters)));
 
     if (useNetwork)
     {
-        out.travelTimeHours = timeSeconds / 3600.0;
+        out.setTravelTime(Units::toHours(
+            Units::seconds(timeSeconds)));
     }
     else
     {
@@ -96,15 +99,17 @@ PathMetrics compute(double                                     distanceMeters,
             inputs.modeProperties
                   .value(PK::Mode::AverageSpeed, lk.defaultSpeed)
                   .toDouble();
-        out.travelTimeHours = out.distanceKm / std::max(avgSpeed, 0.01);
+        out.setTravelTime(Units::hours(
+            out.distanceKm / std::max(avgSpeed, 0.01)));
     }
 
     out.fuelPerVehicle = inputs.modeProperties
                                .value(PK::Mode::AverageFuelConsumption, 0.0)
                                .toDouble();
-    out.riskPerVehicle = inputs.modeProperties
-                               .value(PK::Mode::RiskFactor, 0.01)
-                               .toDouble();
+    out.setRiskPerVehicle(Units::scalar(
+        inputs.modeProperties
+            .value(PK::Mode::RiskFactor, 0.01)
+            .toDouble()));
 
     out.fuelType = inputs.modeProperties
                          .value(PK::Mode::FuelType).toString();
@@ -116,11 +121,12 @@ PathMetrics compute(double                                     distanceMeters,
     const double carbonPerUnit =
         inputs.fuelCarbonContent.value(out.fuelType, 2.68).toDouble();
 
-    out.energyPerVehicle =
+    out.setEnergyPerVehicle(Units::kilowattHours(
         out.fuelPerVehicle * out.distanceKm * calorific
-        * inputs.locomotiveMultiplier;
-    out.carbonPerVehicle =
-        out.fuelPerVehicle * out.distanceKm * carbonPerUnit / 1000.0;
+        * inputs.locomotiveMultiplier));
+    out.setCarbonPerVehicle(
+        Units::toMetricTons(Units::kilograms(
+            out.fuelPerVehicle * out.distanceKm * carbonPerUnit)));
 
     out.valid = true;
 

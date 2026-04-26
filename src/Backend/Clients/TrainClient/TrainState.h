@@ -1,4 +1,7 @@
 #pragma once
+
+#include "Backend/Commons/Units.h"
+
 #include <QJsonObject>
 #include <QMap>
 #include <QString>
@@ -72,6 +75,26 @@ public:
     QString getTrainUserId() const;
     double  getTravelledDistance() const;
     int     getContainersCount() const;
+
+    Units::TimeSeconds tripTimeUnits() const
+    {
+        return Units::seconds(getTripTime());
+    }
+
+    Units::LengthMeters travelledDistanceUnits() const
+    {
+        return Units::meters(getTravelledDistance());
+    }
+
+    Units::EnergyKilowattHours totalEnergyConsumedUnits() const
+    {
+        return Units::kilowattHours(getTotalEnergyConsumed());
+    }
+
+    Units::MassKilograms totalCarbonDioxideEmittedUnits() const
+    {
+        return Units::kilograms(getTotalCarbonDioxideEmitted());
+    }
 
 private:
     /// @brief Total fuel consumed by type

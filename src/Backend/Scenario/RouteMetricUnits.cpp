@@ -1,5 +1,7 @@
 #include "RouteMetricUnits.h"
 
+#include "Backend/Commons/Units.h"
+
 #include <QString>
 #include <QStringList>
 
@@ -14,9 +16,6 @@ namespace RouteMetricUnits
 
 namespace
 {
-
-constexpr double kSecondsPerHour = 3600.0;
-constexpr double kMetresPerKm    = 1000.0;
 
 const QStringList &keys()
 {
@@ -34,9 +33,9 @@ double toCanonicalValue(const QString &key, double value,
                         bool riskSerializedAsPercent)
 {
     if (key == QStringLiteral("travelTime"))
-        return value * kSecondsPerHour;
+        return Units::toSeconds(Units::hours(value)).value();
     if (key == QStringLiteral("distance"))
-        return value * kMetresPerKm;
+        return Units::toMeters(Units::kilometers(value)).value();
     if (key == QStringLiteral("risk") && riskSerializedAsPercent)
         return value / 100.0;
     return value;
@@ -45,9 +44,9 @@ double toCanonicalValue(const QString &key, double value,
 double toDisplayValue(const QString &key, double value)
 {
     if (key == QStringLiteral("travelTime"))
-        return value / kSecondsPerHour;
+        return Units::toHours(Units::seconds(value)).value();
     if (key == QStringLiteral("distance"))
-        return value / kMetresPerKm;
+        return Units::toKilometers(Units::meters(value)).value();
     return value;
 }
 

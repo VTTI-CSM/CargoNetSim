@@ -17,6 +17,8 @@
 #include "GUI/Widgets/TerminalSelectionDialog.h"
 
 #include "Backend/Scenario/NetworkLookup.h"
+#include "Backend/Scenario/Connection.h"
+#include "Backend/Scenario/GlobalLink.h"
 #include "Backend/Scenario/PathMetricsCalculator.h"
 #include "Backend/Scenario/PathPreparationService.h"
 #include "Backend/Scenario/RouteMetricUnits.h"
@@ -755,12 +757,52 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
             canonicalPropertiesFromDisplay(
                 displayRouteProperties);
 
-    for (auto it = canonicalRouteProperties.constBegin();
-         it != canonicalRouteProperties.constEnd(); ++it)
+    auto *doc = &mainWindow->runtime()->document();
+
+    if (connection->isConnectionBinding())
     {
-        connection->setProperty(it.key(), it.value());
+        if (auto *model = connection->connectionModel())
+        {
+            Backend::Scenario::Connection updated = *model;
+            for (auto it = canonicalRouteProperties.constBegin();
+                 it != canonicalRouteProperties.constEnd(); ++it)
+            {
+                updated.properties[it.key()] = it.value();
+            }
+            return doc->updateConnection(
+                updated.fromTerminalId, updated.toTerminalId,
+                updated.mode, updated);
+        }
+        qCWarning(lcGuiUtil)
+            << "setConnectionProperties: line is bound as connection"
+            << "but no live model entry was found";
+        return false;
     }
-    return true;
+
+    if (connection->isGlobalLinkBinding())
+    {
+        if (auto *model = connection->globalLinkModel())
+        {
+            Backend::Scenario::GlobalLink updated = *model;
+            for (auto it = canonicalRouteProperties.constBegin();
+                 it != canonicalRouteProperties.constEnd(); ++it)
+            {
+                updated.properties[it.key()] = it.value();
+            }
+            return doc->updateGlobalLink(
+                updated.fromTerminalId, updated.toTerminalId,
+                updated.mode, updated);
+        }
+        qCWarning(lcGuiUtil)
+            << "setConnectionProperties: line is bound as global link"
+            << "but no live model entry was found";
+        return false;
+    }
+
+    qCWarning(lcGuiUtil)
+        << "setConnectionProperties: connection line is not bound to a"
+        << "scenario model entry";
+    return false;
 }
 
 bool CargoNetSim::GUI::UtilitiesFunctions::

@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Models/PathSegment.h"
 #include "Backend/Models/Terminal.h"
 #include "PropertyKeys.h"
@@ -20,6 +21,16 @@ namespace PK = PropertyKeys;
 
 namespace TerminalCostMath
 {
+
+namespace
+{
+
+const double kOneDaySeconds =
+    Units::toSeconds(Units::days(1.0)).value();
+const double kTwoDaysSeconds =
+    Units::toSeconds(Units::days(2.0)).value();
+
+} // namespace
 
 // VERBATIM from SimulationValidationWorker.cpp:2521-2607. Do not edit
 // without updating the original — both SVW and ResultsExtractor delegate
@@ -55,7 +66,7 @@ double dwellTime(const QJsonObject &config)
             double shape =
                 dwellParams.value("shape", 2.0).toDouble();
             double scale =
-                dwellParams.value("scale", 24.0 * 3600.0)
+                dwellParams.value("scale", kOneDaySeconds)
                     .toDouble();
             terminalDelay = shape * scale;
         }
@@ -65,7 +76,7 @@ double dwellTime(const QJsonObject &config)
         {
             double scale =
                 dwellParams
-                    .value("scale", 2.0 * 24.0 * 3600.0)
+                    .value("scale", kTwoDaysSeconds)
                     .toDouble();
             terminalDelay = scale;
         }
@@ -75,7 +86,7 @@ double dwellTime(const QJsonObject &config)
         {
             double mean =
                 dwellParams
-                    .value("mean", 2.0 * 24.0 * 3600.0)
+                    .value("mean", kTwoDaysSeconds)
                     .toDouble();
             terminalDelay = mean;
         }
@@ -85,8 +96,7 @@ double dwellTime(const QJsonObject &config)
         {
             double mean =
                 dwellParams
-                    .value("mean",
-                           std::log(2.0 * 24.0 * 3600.0))
+                    .value("mean", std::log(kTwoDaysSeconds))
                     .toDouble();
             double sigma =
                 dwellParams.value("sigma", 0.25).toDouble();
@@ -98,7 +108,7 @@ double dwellTime(const QJsonObject &config)
             // Default to gamma distribution's expected
             // value
             double shape = 2.0;
-            double scale = 24.0 * 3600.0;
+            double scale = kOneDaySeconds;
             terminalDelay = shape * scale;
         }
     }

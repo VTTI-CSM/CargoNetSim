@@ -41,12 +41,17 @@ private slots:
 
         QVERIFY(m.valid);
         QCOMPARE(m.distanceKm,         120.0);
+        QCOMPARE(m.distance().value(), 120.0);
         QCOMPARE(m.travelTimeHours,      2.0);   // 120 / 60
+        QCOMPARE(m.travelTime().value(), 2.0);
         QCOMPARE(m.fuelPerVehicle,       2.5);
         QCOMPARE(m.riskPerVehicle,       0.02);
+        QCOMPARE(m.riskVehicleUnits().value(), 0.02);
         QCOMPARE(m.fuelType,             QStringLiteral("diesel_1"));
         QCOMPARE(m.energyPerVehicle,  3000.0);   // 2.5 * 120 * 10 * 1
+        QCOMPARE(m.energyVehicleUnits().value(), 3000.0);
         QCOMPARE(m.carbonPerVehicle,     0.804); // 2.5 * 120 * 2.68 / 1000
+        QCOMPARE(m.carbonVehicleUnits().value(), 0.804);
     }
 
     void test_compute_train_network_mode_uses_time_seconds()
@@ -72,7 +77,9 @@ private slots:
         const auto m = PathMetricsCalculator::compute(
             300'000.0, 99999.0, Mode::Ship, in);
         QCOMPARE(m.distanceKm,        300.0);
+        QCOMPARE(m.distance().value(), 300.0);
         QCOMPARE(m.travelTimeHours,    10.0);
+        QCOMPARE(m.travelTime().value(), 10.0);
         QCOMPARE(m.fuelType,          QStringLiteral("HFO"));
     }
 
@@ -146,6 +153,7 @@ private slots:
         const auto b = PathMetricsCalculator::compute(
             10'000.0, 600.0, Mode::Train, in, /*containerCount=*/0);
         QCOMPARE(a.distanceKm,        b.distanceKm);
+        QCOMPARE(a.distance().value(), b.distance().value());
         QCOMPARE(a.fuelPerVehicle,    b.fuelPerVehicle);
         QCOMPARE(b.fuelPerContainer,  0.0);
     }

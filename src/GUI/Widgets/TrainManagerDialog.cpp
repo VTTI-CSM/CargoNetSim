@@ -346,8 +346,8 @@ QString TrainManagerDialog::formatTrainDetails(
                 .arg(loco->getLocoType())
                 .arg(loco->getCount())
                 .arg(loco->getPower(), 0, 'f', 1)
-                .arg(loco->getGrossWeight(), 0, 'f', 1)
-                .arg(loco->getLength(), 0, 'f', 2);
+                .arg(loco->grossWeightUnits().value(), 0, 'f', 1)
+                .arg(loco->lengthUnits().value(), 0, 'f', 2);
     }
 
     details += "</ul><h3>Cars:</h3><ul>";
@@ -357,15 +357,15 @@ QString TrainManagerDialog::formatTrainDetails(
     {
         details +=
             QString("<li><b>Type %1:</b> %2 units<ul>"
-                    "    <li>Count: %3 tons</li>"
+                    "    <li>Gross Weight: %3 tons</li>"
                     "    <li>Tare Weight: %4 tons</li>"
                     "    <li>Length: %5 m</li>"
                     "</ul></li>")
                 .arg(car->getCarType())
                 .arg(car->getCount())
-                .arg(car->getTareWeight(), 0, 'f', 1)
-                .arg(car->getTareWeight(), 0, 'f', 1)
-                .arg(car->getLength(), 0, 'f', 2);
+                .arg(car->grossWeightUnits().value(), 0, 'f', 1)
+                .arg(car->tareWeightUnits().value(), 0, 'f', 1)
+                .arg(car->lengthUnits().value(), 0, 'f', 2);
     }
 
     details += "</ul>";
@@ -394,7 +394,11 @@ QString TrainManagerDialog::formatTrainDetails(
                 "<ul>"
                 "    <li><b>Load Time:</b> %1 minutes</li>"
                 "</ul>")
-            .arg(train->getLoadTime());
+            .arg(Backend::Units::toMinutes(
+                     Backend::Units::toSeconds(
+                         train->loadTimeUnits()))
+                     .value(),
+                 0, 'f', 1);
 
     return details;
 }

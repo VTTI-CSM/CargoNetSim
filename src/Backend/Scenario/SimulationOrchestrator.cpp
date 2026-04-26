@@ -2,6 +2,7 @@
 #include "SimulationRequestBuilder.h"
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Clients/BaseClient/RabbitMQHandler.h"
 #include "Backend/Clients/BaseClient/SimulationClientBase.h"
 #include "Backend/Clients/ShipClient/ShipSimulationClient.h"
@@ -231,7 +232,8 @@ bool SimulationOrchestrator::submitTruck(
         // the path from the scenario's truck fleet spec before calling
         // submit(). Same gap as SimulationValidationWorker preserves.
         CargoNetSim::Backend::TruckClient::ClientConfiguration config;
-        config.simTime = 3600.0;
+        config.simTime =
+            Units::toSeconds(Units::hours(1.0)).value();
         m_truckManager->createClient(networkName, config);
 
         auto *client = m_truckManager->getClient(networkName);

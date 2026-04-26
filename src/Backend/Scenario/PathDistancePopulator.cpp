@@ -5,6 +5,7 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/ShortestPathResult.h"
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Controllers/NetworkController.h"
 #include "Backend/Controllers/RegionDataController.h"
@@ -127,18 +128,22 @@ bool populateShip(PathSegment                 *seg,
     }
 
     // QPointF convention: x=lon, y=lat (matches document).
-    const double distMeters = Commons::GeoDistance::haversineMeters(
-        a.y(), a.x(), b.y(), b.x());
+    const auto distMeters = Units::meters(
+        Commons::GeoDistance::haversineMeters(
+            a.y(), a.x(), b.y(), b.x()));
+    const auto distKm = Units::toKilometers(distMeters);
 
     const double avgSpeedKmH =
         config.getTransportModes()
               .value(QStringLiteral("ship")).toMap()
               .value(PK::Mode::AverageSpeed, 30.0)
               .toDouble();
-    const double timeSeconds =
-        (distMeters / 1000.0) / std::max(avgSpeedKmH, 0.01) * 3600.0;
+    const auto travelTimeSeconds = Units::toSeconds(
+        Units::hours(distKm.value()
+                     / std::max(avgSpeedKmH, 0.01)));
 
-    seg->setEstimatedDistanceAndTravelTime(distMeters, timeSeconds);
+    seg->setEstimatedDistanceAndTravelTime(
+        distMeters.value(), travelTimeSeconds.value());
     return true;
 }
 

@@ -1,5 +1,6 @@
 #include "DistanceMeasurementTool.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include "../Widgets/GraphicsView.h"
 
 #include <QFontMetrics>
@@ -113,16 +114,23 @@ double DistanceMeasurementTool::getDistance() const
 
 QString DistanceMeasurementTool::getDistanceText() const
 {
-    double distance = getDistance();
+    const auto distanceMeters =
+        CargoNetSim::Backend::Units::meters(getDistance());
 
-    if (distance >= 1000.0)
+    if (distanceMeters.value()
+        >= CargoNetSim::Backend::Units::toMeters(
+               CargoNetSim::Backend::Units::kilometers(1.0))
+               .value())
     {
-        return QString("%1 km").arg(distance / 1000.0, 0,
-                                    'f', 1);
+        return QString("%1 km").arg(
+            CargoNetSim::Backend::Units::toKilometers(
+                distanceMeters)
+                .value(),
+            0, 'f', 1);
     }
     else
     {
-        return QString("%1 m").arg(qRound(distance));
+        return QString("%1 m").arg(qRound(distanceMeters.value()));
     }
 }
 

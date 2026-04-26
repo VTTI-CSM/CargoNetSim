@@ -479,8 +479,12 @@ bool ScenarioMutator::updateSimulationSettings(
     const Backend::Scenario::SimulationSettings &settings)
 {
     if (!doc) return false;
+    const auto timeStep = settings.timeStepUnits();
     qCInfo(lcGuiScene) << "ScenarioMutator::updateSimulationSettings"
-                       << "timeStep=" << settings.timeStep.value_or(-1);
+                       << "timeStep="
+                       << (timeStep.has_value()
+                               ? timeStep->value()
+                               : -1.0);
     doc->simulation = settings;
     return true;
 }

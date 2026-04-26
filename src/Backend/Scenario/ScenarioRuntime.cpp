@@ -80,7 +80,9 @@ bool ScenarioRuntime::load()
         return false;
     }
 
-    m_endTime = m_document->simulation.endTime.value_or(86400.0);
+    m_endTime = m_document->simulation.endTimeUnits()
+                    .value_or(Units::seconds(86400.0))
+                    .value();
     controller.setSimulationEndTime(m_endTime);
     m_preparedPaths = PreparedPathSet();
     m_preparedPathEligibility.clear();

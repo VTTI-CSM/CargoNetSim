@@ -82,8 +82,6 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(
             terminalClient->getRabbitMQHandler() != nullptr, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(terminalClient->isConnected(), 5000);
-        QVERIFY2(terminalClient->resetServer(),
-                 "Failed to reset TerminalSim server before scenario load");
 
         QString loadErr;
         auto doc = ScenarioSerializer::fromYaml(scenarioPath, &loadErr);
@@ -91,64 +89,12 @@ private slots:
 
         ScenarioRuntime rt(std::move(doc));
         QVERIFY(rt.load());
-
-        auto *config = controller.getConfigController();
-        QVERIFY(config != nullptr);
-
-        QVERIFY2(terminalClient->resetServer(),
-                 "Failed to reset TerminalSim server after scenario load");
-        terminalClient->setCostFunctionParameters(
-            config->getCostFunctionWeights());
-
-        QList<Terminal *> terminals;
-        terminals.reserve(rt.document().terminals.size());
-        for (auto it = rt.document().terminals.constBegin();
-             it != rt.document().terminals.constEnd(); ++it)
-        {
-            if (Terminal *t = rt.registry().terminal(it.key()))
-                terminals.append(t);
-        }
-        QVERIFY2(terminalClient->addTerminals(terminals),
-                 "Failed to add terminals to TerminalSim");
-
-        QList<PathSegment *> routes;
-        routes.reserve(rt.document().connections.size()
-                       + rt.document().globalLinks.size());
-        const auto makeSegmentId = [](const QString &from,
-                                      const QString &to,
-                                      TransportationTypes::TransportationMode mode) {
-            return QStringLiteral("%1->%2:%3")
-                .arg(from, to, QString::number(static_cast<int>(mode)));
-        };
-        for (const auto &c : rt.document().connections)
-        {
-            routes.append(new PathSegment(
-                makeSegmentId(c.fromTerminalId, c.toTerminalId, c.mode),
-                c.fromTerminalId, c.toTerminalId, c.mode));
-        }
-        for (const auto &gl : rt.document().globalLinks)
-        {
-            routes.append(new PathSegment(
-                makeSegmentId(gl.fromTerminalId, gl.toTerminalId, gl.mode),
-                gl.fromTerminalId, gl.toTerminalId, gl.mode));
-        }
-        const bool routesAdded = terminalClient->addRoutes(routes);
-        qDeleteAll(routes);
-        QVERIFY2(routesAdded, "Failed to add routes to TerminalSim");
-
-        QList<Path *> paths;
-        const QStringList originIds = rt.document().originTerminalIds();
-        QVERIFY(!originIds.isEmpty());
-        for (const QString &originId : originIds)
-        {
-            for (const auto &route : rt.document().destinationsFor(originId))
-            {
-                paths.append(terminalClient->findTopPaths(
-                    originId, route.terminal, /*n=*/10,
-                    TransportationTypes::TransportationMode::Any,
-                    /*skipDelays=*/true));
-            }
-        }
+        Scenario::PathDiscovery pd;
+        QString discoveryErr;
+        QList<Path *> paths =
+            pd.findTopPaths(rt.document(), rt.registry(), /*n=*/10,
+                            &discoveryErr);
+        QVERIFY2(discoveryErr.isEmpty(), qPrintable(discoveryErr));
         QVERIFY2(!paths.isEmpty(), "TerminalSim returned no top paths");
 
         qWarning().noquote()
@@ -210,7 +156,9 @@ private slots:
                            "  segment[%1] %2 -> %3 mode=%4 rankingContribution=%5 "
                            "weightedEdge=%6 weightedTerminalEmbedded=%7 "
                            "valuesAvailable=%8 costsAvailable=%9 "
-                           "distance=%10 travelTime=%11 directCost=%12")
+                           "distance=%10 travelTime=%11 energy=%12 carbon=%13 "
+                           "risk=%14 directCost=%15 energyCost=%16 carbonCost=%17 "
+                           "travelTimeCost=%18")
                            .arg(s)
                            .arg(segment->getStart())
                            .arg(segment->getEnd())
@@ -222,7 +170,13 @@ private slots:
                            .arg(estimatedCosts.available ? "true" : "false")
                            .arg(estimatedValues.distance, 0, 'f', 6)
                            .arg(estimatedValues.travelTime, 0, 'f', 6)
-                           .arg(estimatedCosts.directCost, 0, 'f', 6);
+                           .arg(estimatedValues.energyConsumption, 0, 'f', 6)
+                           .arg(estimatedValues.carbonEmissions, 0, 'f', 6)
+                           .arg(estimatedValues.risk, 0, 'f', 6)
+                           .arg(estimatedCosts.directCost, 0, 'f', 6)
+                           .arg(estimatedCosts.energyConsumption, 0, 'f', 6)
+                           .arg(estimatedCosts.carbonEmissions, 0, 'f', 6)
+                           .arg(estimatedCosts.travelTime, 0, 'f', 6);
             }
         }
 

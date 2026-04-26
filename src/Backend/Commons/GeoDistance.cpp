@@ -1,6 +1,7 @@
 #include "GeoDistance.h"
 
 #include "LogCategories.h"
+#include "Units.h"
 
 #include <QtMath>
 #include <algorithm>
@@ -12,7 +13,7 @@ namespace Commons {
 namespace GeoDistance {
 
 namespace {
-constexpr double kEarthRadiusKm = 6371.0;
+const CargoNetSim::Backend::Units::LengthKilometers kEarthRadiusKm(6371.0);
 
 double toRadians(double d) { return d * M_PI / 180.0; }
 } // namespace
@@ -37,7 +38,9 @@ double haversineKm(double lat1, double lon1,
       + std::cos(toRadians(lat1)) * std::cos(toRadians(lat2))
       * std::sin(dLon / 2) * std::sin(dLon / 2);
     const double c = 2.0 * std::asin(std::min(1.0, std::sqrt(a)));
-    return kEarthRadiusKm * c;
+    const CargoNetSim::Backend::Units::LengthKilometers distance(
+        kEarthRadiusKm.value() * c);
+    return distance.value();
 }
 
 double haversineMeters(double lat1, double lon1,
@@ -51,7 +54,11 @@ double haversineMeters(double lat1, double lon1,
         qCWarning(lcModel) << "haversineMeters: NaN/infinite input:"
                            << lat1 << lon1 << lat2 << lon2;
     }
-    const double result = haversineKm(lat1, lon1, lat2, lon2) * 1000.0;
+    const double result =
+        CargoNetSim::Backend::Units::LengthKilometers(
+            haversineKm(lat1, lon1, lat2, lon2))
+            .convert<units::length::meter>()
+            .value();
     qCDebug(lcModel)
         << "haversineMeters(" << lat1 << lon1
         << "->" << lat2 << lon2 << ") =" << result << "m";

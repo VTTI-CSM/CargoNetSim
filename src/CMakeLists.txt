@@ -1,3 +1,4 @@
+add_subdirectory(third_party)
 add_subdirectory(Backend)
 add_subdirectory(GUI)
 add_subdirectory(CLI)

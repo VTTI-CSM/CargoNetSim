@@ -293,9 +293,17 @@ void ScenarioValidator::checkGlobalLinks(const ScenarioDocument &doc,
 void ScenarioValidator::checkSimulation(const ScenarioDocument &doc,
                                         QList<ValidationIssue> &out)
 {
+    const auto endTime = doc.simulation.endTimeUnits();
+    const auto timeStep = doc.simulation.timeStepUnits();
     qCDebug(lcScenario) << "ScenarioValidator::checkSimulation:"
-                        << "endTime=" << doc.simulation.endTime.value_or(-1.0)
-                        << "timeStep=" << doc.simulation.timeStep.value_or(-1);
+                        << "endTime="
+                        << (endTime.has_value()
+                                ? endTime->value()
+                                : -1.0)
+                        << "timeStep="
+                        << (timeStep.has_value()
+                                ? timeStep->value()
+                                : -1.0);
 
     if (doc.simulation.endTime.has_value() && doc.simulation.endTime.value() <= 0.0)
         err(out, QStringLiteral("simulation.end_time"),

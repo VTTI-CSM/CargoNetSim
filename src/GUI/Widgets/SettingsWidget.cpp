@@ -1,5 +1,6 @@
 #include "SettingsWidget.h"
 
+#include "Backend/Commons/Units.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Scenario/PropertyKeys.h"
 #include "GUI/MainWindow.h"
@@ -689,7 +690,12 @@ void SettingsWidget::refreshFromConfig()
 
             if (simSettings.contains("time_step"))
                 timeStepSpin->setValue(
-                    simSettings["time_step"].toInt() / 60);
+                    static_cast<int>(
+                        Backend::Units::toMinutes(
+                            Backend::Units::seconds(
+                                simSettings["time_step"]
+                                    .toDouble()))
+                            .value()));
 
             // Load the average time value of money
             if (simSettings.contains(PK::Simulation::TimeValueOfMoney))
@@ -992,7 +998,9 @@ void SettingsWidget::applySettings()
     using Fuel = Backend::Scenario::SimulationSettings::Fuel;
     Backend::Scenario::SimulationSettings s;
 
-    s.timeStep              = timeStepSpin->value() * 60;
+    s.setTimeStep(
+        Backend::Units::toSeconds(
+            Backend::Units::minutes(timeStepSpin->value())));
     s.shortestPathsN        = shortestPathsSpin->value();
     s.timeValueOfMoney      = averageTimeValueSpin->value();
     s.useSpecificTimeValues = useSpecificTimeValues->isChecked();
@@ -1001,25 +1009,34 @@ void SettingsWidget::applySettings()
     s.railMultiplier        = trainMultiplierSpin->value();
     s.truckMultiplier       = truckMultiplierSpin->value();
 
-    s.ship.speed      = shipSpeedSpin->value();
+    s.ship.setSpeed(
+        Backend::Units::kilometersPerHour(
+            shipSpeedSpin->value()));
     s.ship.fuelRate   = shipFuelSpin->value();
     s.ship.containers = shipContainers->value();
-    s.ship.risk       = shipRiskSpin->value();
+    s.ship.setRisk(
+        Backend::Units::scalar(shipRiskSpin->value()));
     s.ship.fuelType   = shipFuelType->currentText();
     s.ship.timeValue  = shipTimeValueSpin->value();
 
-    s.rail.speed      = trainSpeedSpin->value();
+    s.rail.setSpeed(
+        Backend::Units::kilometersPerHour(
+            trainSpeedSpin->value()));
     s.rail.fuelRate   = trainFuelSpin->value();
     s.rail.containers = trainContainers->value();
-    s.rail.risk       = trainRiskSpin->value();
+    s.rail.setRisk(
+        Backend::Units::scalar(trainRiskSpin->value()));
     s.rail.fuelType   = trainFuelType->currentText();
     s.rail.timeValue  = trainTimeValueSpin->value();
     s.rail.useNetwork = trainUseNetwork->isChecked();
 
-    s.truck.speed      = truckSpeedSpin->value();
+    s.truck.setSpeed(
+        Backend::Units::kilometersPerHour(
+            truckSpeedSpin->value()));
     s.truck.fuelRate   = truckFuelSpin->value();
     s.truck.containers = truckContainers->value();
-    s.truck.risk       = truckRiskSpin->value();
+    s.truck.setRisk(
+        Backend::Units::scalar(truckRiskSpin->value()));
     s.truck.fuelType   = truckFuelType->currentText();
     s.truck.timeValue  = truckTimeValueSpin->value();
     s.truck.useNetwork = truckUseNetwork->isChecked();

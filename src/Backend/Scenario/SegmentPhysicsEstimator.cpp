@@ -1,6 +1,7 @@
 #include "SegmentPhysicsEstimator.h"
-#include "Backend/Scenario/PropertyKeys.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
+#include "Backend/Scenario/PropertyKeys.h"
 
 #include <QtMath>
 
@@ -51,15 +52,21 @@ SegmentPhysicsEstimator::Result SegmentPhysicsEstimator::estimate(
 
     const double fuelEnergyKWhPerL = fuelEnergy.value(fuelType).toDouble();
     const double fuelCarbonKgPerL  = fuelCarbonContent.value(fuelType).toDouble();
-    const double distanceKm        = distanceMetres / 1000.0;
+    const auto distanceKm =
+        Units::LengthMeters(distanceMetres)
+            .convert<units::length::kilometer>();
     const int vehicleCount =
         static_cast<int>(qCeil(static_cast<double>(containerCount) / vehicleCapacity));
 
-    const double fuelLitres = fuelRateLperKm * distanceKm * vehicleCount;
+    const double fuelLitres =
+        fuelRateLperKm * distanceKm.value() * vehicleCount;
 
     Result r;
     r.energyKWh    = fuelLitres * fuelEnergyKWhPerL;
-    r.carbonTonnes = fuelLitres * fuelCarbonKgPerL / 1000.0;
+    r.carbonTonnes =
+        Units::MassKilograms(fuelLitres * fuelCarbonKgPerL)
+            .convert<units::mass::metric_ton>()
+            .value();
     r.risk         = riskFactor * vehicleCount;
     return r;
 }

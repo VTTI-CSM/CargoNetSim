@@ -1,4 +1,5 @@
 #include "NetworkDrawingController.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/RegionDataController.h"
 #include "Backend/Scenario/NetworkLookup.h"
@@ -23,6 +24,18 @@ namespace CargoNetSim
 {
 namespace GUI
 {
+
+namespace
+{
+
+double truckCoordinateMeters(double coordinateKm)
+{
+    return CargoNetSim::Backend::Units::toMeters(
+        CargoNetSim::Backend::Units::kilometers(coordinateKm))
+        .value();
+}
+
+} // namespace
 
 NetworkDrawingController::NetworkDrawingController(
     GraphicsScene      *regionScene,
@@ -346,7 +359,7 @@ void NetworkDrawingController::drawTrainNetwork(
 
         QMap<QString, QVariant> properties = {
             {"Is_terminal", node->isTerminal()},
-            {"Dwell_time", node->getDwellTime()},
+            {"Dwell time (s)", node->dwellTimeUnits().value()},
             {"Description", node->getDescription()}};
 
         QPointF projectedPoint =
@@ -430,9 +443,9 @@ void NetworkDrawingController::drawTrainNetwork(
             destNode->getY() * destNode->getYScale());
 
         QMap<QString, QVariant> properties = {
-            {"Length", link->getLength()},
-            {"MaxSpeed",
-             link->getMaxSpeed() * link->getSpeedScale()}};
+            {"Length (m)", link->lengthUnits().value()},
+            {"Max speed (m/s)",
+             link->scaledMaxSpeedUnits().value()}};
 
         auto line = drawLink(
             QString::number(link->getUserId()),
@@ -498,12 +511,12 @@ void NetworkDrawingController::drawTruckNetwork(
         auto point = drawNode(
             QString::number(node->getNodeId()),
             node->getInternalUniqueID(),
-            QPointF(node->getXCoordinate()
-                        * node->getXScale()
-                        * 1000.0, // km to m
-                    node->getYCoordinate()
-                        * node->getYScale()
-                        * 1000.0), // km to m
+            QPointF(truckCoordinateMeters(
+                        node->getXCoordinate()
+                        * node->getXScale()),
+                    truckCoordinateMeters(
+                        node->getYCoordinate()
+                        * node->getYScale())),
             regionName, nodesColor, properties);
 
         point->setReferenceNetwork(network);
@@ -516,11 +529,10 @@ void NetworkDrawingController::drawTruckNetwork(
     {
         QMap<QString, QVariant> properties = {
             {"ReferenceNetworkID", link->getLinkId()},
-            {"Length", link->getLength()
-                           * link->getLengthScale()
-                           * 1000.0}, // km to m
+            {"Length", truckCoordinateMeters(
+                           link->scaledLengthUnits().value())},
             {"FreeFlowTime",
-             link->getFreeSpeed() * link->getSpeedScale()},
+             link->scaledFreeSpeedUnits().value()},
             {"NoOfLanes", link->getLanes()}};
 
         auto to =
@@ -536,15 +548,15 @@ void NetworkDrawingController::drawTruckNetwork(
         }
 
         QPointF projectedSourcePoint = QPointF(
-            from->getXCoordinate() * from->getXScale()
-                * 1000.0, // km to m
-            from->getYCoordinate() * from->getYScale()
-                * 1000.0); // km to m
+            truckCoordinateMeters(from->getXCoordinate()
+                                  * from->getXScale()),
+            truckCoordinateMeters(from->getYCoordinate()
+                                  * from->getYScale()));
         QPointF projectedDestPoint =
-            QPointF(to->getXCoordinate() * to->getXScale()
-                        * 1000.0, // km to m
-                    to->getYCoordinate() * to->getYScale()
-                        * 1000.0); // km to m
+            QPointF(truckCoordinateMeters(
+                        to->getXCoordinate() * to->getXScale()),
+                    truckCoordinateMeters(
+                        to->getYCoordinate() * to->getYScale()));
 
         auto line = drawLink(
             QString::number(link->getLinkId()),

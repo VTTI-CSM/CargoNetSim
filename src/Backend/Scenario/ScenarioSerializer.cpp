@@ -508,19 +508,23 @@ QJsonObject simulationSettingsToJson(const SimulationSettings &s)
     auto modeToJson = [](const SimulationSettings::Mode &m)
     {
         QJsonObject o;
-        if (m.speed.has_value())      o["speed"]       = m.speed.value();
+        if (const auto speed = m.speedUnits())
+            o["speed"] = speed->value();
         if (m.fuelType.has_value())   o["fuel_type"]   = m.fuelType.value();
         if (m.fuelRate.has_value())   o["fuel_rate"]   = m.fuelRate.value();
         if (m.containers.has_value()) o["containers"]  = m.containers.value();
-        if (m.risk.has_value())       o["risk"]        = m.risk.value();
+        if (const auto risk = m.riskUnits())
+            o["risk"] = risk->value();
         if (m.timeValue.has_value())  o["time_value"]  = m.timeValue.value();
         if (m.useNetwork.has_value()) o["use_network"] = m.useNetwork.value();
         return o;
     };
 
     QJsonObject o;
-    if (s.timeStep.has_value())              o["time_step"]                = s.timeStep.value();
-    if (s.endTime.has_value())               o["end_time"]                 = s.endTime.value();
+    if (const auto timeStep = s.timeStepUnits())
+        o["time_step"] = static_cast<int>(timeStep->value());
+    if (const auto endTime = s.endTimeUnits())
+        o["end_time"] = endTime->value();
     if (s.shortestPathsN.has_value())        o["shortest_paths_n"]         = s.shortestPathsN.value();
     if (s.timeValueOfMoney.has_value())      o["time_value_of_money"]      = s.timeValueOfMoney.value();
     if (s.useSpecificTimeValues.has_value()) o["use_specific_time_values"] = s.useSpecificTimeValues.value();
@@ -569,11 +573,15 @@ SimulationSettings simulationSettingsFromJson(const QJsonObject &o)
     auto modeFromJson = [](const QJsonObject &o)
     {
         SimulationSettings::Mode m;
-        if (o.contains("speed"))       m.speed      = o.value("speed").toDouble();
+        if (o.contains("speed"))
+            m.setSpeed(Units::kilometersPerHour(
+                o.value("speed").toDouble()));
         if (o.contains("fuel_type"))   m.fuelType   = o.value("fuel_type").toString();
         if (o.contains("fuel_rate"))   m.fuelRate   = o.value("fuel_rate").toDouble();
         if (o.contains("containers"))  m.containers = o.value("containers").toInt();
-        if (o.contains("risk"))        m.risk       = o.value("risk").toDouble();
+        if (o.contains("risk"))
+            m.setRisk(Units::scalar(
+                o.value("risk").toDouble()));
         if (o.contains("time_value"))  m.timeValue  = o.value("time_value").toDouble();
         if (o.contains("use_network")) m.useNetwork = o.value("use_network").toBool();
         return m;
@@ -581,9 +589,11 @@ SimulationSettings simulationSettingsFromJson(const QJsonObject &o)
 
     SimulationSettings s;
     if (o.contains("time_step"))
-        s.timeStep = o.value("time_step").toInt();
+        s.setTimeStep(Units::seconds(
+            o.value("time_step").toDouble()));
     if (o.contains("end_time"))
-        s.endTime = o.value("end_time").toDouble();
+        s.setEndTime(Units::seconds(
+            o.value("end_time").toDouble()));
     if (o.contains("shortest_paths_n"))
         s.shortestPathsN = o.value("shortest_paths_n").toInt();
     if (o.contains("time_value_of_money"))

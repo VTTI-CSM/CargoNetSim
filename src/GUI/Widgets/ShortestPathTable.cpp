@@ -235,18 +235,18 @@ Backend::Scenario::PathMetrics metricsFromJson(
 {
     Backend::Scenario::PathMetrics metrics;
     metrics.valid = o.value(QStringLiteral("valid")).toBool(false);
-    metrics.distanceKm =
-        o.value(QStringLiteral("distance_km")).toDouble(0.0);
-    metrics.travelTimeHours =
-        o.value(QStringLiteral("travel_time_hours")).toDouble(0.0);
-    metrics.riskPerVehicle =
-        o.value(QStringLiteral("risk_per_vehicle")).toDouble(0.0);
+    metrics.setDistance(Backend::Units::kilometers(
+        o.value(QStringLiteral("distance_km")).toDouble(0.0)));
+    metrics.setTravelTime(Backend::Units::hours(
+        o.value(QStringLiteral("travel_time_hours")).toDouble(0.0)));
+    metrics.setRiskPerVehicle(Backend::Units::scalar(
+        o.value(QStringLiteral("risk_per_vehicle")).toDouble(0.0)));
     metrics.fuelPerVehicle =
         o.value(QStringLiteral("fuel_per_vehicle")).toDouble(0.0);
-    metrics.energyPerVehicle =
-        o.value(QStringLiteral("energy_per_vehicle")).toDouble(0.0);
-    metrics.carbonPerVehicle =
-        o.value(QStringLiteral("carbon_per_vehicle")).toDouble(0.0);
+    metrics.setEnergyPerVehicle(Backend::Units::kilowattHours(
+        o.value(QStringLiteral("energy_per_vehicle")).toDouble(0.0)));
+    metrics.setCarbonPerVehicle(Backend::Units::metricTons(
+        o.value(QStringLiteral("carbon_per_vehicle")).toDouble(0.0)));
     metrics.fuelType =
         o.value(QStringLiteral("fuel_type")).toString();
     metrics.containerCount =

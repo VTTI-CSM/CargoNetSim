@@ -1,6 +1,7 @@
 #include "ScenarioApplier.h"
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Controllers/RegionDataController.h"
@@ -367,11 +368,19 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
                                     CargoNetSim::CargoNetSimController &controller,
                                     QString *error)
 {
+    const SimulationSettings &s = doc.simulation;
+    const auto endTime = s.endTimeUnits();
+    const auto timeStep = s.timeStepUnits();
+
     qCDebug(lcScenario) << "ScenarioApplier::applySettings:"
-                        << "endTime=" << (doc.simulation.endTime.has_value()
-                                          ? doc.simulation.endTime.value() : -1.0)
-                        << "timeStep=" << (doc.simulation.timeStep.has_value()
-                                           ? doc.simulation.timeStep.value() : -1)
+                        << "endTime="
+                        << (endTime.has_value()
+                                ? endTime->value()
+                                : -1.0)
+                        << "timeStep="
+                        << (timeStep.has_value()
+                                ? timeStep->value()
+                                : -1.0)
                         << "fuelTypes=" << doc.simulation.fuelTypes.size();
     auto *cfg = controller.getConfigController();
     if (!cfg)
@@ -380,8 +389,6 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
         if (error) *error = QStringLiteral("ConfigController unavailable");
         return false;
     }
-
-    const SimulationSettings &s = doc.simulation;
 
     // Start from config.xml as the base — absent scenario fields inherit these values.
     QVariantMap root           = cfg->getAllParams();
@@ -393,8 +400,8 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
     QVariantMap fuelPrices     = root.value("fuel_prices").toMap();
 
     // Overlay simulation section — only fields present in the YAML.
-    if (s.timeStep.has_value())              simulation["time_step"]            = s.timeStep.value();
-    if (s.endTime.has_value())               simulation["end_time"]             = s.endTime.value();
+    if (timeStep.has_value())                simulation["time_step"]            = static_cast<int>(timeStep->value());
+    if (endTime.has_value())                 simulation["end_time"]             = endTime->value();
     if (s.shortestPathsN.has_value())        simulation["shortest_paths"]       = s.shortestPathsN.value();
     if (s.timeValueOfMoney.has_value())      simulation["time_value_of_money"]  = s.timeValueOfMoney.value();
     if (s.useSpecificTimeValues.has_value()) simulation["use_mode_specific"]    = s.useSpecificTimeValues.value();
@@ -408,11 +415,13 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
     // Overlay per-mode settings (field-level within each mode).
     auto applyMode = [](QVariantMap &modeMap, const SimulationSettings::Mode &m)
     {
-        if (m.speed.has_value())      modeMap[PK::Mode::AverageSpeed]           = m.speed.value();
+        if (const auto speed = m.speedUnits())
+            modeMap[PK::Mode::AverageSpeed] = speed->value();
         if (m.fuelType.has_value())   modeMap[PK::Mode::FuelType]               = m.fuelType.value();
         if (m.fuelRate.has_value())   modeMap[PK::Mode::AverageFuelConsumption] = m.fuelRate.value();
         if (m.containers.has_value()) modeMap[PK::Mode::AverageContainerNumber] = m.containers.value();
-        if (m.risk.has_value())       modeMap[PK::Mode::RiskFactor]             = m.risk.value();
+        if (const auto risk = m.riskUnits())
+            modeMap[PK::Mode::RiskFactor] = risk->value();
         if (m.timeValue.has_value())  modeMap[PK::Mode::TimeValueOfMoney]       = m.timeValue.value();
         if (m.useNetwork.has_value()) modeMap[PK::Mode::UseNetwork]             = m.useNetwork.value();
     };

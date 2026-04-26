@@ -12,6 +12,7 @@
  * @note Part of the CargoNetSim::Backend namespace.
  * @warning Instances should be managed by Path or caller.
  */
+#include "Backend/Commons/Units.h"
 #include "Backend/Commons/TransportationMode.h"
 #include <QJsonObject>
 #include <QObject>
@@ -45,6 +46,31 @@ public:
         double carbonEmissions = 0.0;
         double energyConsumption = 0.0;
         double risk = 0.0;
+
+        Units::TimeSeconds travelTimeUnits() const
+        {
+            return Units::seconds(travelTime);
+        }
+
+        Units::LengthMeters distanceUnits() const
+        {
+            return Units::meters(distance);
+        }
+
+        Units::MassMetricTons carbonEmissionsUnits() const
+        {
+            return Units::metricTons(carbonEmissions);
+        }
+
+        Units::EnergyKilowattHours energyConsumptionUnits() const
+        {
+            return Units::kilowattHours(energyConsumption);
+        }
+
+        Units::Scalar riskUnits() const
+        {
+            return Units::scalar(risk);
+        }
     };
 
     struct SegmentCostSnapshot
@@ -213,6 +239,14 @@ public:
     // are produced by per-mode shortest-path routing).
     double estimatedDistance()   const;  // metres
     double estimatedTravelTime() const;  // seconds
+    Units::LengthMeters estimatedDistanceUnits() const
+    {
+        return Units::meters(estimatedDistance());
+    }
+    Units::TimeSeconds estimatedTravelTimeUnits() const
+    {
+        return Units::seconds(estimatedTravelTime());
+    }
     SegmentMetricSnapshot estimatedValues() const;
 
     // Post-simulation compatibility accessors over the legacy
@@ -227,6 +261,13 @@ public:
     /// (`weight`, etc.) untouched.
     void   setEstimatedDistanceAndTravelTime(double distanceMeters,
                                              double travelTimeSeconds);
+    void setEstimatedDistanceAndTravelTime(
+        Units::LengthMeters distance,
+        Units::TimeSeconds  travelTime)
+    {
+        setEstimatedDistanceAndTravelTime(distance.value(),
+                                          travelTime.value());
+    }
 
     /// Physics-side setter. Merges energyKWh, carbonTonnes, and risk into
     /// the existing "estimated" sub-object without disturbing distance or
@@ -235,10 +276,33 @@ public:
     void setEstimatedPhysicalMetrics(double energyKWh,
                                       double carbonTonnes,
                                       double risk);
+    void setEstimatedPhysicalMetrics(
+        Units::EnergyKilowattHours energy,
+        Units::MassMetricTons      carbon,
+        Units::Scalar              riskValue)
+    {
+        setEstimatedPhysicalMetrics(energy.value(),
+                                    carbon.value(),
+                                    riskValue.value());
+    }
 
     double estimatedEnergyConsumption() const;  // kWh
     double estimatedCarbonEmissions()   const;  // tonnes CO₂
     double estimatedRisk()              const;  // dimensionless
+    Units::EnergyKilowattHours estimatedEnergyConsumptionUnits() const
+    {
+        return Units::kilowattHours(
+            estimatedEnergyConsumption());
+    }
+    Units::MassMetricTons estimatedCarbonEmissionsUnits() const
+    {
+        return Units::metricTons(
+            estimatedCarbonEmissions());
+    }
+    Units::Scalar estimatedRiskUnits() const
+    {
+        return Units::scalar(estimatedRisk());
+    }
 
     /// SegmentCostMath-side setter. Merges each key into the existing
     /// actual sub-object — keys already present are overwritten, keys

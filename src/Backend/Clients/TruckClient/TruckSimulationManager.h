@@ -8,6 +8,7 @@
 #pragma once
 
 #include "Backend/Commons/LoggerInterface.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Commons/ThreadSafetyUtils.h"
 #include "TruckSimulationClient.h"
 #include <QMap>
@@ -39,7 +40,9 @@ struct ClientConfiguration
     QString masterFilePath;     ///< Path to master
                                 ///< configuration file
     double simTime =
-        3600.0; ///< Simulation duration in seconds
+        CargoNetSim::Backend::Units::toSeconds(
+            CargoNetSim::Backend::Units::hours(1.0))
+            .value(); ///< Simulation duration in seconds
     QMap<QString, QVariant>
         configUpdates; ///< Custom configuration parameters
     QStringList

@@ -12,6 +12,7 @@
 #include "Backend/Clients/TrainClient/TrainState.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Models/Path.h"
 #include "Backend/Models/PathSegment.h"
 #include "PropertyKeys.h"
@@ -192,13 +193,15 @@ ComputedSegmentData computeShipSegmentData(
             {
                 metrics.vehicleCount++;
                 metrics.travelTime +=
-                    shipState->getTripTime();
+                    shipState->tripTimeUnits().value();
                 metrics.distance +=
-                    shipState->getTravelledDistance();
+                    shipState->travelledDistanceUnits().value();
                 metrics.carbonEmissions +=
-                    shipState->getCarbonEmissions() / 1000.0;
+                    Units::toMetricTons(
+                        shipState->carbonEmissionsUnits())
+                        .value();
                 metrics.energyConsumption +=
-                    shipState->getEnergyConsumption();
+                    shipState->energyConsumptionUnits().value();
                 metrics.risk += perShipRisk;
             }
         }
@@ -248,14 +251,15 @@ ComputedSegmentData computeTrainSegmentData(
             {
                 metrics.vehicleCount++;
                 metrics.travelTime +=
-                    trainState->getTripTime();
+                    trainState->tripTimeUnits().value();
                 metrics.distance +=
-                    trainState->getTravelledDistance();
+                    trainState->travelledDistanceUnits().value();
                 metrics.carbonEmissions +=
-                    trainState->getTotalCarbonDioxideEmitted()
-                    / 1000.0;
+                    Units::toMetricTons(
+                        trainState->totalCarbonDioxideEmittedUnits())
+                        .value();
                 metrics.energyConsumption +=
-                    trainState->getTotalEnergyConsumed();
+                    trainState->totalEnergyConsumedUnits().value();
                 metrics.risk += perTrainRisk;
             }
         }

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Commons/Units.h"
 
 #include <QList>
 #include <QString>
@@ -75,6 +76,56 @@ struct PathMetrics
     /// multimodal paths it preserves the segment order instead of
     /// collapsing the path onto the first segment's mode.
     QList<VehicleRequirement> previewVehicleBreakdown;
+
+    Units::LengthKilometers distance() const
+    {
+        return Units::kilometers(distanceKm);
+    }
+
+    void setDistance(Units::LengthKilometers value)
+    {
+        distanceKm = value.value();
+    }
+
+    Units::TimeHours travelTime() const
+    {
+        return Units::hours(travelTimeHours);
+    }
+
+    void setTravelTime(Units::TimeHours value)
+    {
+        travelTimeHours = value.value();
+    }
+
+    Units::Scalar riskVehicleUnits() const
+    {
+        return Units::scalar(riskPerVehicle);
+    }
+
+    void setRiskPerVehicle(Units::Scalar value)
+    {
+        riskPerVehicle = value.value();
+    }
+
+    Units::EnergyKilowattHours energyVehicleUnits() const
+    {
+        return Units::kilowattHours(energyPerVehicle);
+    }
+
+    void setEnergyPerVehicle(Units::EnergyKilowattHours value)
+    {
+        energyPerVehicle = value.value();
+    }
+
+    Units::MassMetricTons carbonVehicleUnits() const
+    {
+        return Units::metricTons(carbonPerVehicle);
+    }
+
+    void setCarbonPerVehicle(Units::MassMetricTons value)
+    {
+        carbonPerVehicle = value.value();
+    }
 };
 
 } // namespace Scenario

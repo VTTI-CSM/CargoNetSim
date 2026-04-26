@@ -1,5 +1,6 @@
 #include "PathSegment.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include <stdexcept>
 
 #include "Backend/Scenario/PropertyKeys.h"
@@ -37,8 +38,10 @@ PathSegment::SegmentMetricSnapshot metricSnapshot(
     out.distance = subValue(attrs, subObject, PK::Segment::Distance);
     if (normalizeDistanceAndTimeToSi)
     {
-        out.travelTime *= 3600.0;
-        out.distance *= 1000.0;
+        out.travelTime =
+            Units::toSeconds(Units::hours(out.travelTime)).value();
+        out.distance =
+            Units::toMeters(Units::kilometers(out.distance)).value();
     }
     out.carbonEmissions =
         subValue(attrs, subObject, PK::Segment::CarbonEmissions);

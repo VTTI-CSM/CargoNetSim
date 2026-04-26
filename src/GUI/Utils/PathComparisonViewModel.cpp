@@ -1,7 +1,7 @@
 #include "PathComparisonViewModel.h"
 
 #include "Backend/Commons/TransportationMode.h"
-#include "Backend/Scenario/MetricDisplayUnits.h"
+#include "Backend/Commons/Units.h"
 
 namespace CargoNetSim
 {
@@ -325,11 +325,13 @@ PathComparisonViewModel::segmentValues(
     const auto predicted = segment->estimatedValues();
     out.predictedAvailable = predicted.available;
     out.predictedDistanceKm =
-        Backend::Scenario::MetricDisplayUnits::
-            distanceKmFromMetres(predicted.distance);
+        Backend::Units::LengthMeters(predicted.distance)
+            .convert<units::length::kilometer>()
+            .value();
     out.predictedTravelTimeHours =
-        Backend::Scenario::MetricDisplayUnits::
-            travelTimeHoursFromSeconds(predicted.travelTime);
+        Backend::Units::TimeSeconds(predicted.travelTime)
+            .convert<units::time::hour>()
+            .value();
     out.predictedCarbonEmissions = predicted.carbonEmissions;
     out.predictedEnergyConsumption = predicted.energyConsumption;
     out.predictedRisk = predicted.risk;
@@ -337,11 +339,13 @@ PathComparisonViewModel::segmentValues(
     const auto actual = actualMetricsForSegment(pathData, segmentIndex);
     out.actualAvailable = actual.available;
     out.actualDistanceKm =
-        Backend::Scenario::MetricDisplayUnits::
-            distanceKmFromMetres(actual.distance);
+        Backend::Units::LengthMeters(actual.distance)
+            .convert<units::length::kilometer>()
+            .value();
     out.actualTravelTimeHours =
-        Backend::Scenario::MetricDisplayUnits::
-            travelTimeHoursFromSeconds(actual.travelTime);
+        Backend::Units::TimeSeconds(actual.travelTime)
+            .convert<units::time::hour>()
+            .value();
     out.actualCarbonEmissions = actual.carbonEmissions;
     out.actualEnergyConsumption = actual.energyConsumption;
     out.actualRisk = actual.risk;

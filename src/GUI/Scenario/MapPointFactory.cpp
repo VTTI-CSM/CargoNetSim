@@ -5,6 +5,7 @@
 #include "Backend/Clients/TruckClient/IntegrationNode.h"
 #include "Backend/Clients/TruckClient/TruckNetwork.h"
 #include "Backend/Commons/NetworkKind.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Controllers/RegionDataController.h"
 #include "Backend/Scenario/NetworkLookup.h"
 #include "Backend/Scenario/NodeLinkage.h"
@@ -37,8 +38,14 @@ QPointF projectTruckNode(
     const CargoNetSim::Backend::TruckClient::IntegrationNode &node)
 {
     return QPointF(
-        node.getXCoordinate() * node.getXScale() * 1000.0,
-        node.getYCoordinate() * node.getYScale() * 1000.0);
+        CargoNetSim::Backend::Units::toMeters(
+            CargoNetSim::Backend::Units::kilometers(
+                node.getXCoordinate() * node.getXScale()))
+            .value(),
+        CargoNetSim::Backend::Units::toMeters(
+            CargoNetSim::Backend::Units::kilometers(
+                node.getYCoordinate() * node.getYScale()))
+            .value());
 }
 
 /// Look up a node by ID in a truck network. IntegrationNetwork has no

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Backend/Commons/Units.h"
+
 #include <QMetaType>
 #include <QObject>
 #include <QThread>
@@ -26,10 +28,26 @@ public:
     double getTimeStep() const;
     double getCurrentTime() const;
 
+    Units::TimeSeconds timeStepUnits() const
+    {
+        return Units::seconds(getTimeStep());
+    }
+
+    Units::TimeSeconds currentTimeUnits() const
+    {
+        return Units::seconds(getCurrentTime());
+    }
+
 public slots:
     // Property setters
     void setTimeStep(double timeStep);
     void advanceByTimeStep();
+
+public:
+    void setTimeStepUnits(Units::TimeSeconds timeStep)
+    {
+        setTimeStep(timeStep.value());
+    }
 
 signals:
     void timeStepChanged(double newTimeStep);

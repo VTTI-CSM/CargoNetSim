@@ -8,6 +8,7 @@ set(Backend_SOURCES
     Commons/TerminalInterface.cpp
     Commons/TransportationMode.h
     Commons/TransportationMode.cpp
+    Commons/Units.h
     Commons/NetworkKind.h
     Commons/NetworkKind.cpp
     Commons/DirectedGraphBase.h
@@ -142,8 +143,6 @@ set(Backend_SOURCES
     Scenario/LinkageSource.h
     Scenario/LinkageStrategy.h
     Scenario/ModeDelayParams.h
-    Scenario/CostWeightUnits.h
-    Scenario/MetricDisplayUnits.h
     Scenario/NetworkLookup.h
     Scenario/NetworkLookup.cpp
     Scenario/NetworkSpec.h
@@ -230,6 +229,7 @@ target_link_libraries(CargoNetSimBackend
     PUBLIC
     Qt6::Core
     Qt6::Xml
+    CargoNetSim::Units
     Container::Container
     rabbitmq::rabbitmq
     yaml-cpp::yaml-cpp

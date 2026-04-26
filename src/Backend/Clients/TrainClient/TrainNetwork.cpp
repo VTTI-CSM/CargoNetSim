@@ -1,5 +1,6 @@
 #include "TrainNetwork.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -958,7 +959,8 @@ void NeTrainSimNetwork::buildGraph()
         attributes["y"]            = node->getY();
         attributes["description"]  = node->getDescription();
         attributes["is_terminal"]  = node->isTerminal();
-        attributes["dwell_time"]   = node->getDwellTime();
+        attributes["dwell_time"] =
+            node->dwellTimeUnits().value();
         attributes["x_scale"]      = node->getXScale();
         attributes["y_scale"]      = node->getYScale();
 
@@ -971,14 +973,16 @@ void NeTrainSimNetwork::buildGraph()
     {
         int   fromNodeId = link->getFromNode()->getUserId();
         int   toNodeId   = link->getToNode()->getUserId();
-        float length     = link->getLength();
+        float length = static_cast<float>(
+            link->lengthUnits().value());
         int   numDirections = link->getNumDirections();
 
         // Create attributes map for the edge
         QMap<QString, QVariant> attributes;
         attributes["simulator_id"] = link->getSimulatorId();
         attributes["user_id"]      = link->getUserId();
-        attributes["max_speed"]    = link->getMaxSpeed();
+        attributes["max_speed"] =
+            link->maxSpeedUnits().value();
         attributes["signal_id"]    = link->getSignalId();
         attributes["signals_at_nodes"] =
             link->getSignalsAtNodes();
@@ -1030,7 +1034,8 @@ NeTrainSimNetwork::getPathLinks(
                 && linkToNodeId == toNodeId)
             {
                 linkIds.append(link->getUserId());
-                distances.append(link->getLength());
+                distances.append(static_cast<float>(
+                    link->lengthUnits().value()));
                 found = true;
                 break;
             }
@@ -1042,7 +1047,8 @@ NeTrainSimNetwork::getPathLinks(
                 && linkToNodeId == fromNodeId)
             {
                 linkIds.append(link->getUserId());
-                distances.append(link->getLength());
+                distances.append(static_cast<float>(
+                    link->lengthUnits().value()));
                 found = true;
                 break;
             }
@@ -1092,27 +1098,38 @@ ShortestPathResult NeTrainSimNetwork::findShortestPath(
     result.pathLinks             = pathLinksInfo.first;
     QVector<float> linkDistances = pathLinksInfo.second;
 
-    // Calculate total distance and travel time
-    result.totalLength   = 0.0;
-    result.minTravelTime = 0.0;
+    // Calculate total distance and travel time in canonical
+    // SI units that match the upstream NeTrainSim contract:
+    // length in meters, speed in meters/second, time in seconds.
+    double totalLengthMeters    = 0.0;
+    double minTravelTimeSeconds = 0.0;
 
     for (int i = 0; i < result.pathLinks.size(); ++i)
     {
         int   linkId   = result.pathLinks[i];
-        float distance = linkDistances[i];
-        result.totalLength += distance;
+        const double distanceMeters =
+            static_cast<double>(linkDistances[i]);
+        totalLengthMeters += distanceMeters;
 
-        // Find the link to get its max_speed
+        // Rebuild per-link travel time from the same SI
+        // edge contract the graph uses when optimizing for
+        // "time".
         for (NeTrainSimLink *link : m_links)
         {
             if (link->getUserId() == linkId)
             {
-                float maxSpeed = link->getMaxSpeed();
-                result.minTravelTime += distance / maxSpeed;
+                const double safeMaxSpeedMetersPerSecond =
+                    std::max(link->maxSpeedUnits().value(),
+                             0.01);
+                minTravelTimeSeconds +=
+                    distanceMeters / safeMaxSpeedMetersPerSecond;
                 break;
             }
         }
     }
+
+    result.setTotalLength(Units::meters(totalLengthMeters));
+    result.setMinTravelTime(Units::seconds(minTravelTimeSeconds));
 
     return result;
 }
@@ -1144,7 +1161,8 @@ QJsonObject NeTrainSimNetwork::nodesToJson() const
             {"y", node->getY()},
             {"description", node->getDescription()},
             {"isTerminal", node->isTerminal()},
-            {"terminalDwellTime", node->getDwellTime()}};
+            {"terminalDwellTime",
+             node->dwellTimeUnits().value()}};
         nodesArray.append(nodeData);
     }
 
@@ -1183,8 +1201,8 @@ QJsonObject NeTrainSimNetwork::linksToJson() const
             {"fromNodeID",
              link->getFromNode()->getUserId()},
             {"toNodeID", link->getToNode()->getUserId()},
-            {"length", link->getLength()},
-            {"maxSpeed", link->getMaxSpeed()},
+            {"length", link->lengthUnits().value()},
+            {"maxSpeed", link->maxSpeedUnits().value()},
             {"trafficSignalID", link->getSignalId()},
             {"grade", link->getGrade()},
             {"curvature", link->getCurvature()},

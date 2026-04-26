@@ -14,6 +14,7 @@
 #include <QTextStream>
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 
 namespace CargoNetSim
 {
@@ -95,11 +96,13 @@ void IntegrationNetwork::initializeNetwork(
         // Add edge to graph
         int   fromNode = link->getUpstreamNodeId();
         int   toNode   = link->getDownstreamNodeId();
-        float weight   = link->getLength();
+        float weight = static_cast<float>(
+            link->lengthUnits().value());
 
         QMap<QString, QVariant> attributes;
         attributes["link_id"]    = link->getLinkId();
-        attributes["free_speed"] = link->getFreeSpeed();
+        attributes["free_speed"] =
+            link->freeSpeedUnits().value();
         attributes["lanes"]      = link->getLanes();
 
         m_graph->addEdge(fromNode, toNode, weight,
@@ -154,13 +157,13 @@ IntegrationNetwork::findShortestPath(int startNodeId,
     result.pathLinks = getPathLinks(result.pathNodes);
 
     // Calculate path metrics
-    result.totalLength =
-        getPathLengthByLinks(result.pathLinks)
-        * 1000.0; // Convert km to m
-    result.minTravelTime =
-        m_graph->calculatePathMetric(result.pathNodes,
-                                     "time")
-        * 3600.0; // Convert hours to seconds
+    result.setTotalLength(
+        Units::toMeters(Units::kilometers(
+            getPathLengthByLinks(result.pathLinks))));
+    result.setMinTravelTime(
+        Units::toSeconds(Units::hours(
+            m_graph->calculatePathMetric(result.pathNodes,
+                                         "time"))));
 
     return result;
 }
@@ -297,10 +300,12 @@ IntegrationNetwork::getMultiplePaths(int startNodeId,
         result.pathLinks = getPathLinks(path);
 
         // Calculate metrics
-        result.totalLength =
-            getPathLengthByLinks(result.pathLinks);
-        result.minTravelTime =
-            m_graph->calculatePathMetric(path, "time");
+        result.setTotalLength(
+            Units::toMeters(Units::kilometers(
+                getPathLengthByLinks(result.pathLinks))));
+        result.setMinTravelTime(
+            Units::toSeconds(Units::hours(
+                m_graph->calculatePathMetric(path, "time"))));
         result.optimizationCriterion =
             "distance"; // Default criterion
 
@@ -403,7 +408,7 @@ double IntegrationNetwork::getPathLengthByLinks(
         {
             if (link->getLinkId() == linkId)
             {
-                totalLength += link->getLength();
+                totalLength += link->lengthUnits().value();
                 break;
             }
         }

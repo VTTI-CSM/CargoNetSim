@@ -1,3 +1,7 @@
-# Make the directory containing units.h available to other targets that need it
-target_include_directories(${units_LIB_TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_library(CargoNetSimUnits INTERFACE)
+add_library(CargoNetSim::Units ALIAS CargoNetSimUnits)
 
+target_include_directories(CargoNetSimUnits
+    INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)

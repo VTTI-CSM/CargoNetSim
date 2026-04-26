@@ -1,7 +1,7 @@
 #include "ConfigController.h"
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
-#include "Backend/Scenario/CostWeightUnits.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Scenario/PropertyKeys.h"
 #include <QDebug>
 #include <QFile>
@@ -14,10 +14,47 @@ namespace Backend
 namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
 
 namespace {
-constexpr double kDefaultAvgTVM   = 20.43; // USD/hour — global average TVM
+constexpr double kDefaultAvgTVM   = 24.08; // USD/hour — global average TVM
 constexpr double kDefaultShipTVM  = 13.43; // USD/hour — ship mode TVM
 constexpr double kDefaultRailTVM  = 16.43; // USD/hour — rail mode TVM
 constexpr double kDefaultTruckTVM = 31.43; // USD/hour — truck mode TVM
+
+double usdPerSecondFromUsdPerHour(double usdPerHour)
+{
+    return usdPerHour
+        / Units::TimeHours(1.0)
+              .convert<units::time::second>()
+              .value();
+}
+
+QVariantMap defaultCanonicalWeights(
+    double timeValueUsdPerHour,
+    double carbonTaxUsdPerTonne,
+    double riskUsdPerFraction = 100.0)
+{
+    QVariantMap weights;
+    weights[PK::Segment::Cost] = 1.0;
+    weights[PK::Segment::TravelTime] =
+        usdPerSecondFromUsdPerHour(timeValueUsdPerHour);
+    weights[PK::Segment::Distance] = 0.0;
+    weights[PK::Segment::CarbonEmissions] =
+        carbonTaxUsdPerTonne;
+    weights[PK::Segment::Risk] = riskUsdPerFraction;
+    weights[PK::Segment::EnergyConsumption] = 1.0;
+    weights[PK::Segment::TerminalDelay] =
+        usdPerSecondFromUsdPerHour(timeValueUsdPerHour);
+    weights[PK::Segment::TerminalCost] = 1.0;
+    return weights;
+}
+
+void applyTimeValueUsdPerHour(
+    QVariantMap &weights, double timeValueUsdPerHour)
+{
+    const double usdPerSecond =
+        usdPerSecondFromUsdPerHour(timeValueUsdPerHour);
+    weights[PK::Segment::TravelTime] = usdPerSecond;
+    weights[PK::Segment::TerminalDelay] = usdPerSecond;
+}
 } // anonymous namespace
 
 ConfigController::ConfigController(
@@ -189,7 +226,7 @@ void ConfigController::createDefaultConfig()
     simulation["time_step"]           = 15;
     simulation[PK::Simulation::TimeValueOfMoney] = kDefaultAvgTVM;
     simulation[PK::Simulation::UseModeSpecific]  = false;
-    simulation["shortest_paths"]      = 3;
+    simulation["shortest_paths"]      = 10;
     m_config["simulation"]            = simulation;
 
     QVariantMap fuelEnergy;
@@ -205,41 +242,41 @@ void ConfigController::createDefaultConfig()
     m_config["fuel_carbon_content"] = fuelCarbonContent;
 
     QVariantMap fuelPrices;
-    fuelPrices["HFO"]       = 580.0;
+    fuelPrices["HFO"]       = 0.56;
     fuelPrices["diesel_1"]  = 1.35;
     fuelPrices["diesel_2"]  = 1.35;
     m_config["fuel_prices"] = fuelPrices;
 
     QVariantMap carbonTaxes;
     carbonTaxes["rate"]             = 65;
-    carbonTaxes["ship_multiplier"]  = 1.2;
-    carbonTaxes["truck_multiplier"] = 1.1;
-    carbonTaxes["rail_multiplier"] = 1.1;
+    carbonTaxes["ship_multiplier"]  = 1.0;
+    carbonTaxes["truck_multiplier"] = 1.0;
+    carbonTaxes["rail_multiplier"] = 1.0;
     m_config["carbon_taxes"]        = carbonTaxes;
 
     QVariantMap ship;
-    ship[PK::Mode::AverageSpeed]           = 20;
-    ship[PK::Mode::AverageFuelConsumption] = 50;
-    ship[PK::Mode::AverageContainerNumber] = 5000;
+    ship[PK::Mode::AverageSpeed]           = 42.6;
+    ship[PK::Mode::AverageFuelConsumption] = 21.0;
+    ship[PK::Mode::AverageContainerNumber] = 10000;
     ship[PK::Mode::RiskFactor]             = 0.025;
     ship[PK::Mode::FuelType]               = "HFO";
     ship[PK::Mode::TimeValueOfMoney]       = kDefaultShipTVM;
 
     QVariantMap rail;
-    rail[PK::Mode::AverageSpeed]           = 40;
-    rail[PK::Mode::AverageFuelConsumption] = 20;
-    rail[PK::Mode::AverageContainerNumber] = 400;
+    rail[PK::Mode::AverageSpeed]           = 88.5;
+    rail[PK::Mode::AverageFuelConsumption] = 5.5;
+    rail[PK::Mode::AverageContainerNumber] = 180;
     rail[PK::Mode::RiskFactor]             = 0.006;
     rail[PK::Mode::UseNetwork]             = true;
     rail[PK::Mode::FuelType]               = "diesel_1";
     rail[PK::Mode::TimeValueOfMoney]       = kDefaultRailTVM;
 
     QVariantMap truck;
-    truck[PK::Mode::AverageSpeed]           = 70;
-    truck[PK::Mode::AverageFuelConsumption] = 15;
+    truck[PK::Mode::AverageSpeed]           = 88.5;
+    truck[PK::Mode::AverageFuelConsumption] = 0.55;
     truck[PK::Mode::AverageContainerNumber] = 1;
     truck[PK::Mode::RiskFactor]             = 0.012;
-    truck[PK::Mode::UseNetwork]             = false;
+    truck[PK::Mode::UseNetwork]             = true;
     truck[PK::Mode::FuelType]               = "diesel_2";
     truck[PK::Mode::TimeValueOfMoney]       = kDefaultTruckTVM;
 
@@ -505,7 +542,7 @@ QVariantMap ConfigController::getCostFunctionWeights() const
         carbonTaxes.value("rate", 65.0).toDouble();
 
     QVariantMap defaultWeights =
-        Scenario::CostWeightUnits::defaultCanonicalWeights(
+        defaultCanonicalWeights(
             averageTimeValue, carbonTaxRate);
 
     // Create mode-specific weights by copying default
@@ -521,26 +558,26 @@ QVariantMap ConfigController::getCostFunctionWeights() const
         double tvmRail  = timeValueOfMoney.value("rail",  kDefaultRailTVM).toDouble();
         double tvmTruck = timeValueOfMoney.value("truck", kDefaultTruckTVM).toDouble();
 
-        Scenario::CostWeightUnits::applyTimeValueUsdPerHour(
+        applyTimeValueUsdPerHour(
             shipWeights, tvmShip);
-        Scenario::CostWeightUnits::applyTimeValueUsdPerHour(
+        applyTimeValueUsdPerHour(
             railWeights, tvmRail);
-        Scenario::CostWeightUnits::applyTimeValueUsdPerHour(
+        applyTimeValueUsdPerHour(
             truckWeights, tvmTruck);
     }
 
     // Set carbon emission multipliers
     shipWeights[PK::Segment::CarbonEmissions] =
         shipWeights[PK::Segment::CarbonEmissions].toDouble()
-        * carbonTaxes.value("ship_multiplier", 1.2)
+        * carbonTaxes.value("ship_multiplier", 1.0)
               .toDouble();
     railWeights[PK::Segment::CarbonEmissions] =
         railWeights[PK::Segment::CarbonEmissions].toDouble()
-        * carbonTaxes.value("rail_multiplier", 1.1)
+        * carbonTaxes.value("rail_multiplier", 1.0)
               .toDouble();
     truckWeights[PK::Segment::CarbonEmissions] =
         truckWeights[PK::Segment::CarbonEmissions].toDouble()
-        * carbonTaxes.value("truck_multiplier", 1.1)
+        * carbonTaxes.value("truck_multiplier", 1.0)
               .toDouble();
 
     // Extract transport mode data

@@ -74,8 +74,8 @@ QVariantMap SettingsController::toConfigMap(
 
     // Simulation section
     QVariantMap sim = root.value("simulation").toMap();
-    if (s.timeStep.has_value())
-        sim["time_step"]                      = s.timeStep.value();
+    if (const auto timeStep = s.timeStepUnits())
+        sim["time_step"] = static_cast<int>(timeStep->value());
     if (s.shortestPathsN.has_value())
         sim["shortest_paths"]                 = s.shortestPathsN.value();
     if (s.timeValueOfMoney.has_value())
@@ -101,14 +101,14 @@ QVariantMap SettingsController::toConfigMap(
         [](const Backend::Scenario::SimulationSettings::Mode &m,
            QVariantMap existing) -> QVariantMap
     {
-        if (m.speed.has_value())
-            existing[PK::Mode::AverageSpeed]           = m.speed.value();
+        if (const auto speed = m.speedUnits())
+            existing[PK::Mode::AverageSpeed] = speed->value();
         if (m.fuelRate.has_value())
             existing[PK::Mode::AverageFuelConsumption] = m.fuelRate.value();
         if (m.containers.has_value())
             existing[PK::Mode::AverageContainerNumber] = m.containers.value();
-        if (m.risk.has_value())
-            existing[PK::Mode::RiskFactor]             = m.risk.value();
+        if (const auto risk = m.riskUnits())
+            existing[PK::Mode::RiskFactor] = risk->value();
         if (m.fuelType.has_value())
             existing[PK::Mode::FuelType]               = m.fuelType.value();
         if (m.timeValue.has_value())

@@ -7,8 +7,11 @@
 
 #pragma once
 
+#include "Backend/Commons/Units.h"
+
 #include <QString>
 #include <QVector>
+#include <limits>
 
 namespace CargoNetSim
 {
@@ -28,8 +31,8 @@ struct ShortestPathResult
 {
     QVector<int> pathNodes;        // Node IDs in the path
     QVector<int> pathLinks;        // Link IDs in the path
-    double       totalLength;      // Total path length
-    double       minTravelTime;    // Minimum travel time
+    double       totalLength;      // Canonical metres
+    double       minTravelTime;    // Canonical seconds
     QString optimizationCriterion; // Criterion used for
                                    // optimization
 
@@ -42,6 +45,26 @@ struct ShortestPathResult
               std::numeric_limits<double>::infinity())
         , optimizationCriterion("distance")
     {
+    }
+
+    void setTotalLength(Units::LengthMeters length)
+    {
+        totalLength = length.value();
+    }
+
+    void setMinTravelTime(Units::TimeSeconds travelTime)
+    {
+        minTravelTime = travelTime.value();
+    }
+
+    Units::LengthMeters totalLengthUnits() const
+    {
+        return Units::meters(totalLength);
+    }
+
+    Units::TimeSeconds minTravelTimeUnits() const
+    {
+        return Units::seconds(minTravelTime);
     }
 };
 

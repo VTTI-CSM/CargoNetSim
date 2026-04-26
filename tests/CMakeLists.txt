@@ -80,6 +80,34 @@ set_target_properties(PathMetricsCalculatorTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
+add_executable(UnitsContractTest UnitsContractTest.cpp)
+target_include_directories(UnitsContractTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(UnitsContractTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(UnitsContractTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+add_executable(TrainNetworkUnitsTest TrainNetworkUnitsTest.cpp)
+target_include_directories(TrainNetworkUnitsTest PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(TrainNetworkUnitsTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(TrainNetworkUnitsTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+add_custom_command(
+    TARGET TrainNetworkUnitsTest POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/fixtures
+        ${CMAKE_BINARY_DIR}/bin/fixtures
+)
+
 # PathDistancePopulator unit tests (Plan 8.2 Task 3)
 add_executable(PathDistancePopulatorTest PathDistancePopulatorTest.cpp)
 target_include_directories(PathDistancePopulatorTest PRIVATE ${TEST_INCLUDE_DIRS})
@@ -154,6 +182,19 @@ target_link_libraries(PathDiscoveryTest PRIVATE
     CargoNetSimBackend
 )
 set_target_properties(PathDiscoveryTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+add_executable(MossouriScenarioRegressionTest
+    MossouriScenarioRegressionTest.cpp)
+target_include_directories(MossouriScenarioRegressionTest PRIVATE
+    ${TEST_INCLUDE_DIRS})
+target_link_libraries(MossouriScenarioRegressionTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(MossouriScenarioRegressionTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 

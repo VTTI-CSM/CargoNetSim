@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "Backend/Commons/Units.h"
+
 #include <QDebug>
 #include <QFile>
 #include <QJsonArray>
@@ -115,6 +117,11 @@ public:
         return m_length;
     }
 
+    Units::LengthMeters lengthUnits() const
+    {
+        return Units::meters(m_length);
+    }
+
     /**
      * @brief Gets the air drag coefficient
      * @return Air drag coefficient
@@ -140,6 +147,11 @@ public:
     float getGrossWeight() const
     {
         return m_grossWeight;
+    }
+
+    Units::MassMetricTons grossWeightUnits() const
+    {
+        return Units::metricTons(m_grossWeight);
     }
 
     /**
@@ -188,6 +200,11 @@ public:
      */
     void setLength(float length);
 
+    void setLengthUnits(Units::LengthMeters length)
+    {
+        setLength(static_cast<float>(length.value()));
+    }
+
     /**
      * @brief Sets the air drag coefficient
      * @param airDragCoeff Air drag coefficient
@@ -205,6 +222,12 @@ public:
      * @param grossWeight Weight in tonnes
      */
     void setGrossWeight(float grossWeight);
+
+    void setGrossWeightUnits(Units::MassMetricTons grossWeight)
+    {
+        setGrossWeight(
+            static_cast<float>(grossWeight.value()));
+    }
 
     /**
      * @brief Sets the number of axles
@@ -313,6 +336,11 @@ public:
         return m_length;
     }
 
+    Units::LengthMeters lengthUnits() const
+    {
+        return Units::meters(m_length);
+    }
+
     /**
      * @brief Gets the air drag coefficient
      * @return Air drag coefficient
@@ -340,6 +368,11 @@ public:
         return m_tareWeight;
     }
 
+    Units::MassMetricTons tareWeightUnits() const
+    {
+        return Units::metricTons(m_tareWeight);
+    }
+
     /**
      * @brief Gets the gross weight (with cargo)
      * @return Gross weight in tonnes
@@ -347,6 +380,11 @@ public:
     float getGrossWeight() const
     {
         return m_grossWeight;
+    }
+
+    Units::MassMetricTons grossWeightUnits() const
+    {
+        return Units::metricTons(m_grossWeight);
     }
 
     /**
@@ -382,6 +420,11 @@ public:
      */
     void setLength(float length);
 
+    void setLengthUnits(Units::LengthMeters length)
+    {
+        setLength(static_cast<float>(length.value()));
+    }
+
     /**
      * @brief Sets the air drag coefficient
      * @param airDragCoeff Air drag coefficient
@@ -400,11 +443,23 @@ public:
      */
     void setTareWeight(float tareWeight);
 
+    void setTareWeightUnits(Units::MassMetricTons tareWeight)
+    {
+        setTareWeight(
+            static_cast<float>(tareWeight.value()));
+    }
+
     /**
      * @brief Sets the gross weight (with cargo)
      * @param grossWeight Weight in tonnes
      */
     void setGrossWeight(float grossWeight);
+
+    void setGrossWeightUnits(Units::MassMetricTons grossWeight)
+    {
+        setGrossWeight(
+            static_cast<float>(grossWeight.value()));
+    }
 
     /**
      * @brief Sets the number of axles
@@ -539,6 +594,11 @@ public:
         return m_loadTime;
     }
 
+    Units::TimeHours loadTimeUnits() const
+    {
+        return Units::hours(m_loadTime);
+    }
+
     /**
      * @brief Gets the friction coefficient
      * @return Coefficient of friction
@@ -593,6 +653,11 @@ public:
      * @param loadTime Loading time in hours
      */
     void setLoadTime(float loadTime);
+
+    void setLoadTimeUnits(Units::TimeHours loadTime)
+    {
+        setLoadTime(static_cast<float>(loadTime.value()));
+    }
 
     /**
      * @brief Sets the friction coefficient
