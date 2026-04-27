@@ -25,7 +25,7 @@ QJsonArray jsonArrayFromStringList(const QStringList &values)
     return array;
 }
 
-}
+} // namespace
 
 QString TerminalSimulationClient::makeTopPathsCacheKey(
     const QString &start, const QString &end, int mode,
@@ -38,6 +38,55 @@ QString TerminalSimulationClient::makeTopPathsCacheKey(
              skipSameModeTerminalDelaysAndCosts
                  ? QStringLiteral("1")
                  : QStringLiteral("0"));
+}
+
+bool TerminalSimulationClient::didContainersAddedEventSucceed(
+    const QString &operation, const QString &terminalId,
+    const QString &arrivalMode) const
+{
+    const QJsonObject eventData =
+        getEventData(QStringLiteral("containersAdded"));
+    if (eventData.isEmpty())
+    {
+        const QString errorMessage =
+            QStringLiteral(
+                "%1 did not receive a containersAdded "
+                "payload for terminal '%2'")
+                .arg(operation, terminalId);
+        qCWarning(lcClientTerminal)
+            << operation << "terminalId=" << terminalId
+            << "arrivalMode=" << arrivalMode
+            << "error=" << errorMessage;
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+        return false;
+    }
+
+    const bool payloadSuccess =
+        eventData.value(QStringLiteral("success"))
+            .toBool(true);
+    if (!payloadSuccess)
+    {
+        const QString errorMessage =
+            eventData.value(QStringLiteral("error"))
+                .toString(QStringLiteral(
+                    "TerminalSim rejected the container "
+                    "handoff"));
+        qCWarning(lcClientTerminal)
+            << operation << "terminalId=" << terminalId
+            << "arrivalMode=" << arrivalMode
+            << "error=" << errorMessage;
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+    }
+
+    return payloadSuccess;
 }
 
 // Constructor implementation
@@ -604,14 +653,24 @@ bool TerminalSimulationClient::addContainer(
             params["adding_time"] = addTime;
         }
         // Send container addition command
-        return sendCommandAndWait("add_container", params,
-                                  {"containersAdded"});
+        const bool success = sendCommandAndWait(
+            "add_container", params, {"containersAdded"});
+        if (!success)
+        {
+            return false;
+        }
+
+        return didContainersAddedEventSucceed(
+            QStringLiteral(
+                "TerminalSimulationClient::addContainer:"),
+            terminalId);
     });
 }
 
 bool TerminalSimulationClient::addContainers(
-    const QString &terminalId, QString &containers,
-    double addTime, const QString &arrivalMode)
+    const QString &terminalId,
+    const QString &containers, double addTime,
+    const QString &arrivalMode)
 {
     qCInfo(lcClientTerminal)
         << "TerminalSimulationClient::addContainers(string):"
@@ -637,12 +696,26 @@ bool TerminalSimulationClient::addContainers(
         // Send containers addition command
         const bool success = sendCommandAndWait(
             "add_containers", params, {"containersAdded"});
+        if (!success)
+        {
+            qCInfo(lcClientTerminal)
+                << "TerminalSimulationClient::addContainers(string):"
+                << "terminalId=" << terminalId
+                << "arrivalMode=" << arrivalMode
+                << "success=false";
+            return false;
+        }
+        const bool payloadSuccess =
+            didContainersAddedEventSucceed(
+                QStringLiteral(
+                    "TerminalSimulationClient::addContainers(string):"),
+                terminalId, arrivalMode);
         qCInfo(lcClientTerminal)
             << "TerminalSimulationClient::addContainers(string):"
             << "terminalId=" << terminalId
             << "arrivalMode=" << arrivalMode
-            << "success=" << success;
-        return success;
+            << "success=" << payloadSuccess;
+        return payloadSuccess;
     });
 }
 
@@ -676,8 +749,17 @@ bool TerminalSimulationClient::addContainers(
             params["arrival_mode"] = arrivalMode;
         }
         // Send containers addition command
-        return sendCommandAndWait("add_containers", params,
-                                  {"containersAdded"});
+        const bool success = sendCommandAndWait(
+            "add_containers", params, {"containersAdded"});
+        if (!success)
+        {
+            return false;
+        }
+
+        return didContainersAddedEventSucceed(
+            QStringLiteral(
+                "TerminalSimulationClient::addContainers(list):"),
+            terminalId, arrivalMode);
     });
 }
 
@@ -701,9 +783,18 @@ bool TerminalSimulationClient::addContainersFromJson(
             params["arrival_mode"] = arrivalMode;
         }
         // Send JSON containers command
-        return sendCommandAndWait(
+        const bool success = sendCommandAndWait(
             "add_containers_from_json", params,
             {"containersAdded"});
+        if (!success)
+        {
+            return false;
+        }
+
+        return didContainersAddedEventSucceed(
+            QStringLiteral(
+                "TerminalSimulationClient::addContainersFromJson:"),
+            terminalId, arrivalMode);
     });
 }
 

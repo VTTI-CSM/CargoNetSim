@@ -91,6 +91,19 @@ set_target_properties(UnitsContractTest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
+add_executable(TerminalHandoffResolverTest
+    TerminalHandoffResolverTest.cpp)
+target_include_directories(TerminalHandoffResolverTest PRIVATE
+    ${TEST_INCLUDE_DIRS})
+target_link_libraries(TerminalHandoffResolverTest PRIVATE
+    Qt6::Core
+    Qt6::Test
+    CargoNetSimBackend
+)
+set_target_properties(TerminalHandoffResolverTest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
 add_executable(TrainNetworkUnitsTest TrainNetworkUnitsTest.cpp)
 target_include_directories(TrainNetworkUnitsTest PRIVATE ${TEST_INCLUDE_DIRS})
 target_link_libraries(TrainNetworkUnitsTest PRIVATE

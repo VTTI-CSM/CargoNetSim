@@ -58,6 +58,8 @@ TransportationTypes::fromInt(int value)
     qCDebug(lcModel) << "TransportationTypes::fromInt: value=" << value;
     switch (value)
     {
+    case static_cast<int>(TransportationMode::Any):
+        return TransportationMode::Any;
     case static_cast<int>(TransportationMode::Ship):
         return TransportationMode::Ship;
     case static_cast<int>(TransportationMode::Truck):

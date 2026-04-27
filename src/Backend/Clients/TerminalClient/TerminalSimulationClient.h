@@ -315,7 +315,8 @@ public:
      */
     Q_INVOKABLE bool
     addContainers(const QString &terminalId,
-                  QString &containers, double addTime,
+                  const QString &containers,
+                  double         addTime,
                   const QString &arrivalMode = "");
 
     /**
@@ -562,6 +563,11 @@ private:
         const QString &start, const QString &end, int mode,
         int requestedTopN,
         bool skipSameModeTerminalDelaysAndCosts);
+
+    bool didContainersAddedEventSucceed(
+        const QString &operation,
+        const QString &terminalId,
+        const QString &arrivalMode = QString()) const;
 
     /**
      * @brief Handles terminal added event

@@ -4,6 +4,7 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Models/SimulationTime.h"
 #include "Backend/Models/TrainSystem.h"
+#include "Backend/Scenario/TerminalHandoffResolver.h"
 #include <QDebug>
 #include <QJsonDocument>
 // Placeholder includes (uncomment as needed)
@@ -556,10 +557,11 @@ bool TrainSimulationClient::unloadTrainPrivate(
 
     // Connect the event signal to break the local event
     // loop
-    connect(this, &SimulationClientBase::eventReceived,
-            [this, &eventLoop,
-             &success](const QString     &event,
-                       const QJsonObject &data) {
+    const QMetaObject::Connection eventConnection =
+        connect(this, &SimulationClientBase::eventReceived,
+                [this, &eventLoop,
+                 &success](const QString     &event,
+                           const QJsonObject &) {
                 if (normalizeEventName(event)
                     == "containersUnloaded")
                 {
@@ -579,6 +581,7 @@ bool TrainSimulationClient::unloadTrainPrivate(
             &QEventLoop::quit); // 30-second timeout
         eventLoop.exec();
     }
+    QObject::disconnect(eventConnection);
     return success;
 }
 
@@ -1146,17 +1149,8 @@ void TrainSimulationClient::onContainersUnloaded(
     QString terminalId = message["terminalID"].toString();
     QString networkName = message["networkName"].toString();
     QJsonArray containers = message["containers"].toArray();
-
-    // Wrap containers in a JSON object
-    QJsonObject   containersObj{{"containers", containers}};
-    QJsonDocument doc(containersObj);
-
-    // Convert to compact JSON string
-    QString containersJson =
-        doc.toJson(QJsonDocument::Compact);
-
-    QString fullTerminalID =
-        QString(networkName + "_" + terminalId);
+    const Scenario::TerminalHandoffResolution resolution =
+        Scenario::resolveTerminalHandoff(containers);
 
     double currentTime = m_simulationTime->getCurrentTime();
 
@@ -1164,9 +1158,49 @@ void TrainSimulationClient::onContainersUnloaded(
         << "TrainSimulationClient::onContainersUnloaded:"
         << "network=" << networkName
         << "terminalId=" << terminalId
-        << "fullTerminalID=" << fullTerminalID
+        << "resolvedStatus="
+        << static_cast<int>(resolution.status)
+        << "scenarioTerminalId="
+        << resolution.scenarioTerminalId
         << "containerCount=" << containers.size()
         << "firstContainer=" << previewContainers(containers);
+
+    if (resolution.isNoOp())
+    {
+        qCInfo(lcClientTrain)
+            << "TrainSimulationClient::onContainersUnloaded:"
+            << "ignoring empty unload batch from NeTrainSim"
+            << "network=" << networkName
+            << "terminalId=" << terminalId;
+        if (m_logger)
+        {
+            m_logger->log("Ignored empty train unload at "
+                              + networkName + ":"
+                              + terminalId,
+                          static_cast<int>(m_clientType));
+        }
+        return;
+    }
+
+    if (resolution.isError())
+    {
+        const QString errorMessage =
+            QStringLiteral(
+                "Train unload handoff rejected for network "
+                "'%1' terminal '%2': %3")
+                .arg(networkName, terminalId,
+                     resolution.errorMessage);
+        qCWarning(lcClientTrain)
+            << "TrainSimulationClient::onContainersUnloaded:"
+            << errorMessage;
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+        emit errorOccurred(errorMessage);
+        return;
+    }
 
     if (terminalId.isEmpty())
     {
@@ -1177,27 +1211,68 @@ void TrainSimulationClient::onContainersUnloaded(
             << "containersCount=" << containers.size();
     }
 
-    if (m_terminalClient)
+    if (!m_terminalClient)
+    {
+        const QString errorMessage =
+            QStringLiteral(
+                "Cannot hand off unloaded train containers "
+                "for network '%1' terminal '%2': "
+                "TerminalSimulationClient is not available")
+                .arg(networkName, terminalId);
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+        emit errorOccurred(errorMessage);
+        return;
+    }
+
     {
         const bool addSuccess = m_terminalClient->addContainers(
-            fullTerminalID, containersJson,
+            resolution.scenarioTerminalId,
+            resolution.containersJson,
             currentTime, "Train");
         qCInfo(lcClientTrain)
             << "TrainSimulationClient::onContainersUnloaded:"
             << "terminal handoff result=" << addSuccess;
+
+        if (!addSuccess)
+        {
+            const QString errorMessage =
+                QStringLiteral(
+                    "Failed to hand off unloaded train "
+                    "containers from network '%1' terminal "
+                    "'%2' to scenario terminal '%3'")
+                    .arg(networkName, terminalId,
+                         resolution.scenarioTerminalId);
+            if (m_logger)
+            {
+                m_logger->logError(
+                    errorMessage,
+                    static_cast<int>(m_clientType));
+            }
+            emit errorOccurred(errorMessage);
+            return;
+        }
     }
 
     // Log event using logger if available
     if (m_logger)
     {
-        m_logger->log("Containers unloaded at terminal: "
-                          + terminalId,
-                      static_cast<int>(m_clientType));
+        m_logger->log(
+            "Containers unloaded at train terminal "
+                + terminalId
+                + " and handed off to scenario terminal "
+                + resolution.scenarioTerminalId,
+            static_cast<int>(m_clientType));
     }
     else
     {
-        qCInfo(lcClientTrain) << "Containers unloaded at terminal:"
-                 << terminalId;
+        qCInfo(lcClientTrain)
+            << "Containers unloaded at terminal:" << terminalId
+            << "scenarioTerminal="
+            << resolution.scenarioTerminalId;
     }
 }
 

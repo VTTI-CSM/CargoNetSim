@@ -1,5 +1,8 @@
 #include "ScenarioExecutionResult.h"
 
+#include <QJsonValue>
+
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/Units.h"
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/ConfigController.h"
@@ -17,6 +20,19 @@ namespace
 {
 
 namespace PK = PropertyKeys;
+
+QString modeFieldDebugSummary(const QJsonObject &json,
+                              const QString     &key)
+{
+    const bool contains = json.contains(key);
+    const auto value    = json.value(key);
+    return QStringLiteral("contains=%1 isDouble=%2 isString=%3 int=%4 string=\"%5\"")
+        .arg(contains)
+        .arg(value.isDouble())
+        .arg(value.isString())
+        .arg(value.toInt(-99999))
+        .arg(value.toString());
+}
 
 QJsonObject metricSnapshotToJson(
     const PathSegment::SegmentMetricSnapshot &snapshot)
@@ -129,6 +145,13 @@ QJsonObject SegmentExecutionResult::toJson() const
 SegmentExecutionResult SegmentExecutionResult::fromJson(
     const QJsonObject &json)
 {
+    qCDebug(lcScenario)
+        << "SegmentExecutionResult::fromJson:"
+        << "segment_id="
+        << json.value(QStringLiteral("segment_id")).toString()
+        << "mode{"
+        << modeFieldDebugSummary(json, QStringLiteral("mode"))
+        << "}";
     SegmentExecutionResult result;
     result.segmentIndex =
         json.value(QStringLiteral("segment_index")).toInt(-1);
@@ -144,6 +167,13 @@ SegmentExecutionResult SegmentExecutionResult::fromJson(
         json.value(QStringLiteral("actual_metrics")).toObject());
     result.actualCosts = costSnapshotFromJson(
         json.value(QStringLiteral("actual_costs")).toObject());
+    qCDebug(lcScenario)
+        << "SegmentExecutionResult::fromJson: decoded"
+        << "segment_id=" << result.segmentId
+        << "segment_index=" << result.segmentIndex
+        << "mode=" << static_cast<int>(result.mode)
+        << "start_terminal_id=" << result.startTerminalId
+        << "end_terminal_id=" << result.endTerminalId;
     return result;
 }
 
@@ -195,6 +225,20 @@ QJsonObject TerminalExecutionResult::toJson() const
 TerminalExecutionResult TerminalExecutionResult::fromJson(
     const QJsonObject &json)
 {
+    qCDebug(lcScenario)
+        << "TerminalExecutionResult::fromJson:"
+        << "path_identity="
+        << json.value(QStringLiteral("path_identity")).toString()
+        << "scenario_terminal_id="
+        << json.value(QStringLiteral("scenario_terminal_id")).toString()
+        << "arrival_mode{"
+        << modeFieldDebugSummary(
+               json, QStringLiteral("arrival_mode"))
+        << "}"
+        << "raw_batch_records="
+        << json.value(QStringLiteral("raw_batch_records"))
+               .toArray()
+               .size();
     TerminalExecutionResult result;
     result.executionId =
         json.value(QStringLiteral("execution_id")).toString();
@@ -256,6 +300,18 @@ TerminalExecutionResult TerminalExecutionResult::fromJson(
             .toObject();
     result.rawBatchRecords =
         json.value(QStringLiteral("raw_batch_records")).toArray();
+    qCDebug(lcScenario)
+        << "TerminalExecutionResult::fromJson: decoded"
+        << "path_identity=" << result.pathIdentity
+        << "scenario_terminal_id="
+        << result.scenarioTerminalId
+        << "runtime_terminal_id="
+        << result.runtimeTerminalId
+        << "arrivalMode=" << static_cast<int>(result.arrivalMode)
+        << "terminal_sequence_index="
+        << result.terminalSequenceIndex
+        << "dropped=" << result.totalDroppedContainers
+        << "picked=" << result.totalPickedContainers;
     return result;
 }
 
@@ -384,6 +440,22 @@ QJsonObject PathExecutionResult::toJson() const
 PathExecutionResult PathExecutionResult::fromJson(
     const QJsonObject &json)
 {
+    qCDebug(lcScenario)
+        << "PathExecutionResult::fromJson:"
+        << "path_identity="
+        << json.value(QStringLiteral("path_identity")).toString()
+        << "path_id="
+        << json.value(QStringLiteral("path_id")).toInt(-1)
+        << "rank="
+        << json.value(QStringLiteral("rank")).toInt(-1)
+        << "segment_results="
+        << json.value(QStringLiteral("segment_results"))
+               .toArray()
+               .size()
+        << "terminal_results="
+        << json.value(QStringLiteral("terminal_results"))
+               .toArray()
+               .size();
     PathExecutionResult result;
     result.executionId =
         json.value(QStringLiteral("execution_id")).toString();
@@ -434,6 +506,15 @@ PathExecutionResult PathExecutionResult::fromJson(
             TerminalExecutionResult::fromJson(
                 terminalValue.toObject()));
     }
+    qCDebug(lcScenario)
+        << "PathExecutionResult::fromJson: decoded"
+        << "path_identity=" << result.pathIdentity
+        << "path_id=" << result.pathId
+        << "rank=" << result.rank
+        << "effective_container_count="
+        << result.effectiveContainerCount
+        << "segmentResults=" << result.segmentResults.size()
+        << "terminalResults=" << result.terminalResults.size();
     return result;
 }
 
@@ -514,6 +595,9 @@ ScenarioExecutionResultSet ScenarioExecutionResultSet::fromJson(
     const QJsonArray &json)
 {
     ScenarioExecutionResultSet results;
+    qCInfo(lcScenario)
+        << "ScenarioExecutionResultSet::fromJson:"
+        << "path_result_records=" << json.size();
     for (const auto &value : json)
     {
         if (!value.isObject())
@@ -521,6 +605,9 @@ ScenarioExecutionResultSet ScenarioExecutionResultSet::fromJson(
         results.addPathResult(
             PathExecutionResult::fromJson(value.toObject()));
     }
+    qCInfo(lcScenario)
+        << "ScenarioExecutionResultSet::fromJson:"
+        << "decoded_path_results=" << results.size();
     return results;
 }
 

@@ -237,9 +237,24 @@ bool SimulationRequestBuilder::buildTrainSegment(
 
         QList<ContainerCore::Container *> containersCopy =
             containersAvailable;
+        if (containersCopy.isEmpty())
+        {
+            qCWarning(lcScenario)
+                << "SimulationRequestBuilder::buildTrainSegment:"
+                << "no containers available for train segment, but vehicle scheduling will still apply min-one rule"
+                << "pathId=" << path->getPathId()
+                << "pathKey=" << path->canonicalPathKey()
+                << "segment=" << segmentIdx
+                << "network=" << networkName;
+        }
 
         const int numTrains = numVehiclesNeeded(
             containersCopy.size(), trainContainerCount);
+        qCDebug(lcScenario)
+            << "SimulationRequestBuilder::buildTrainSegment:"
+            << "containersAvailable=" << containersCopy.size()
+            << "trainCapacity=" << trainContainerCount
+            << "numTrains=" << numTrains;
 
         for (int i = 0; i < numTrains; ++i)
         {
@@ -348,9 +363,24 @@ bool SimulationRequestBuilder::buildTruckSegment(
 
         QList<ContainerCore::Container *> containersCopy =
             containersAvailable;
+        if (containersCopy.isEmpty())
+        {
+            qCWarning(lcScenario)
+                << "SimulationRequestBuilder::buildTruckSegment:"
+                << "no containers available for truck segment, but vehicle scheduling will still apply min-one rule"
+                << "pathId=" << path->getPathId()
+                << "pathKey=" << path->canonicalPathKey()
+                << "segment=" << segmentIdx
+                << "network=" << networkName;
+        }
 
         const int numTrucks = numVehiclesNeeded(
             containersCopy.size(), truckContainerCount);
+        qCDebug(lcScenario)
+            << "SimulationRequestBuilder::buildTruckSegment:"
+            << "containersAvailable=" << containersCopy.size()
+            << "truckCapacity=" << truckContainerCount
+            << "numTrucks=" << numTrucks;
 
         for (int i = 0; i < numTrucks; ++i)
         {
@@ -411,9 +441,24 @@ bool SimulationRequestBuilder::buildShipSegment(
 
     QList<ContainerCore::Container *> containersCopy =
         containersAvailable;
+    if (containersCopy.isEmpty())
+    {
+        qCWarning(lcScenario)
+            << "SimulationRequestBuilder::buildShipSegment:"
+            << "no containers available for ship segment, but vehicle scheduling will still apply min-one rule"
+            << "pathId=" << path->getPathId()
+            << "pathKey=" << path->canonicalPathKey()
+            << "segment=" << segmentIdx
+            << "network=" << networkName;
+    }
 
     const int numShips = numVehiclesNeeded(
         containersCopy.size(), shipContainerCount);
+    qCDebug(lcScenario)
+        << "SimulationRequestBuilder::buildShipSegment:"
+        << "containersAvailable=" << containersCopy.size()
+        << "shipCapacity=" << shipContainerCount
+        << "numShips=" << numShips;
 
     for (int i = 0; i < numShips; ++i)
     {
@@ -476,7 +521,12 @@ bool SimulationRequestBuilder::build(
     for (auto *p : paths)
     {
         qCDebug(lcScenario) << "SimulationRequestBuilder::build: processing pathId:"
-                            << p->getPathId();
+                            << p->getPathId()
+                            << "pathKey=" << p->canonicalPathKey()
+                            << "allocatedContainers="
+                            << allocation.containersForPath(p).size()
+                            << "effectiveContainerCount="
+                            << allocation.effectiveContainerCountForPath(p);
         const auto perPathPool = allocation.containersForPath(p);
         SimulationRequestBundle perPath;
         QString                 localErr;
@@ -509,7 +559,9 @@ bool SimulationRequestBuilder::buildForPath(
         return false;
     }
     qCDebug(lcScenario) << "SimulationRequestBuilder::buildForPath: pathId:" << path->getPathId()
-                        << "segments:" << path->getSegments().size();
+                        << "pathKey=" << path->canonicalPathKey()
+                        << "segments:" << path->getSegments().size()
+                        << "originContainers=" << originContainers.size();
 
     using Mode = TransportationTypes::TransportationMode;
     const auto transModes = m_config->getTransportModes();
@@ -560,6 +612,15 @@ bool SimulationRequestBuilder::buildForPath(
         }
 
         const Mode mode = segment->getMode();
+        qCDebug(lcScenario)
+            << "SimulationRequestBuilder::buildForPath:"
+            << "dispatching segment"
+            << "pathId=" << path->getPathId()
+            << "segmentIndex=" << i
+            << "mode=" << static_cast<int>(mode)
+            << "startId=" << startId
+            << "endId=" << endId
+            << "originContainers=" << originContainers.size();
         if (mode == Mode::Train)
         {
             if (!buildTrainSegment(path, i, startId, endId, trainN,

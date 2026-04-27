@@ -22,6 +22,19 @@ namespace
 
 namespace PK = PropertyKeys;
 
+QString modeFieldDebugSummary(const QJsonObject &json,
+                              const QString     &key)
+{
+    const bool contains = json.contains(key);
+    const auto value    = json.value(key);
+    return QStringLiteral("contains=%1 isDouble=%2 isString=%3 int=%4 string=\"%5\"")
+        .arg(contains)
+        .arg(value.isDouble())
+        .arg(value.isString())
+        .arg(value.toInt(-99999))
+        .arg(value.toString());
+}
+
 QVariantMap terminalWeightsForMode(
     const QVariantMap &costWeights,
     TransportationTypes::TransportationMode mode)
@@ -37,12 +50,28 @@ TransportationTypes::TransportationMode terminalArrivalModeFromJson(
     const QJsonArray &rawBatchRecords)
 {
     if (rawBatchRecords.isEmpty() || !rawBatchRecords.first().isObject())
+    {
+        qCDebug(lcScenario)
+            << "ResultsExtractor::terminalArrivalModeFromJson:"
+            << "no usable rawBatchRecords; defaulting to Any"
+            << "recordCount=" << rawBatchRecords.size();
         return TransportationTypes::TransportationMode::Any;
+    }
 
     const QJsonObject firstRecord =
         rawBatchRecords.first().toObject();
     const QString mode =
         firstRecord.value(QStringLiteral("vehicle_mode")).toString();
+    qCDebug(lcScenario)
+        << "ResultsExtractor::terminalArrivalModeFromJson:"
+        << "recordCount=" << rawBatchRecords.size()
+        << "vehicle_mode=" << mode
+        << "scenario_terminal_id="
+        << firstRecord.value(QStringLiteral("scenario_terminal_id")).toString()
+        << "runtime_terminal_id="
+        << firstRecord.value(QStringLiteral("runtime_terminal_id")).toString()
+        << "terminal_sequence_index="
+        << firstRecord.value(QStringLiteral("terminal_sequence_index")).toInt(-1);
     return mode.isEmpty()
         ? TransportationTypes::TransportationMode::Any
         : transportationModeFromString(mode);
@@ -59,19 +88,58 @@ loadTerminalExecutionResults(
     if (!terminalClient || executionId.isEmpty()
         || pathIdentities.isEmpty())
     {
+        qCDebug(lcScenario)
+            << "ResultsExtractor::loadTerminalExecutionResults:"
+            << "skipping fetch"
+            << "terminalClient?" << (terminalClient != nullptr)
+            << "executionId=" << executionId
+            << "pathIdentityCount=" << pathIdentities.size();
         return byPathIdentity;
     }
 
+    qCInfo(lcScenario)
+        << "ResultsExtractor::loadTerminalExecutionResults:"
+        << "fetching terminal execution records"
+        << "executionId=" << executionId
+        << "pathIdentityCount=" << pathIdentities.size();
     const QJsonArray rawResults =
         terminalClient->getTerminalExecutionResults(
             executionId, {}, pathIdentities);
+    qCInfo(lcScenario)
+        << "ResultsExtractor::loadTerminalExecutionResults:"
+        << "received raw terminal execution records="
+        << rawResults.size();
     for (const auto &value : rawResults)
     {
         if (!value.isObject())
+        {
+            qCWarning(lcScenario)
+                << "ResultsExtractor::loadTerminalExecutionResults:"
+                << "ignoring non-object terminal execution record";
             continue;
+        }
+
+        const QJsonObject rawObject = value.toObject();
+        qCDebug(lcScenario)
+            << "ResultsExtractor::loadTerminalExecutionResults:"
+            << "raw terminal execution record"
+            << "path_identity="
+            << rawObject.value(QStringLiteral("path_identity")).toString()
+            << "scenario_terminal_id="
+            << rawObject.value(QStringLiteral("scenario_terminal_id")).toString()
+            << "runtime_terminal_id="
+            << rawObject.value(QStringLiteral("runtime_terminal_id")).toString()
+            << "arrival_mode{"
+            << modeFieldDebugSummary(
+                   rawObject, QStringLiteral("arrival_mode"))
+            << "}"
+            << "raw_batch_records="
+            << rawObject.value(QStringLiteral("raw_batch_records"))
+                   .toArray()
+                   .size();
 
         auto terminalResult =
-            TerminalExecutionResult::fromJson(value.toObject());
+            TerminalExecutionResult::fromJson(rawObject);
         terminalResult.arrivalMode =
             terminalArrivalModeFromJson(
                 terminalResult.rawBatchRecords);
@@ -88,6 +156,24 @@ loadTerminalExecutionResults(
         terminalResult.actualWeightedTotalContribution =
             terminalResult.actualWeightedDelayContribution
             + terminalResult.actualWeightedCostContribution;
+        qCDebug(lcScenario)
+            << "ResultsExtractor::loadTerminalExecutionResults:"
+            << "decoded terminal execution record"
+            << "path_identity=" << terminalResult.pathIdentity
+            << "scenario_terminal_id="
+            << terminalResult.scenarioTerminalId
+            << "runtime_terminal_id="
+            << terminalResult.runtimeTerminalId
+            << "arrivalMode="
+            << static_cast<int>(terminalResult.arrivalMode)
+            << "terminal_sequence_index="
+            << terminalResult.terminalSequenceIndex
+            << "dropped=" << terminalResult.totalDroppedContainers
+            << "picked=" << terminalResult.totalPickedContainers
+            << "handlingSeconds="
+            << terminalResult.actualTotalHandlingSeconds
+            << "directCost="
+            << terminalResult.actualDirectCostUsd;
         byPathIdentity[terminalResult.pathIdentity].append(
             terminalResult);
     }
@@ -109,6 +195,11 @@ loadTerminalExecutionResults(
                 return lhs.scenarioTerminalId
                     < rhs.scenarioTerminalId;
             });
+        qCDebug(lcScenario)
+            << "ResultsExtractor::loadTerminalExecutionResults:"
+            << "path_identity=" << it.key()
+            << "sorted_terminal_records="
+            << terminalResults.size();
     }
 
     return byPathIdentity;
@@ -174,6 +265,11 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
         loadTerminalExecutionResults(
             m_terminalClient, costWeights, executionId,
             resolvedPathIdentities);
+    qCInfo(lcScenario)
+        << "ResultsExtractor::extractExecutionResults:"
+        << "loaded terminal execution buckets="
+        << terminalResultsByPathIdentity.size()
+        << "executionId=" << executionId;
 
     emit statusMessage(
         QStringLiteral("Extracting simulation results..."));
@@ -199,6 +295,16 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
              && !pathIdentities[index].isEmpty())
             ? pathIdentities[index]
             : path->canonicalPathKey();
+        qCInfo(lcScenario)
+            << "ResultsExtractor::extractExecutionResults:"
+            << "processing path"
+            << "pathId=" << path->getPathId()
+            << "pathKey=" << pathIdentity
+            << "rank=" << path->getRank()
+            << "effectiveContainerCount=" << containerCount
+            << "segmentCount=" << path->getSegments().size()
+            << "terminalResultCount="
+            << terminalResultsByPathIdentity.value(pathIdentity).size();
 
         auto result = SegmentCostMath::computePathExecutionResult(
             m_shipClient, m_trainClient, m_truckManager, path,

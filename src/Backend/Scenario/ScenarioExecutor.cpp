@@ -121,6 +121,28 @@ bool ScenarioExecutor::run()
         SimulationRequestBundle bundle;
         const auto allocation =
             ContainerAllocator::allocate(*m_document, m_paths);
+        qCInfo(lcScenario)
+            << "ScenarioExecutor::run:"
+            << "container allocation completed"
+            << "selectedPaths=" << m_paths.size()
+            << "pathIdentityCount=" << m_pathIdentities.size()
+            << "executionId=" << executionId;
+        for (auto *path : m_paths)
+        {
+            if (!path)
+                continue;
+            qCDebug(lcScenario)
+                << "ScenarioExecutor::run: allocation summary"
+                << "pathId=" << path->getPathId()
+                << "pathKey=" << path->canonicalPathKey()
+                << "rank=" << path->getRank()
+                << "effectiveContainerCount="
+                << allocation.effectiveContainerCountForPath(path)
+                << "allocatedContainers="
+                << allocation.containersForPath(path).size()
+                << "segmentCount="
+                << path->getSegments().size();
+        }
         if (!builder.build(m_paths, allocation, bundle, &err))
         {
             qCWarning(lcScenario) << "ScenarioExecutor::run: build failed:" << err;
@@ -130,6 +152,44 @@ bool ScenarioExecutor::run()
             return false;
         }
         qCDebug(lcScenario) << "ScenarioExecutor::run: bundles built successfully";
+        int totalTrainRequests = 0;
+        int totalShipRequests  = 0;
+        int totalTruckRequests = 0;
+        int totalTrainContainers = 0;
+        int totalShipContainers  = 0;
+        int totalTruckContainers = 0;
+        for (auto it = bundle.trainData.constBegin();
+             it != bundle.trainData.constEnd(); ++it)
+        {
+            totalTrainRequests += it.value().size();
+            for (const auto &td : it.value())
+                totalTrainContainers += td.containers.size();
+        }
+        for (auto it = bundle.shipData.constBegin();
+             it != bundle.shipData.constEnd(); ++it)
+        {
+            totalShipRequests += it.value().size();
+            for (const auto &sd : it.value())
+                totalShipContainers += sd.containers.size();
+        }
+        for (auto it = bundle.truckData.constBegin();
+             it != bundle.truckData.constEnd(); ++it)
+        {
+            totalTruckRequests += it.value().size();
+            for (const auto &td : it.value())
+                totalTruckContainers += td.containers.size();
+        }
+        qCInfo(lcScenario)
+            << "ScenarioExecutor::run: bundle summary"
+            << "trainNetworks=" << bundle.trainData.size()
+            << "trainRequests=" << totalTrainRequests
+            << "trainContainers=" << totalTrainContainers
+            << "shipNetworks=" << bundle.shipData.size()
+            << "shipRequests=" << totalShipRequests
+            << "shipContainers=" << totalShipContainers
+            << "truckNetworks=" << bundle.truckData.size()
+            << "truckRequests=" << totalTruckRequests
+            << "truckContainers=" << totalTruckContainers;
 
         // Submit to the three RabbitMQ clients. Relay status/error
         // signals through ourselves so subscribers see one consistent

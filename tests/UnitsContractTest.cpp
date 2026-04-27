@@ -2,6 +2,7 @@
 #include <QTest>
 
 #include "Backend/Commons/ShortestPathResult.h"
+#include "Backend/Commons/TransportationMode.h"
 #include "Backend/Commons/Units.h"
 #include "Backend/Models/PathSegment.h"
 #include "Backend/Models/ShipSystem.h"
@@ -81,6 +82,17 @@ private slots:
         QCOMPARE(result.minTravelTime, 450.0);
         QCOMPARE(result.totalLengthUnits().value(), 1250.0);
         QCOMPARE(result.minTravelTimeUnits().value(), 450.0);
+    }
+
+    void test_transportation_mode_any_round_trip()
+    {
+        const auto mode =
+            TransportationTypes::fromInt(
+                static_cast<int>(
+                    TransportationTypes::TransportationMode::Any));
+        QCOMPARE(mode,
+                 TransportationTypes::TransportationMode::Any);
+        QCOMPARE(transportationModeToString(mode), QString());
     }
 
     void test_model_unit_wrappers()

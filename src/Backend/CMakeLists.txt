@@ -238,6 +238,8 @@ set(Backend_SOURCES
     Scenario/SimulationOrchestrator.cpp
     Scenario/SimulationRequestBuilder.h
     Scenario/SimulationRequestBuilder.cpp
+    Scenario/TerminalHandoffResolver.h
+    Scenario/TerminalHandoffResolver.cpp
     Scenario/SimulationSettings.h
     Scenario/SystemDynamicsSpec.h
     Scenario/TerminalCostMath.h

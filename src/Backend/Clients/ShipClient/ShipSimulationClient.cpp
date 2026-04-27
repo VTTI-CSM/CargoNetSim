@@ -47,6 +47,7 @@
 #include "Backend/Commons/ThreadSafetyUtils.h"
 #include "Backend/Models/ShipSystem.h"
 #include "Backend/Models/SimulationTime.h"
+#include "Backend/Scenario/TerminalHandoffResolver.h"
 // #include "TerminalGraphServer.h"
 // #include "SimulatorTimeServer.h"
 // #include "ProgressBarManager.h"
@@ -613,10 +614,11 @@ bool ShipSimulationClient::
 
     // Connect the event signal to break the local event
     // loop
-    connect(this, &SimulationClientBase::eventReceived,
-            [this, &eventLoop,
-             &success](const QString     &event,
-                       const QJsonObject &data) {
+    const QMetaObject::Connection eventConnection =
+        connect(this, &SimulationClientBase::eventReceived,
+                [this, &eventLoop,
+                 &success](const QString     &event,
+                           const QJsonObject &) {
                 if (normalizeEventName(event)
                     == "containersunloaded")
                 {
@@ -635,6 +637,7 @@ bool ShipSimulationClient::
             &QEventLoop::quit); // 30-second timeout
         eventLoop.exec();
     }
+    QObject::disconnect(eventConnection);
 
     if (m_logger)
     {
@@ -1290,7 +1293,9 @@ void ShipSimulationClient::onShipReachedDestination(
 
                 // Store the unload operation for execution
                 // outside the lock
-                if (!terminalIds.isEmpty())
+                terminalIds.removeAll(QString());
+                if (containersCount > 0
+                    && !terminalIds.isEmpty())
                 {
                     unloadOperations[networkName + ":"
                                      + shipId] =
@@ -1355,8 +1360,11 @@ void ShipSimulationClient::onShipReachedSeaport(
         << "shipId=" << shipId
         << "seaPortCode=" << terminalId
         << "containersCount=" << containersCount;
-    unloadContainersFromShipAtTerminalsPrivate(
-        networkName, shipId, QStringList{terminalId});
+    if (containersCount > 0 && !terminalId.isEmpty())
+    {
+        unloadContainersFromShipAtTerminalsPrivate(
+            networkName, shipId, QStringList{terminalId});
+    }
 
     if (m_logger)
     {
@@ -1382,14 +1390,8 @@ void ShipSimulationClient::onContainersUnloaded(
         message.value("networkName").toString();
     QJsonArray containers =
         message.value("containers").toArray();
-
-    QJsonObject   containersObj{{"containers", containers}};
-    QJsonDocument doc(containersObj);
-    QString containersJson =
-        doc.toJson(QJsonDocument::Compact);
-
-    QString fullTerminalID =
-        QString(networkName + "_" + portName);
+    const Scenario::TerminalHandoffResolution resolution =
+        Scenario::resolveTerminalHandoff(containers);
 
     double currentTime =
         m_simulationTime->getCurrentTime();
@@ -1398,9 +1400,49 @@ void ShipSimulationClient::onContainersUnloaded(
         << "ShipSimulationClient::onContainersUnloaded:"
         << "network=" << networkName
         << "portName=" << portName
-        << "fullTerminalID=" << fullTerminalID
+        << "resolvedStatus="
+        << static_cast<int>(resolution.status)
+        << "scenarioTerminalId="
+        << resolution.scenarioTerminalId
         << "containerCount=" << containers.size()
         << "firstContainer=" << previewContainers(containers);
+
+    if (resolution.isNoOp())
+    {
+        qCInfo(lcClientShip)
+            << "ShipSimulationClient::onContainersUnloaded:"
+            << "ignoring empty unload batch from ShipNetSim"
+            << "network=" << networkName
+            << "portName=" << portName;
+        if (m_logger)
+        {
+            m_logger->log("Ignored empty ship unload at "
+                              + networkName + ":"
+                              + portName,
+                          static_cast<int>(m_clientType));
+        }
+        return;
+    }
+
+    if (resolution.isError())
+    {
+        const QString errorMessage =
+            QStringLiteral(
+                "Ship unload handoff rejected for network "
+                "'%1' port '%2': %3")
+                .arg(networkName, portName,
+                     resolution.errorMessage);
+        qCWarning(lcClientShip)
+            << "ShipSimulationClient::onContainersUnloaded:"
+            << errorMessage;
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+        emit errorOccurred(errorMessage);
+        return;
+    }
 
     if (portName.isEmpty())
     {
@@ -1411,26 +1453,67 @@ void ShipSimulationClient::onContainersUnloaded(
             << "containersCount=" << containers.size();
     }
 
-    if (m_terminalClient)
+    if (!m_terminalClient)
+    {
+        const QString errorMessage =
+            QStringLiteral(
+                "Cannot hand off unloaded ship containers "
+                "for network '%1' port '%2': "
+                "TerminalSimulationClient is not available")
+                .arg(networkName, portName);
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+        emit errorOccurred(errorMessage);
+        return;
+    }
+
     {
         const bool addSuccess = m_terminalClient->addContainers(
-            fullTerminalID, containersJson,
+            resolution.scenarioTerminalId,
+            resolution.containersJson,
             currentTime, "Ship");
         qCInfo(lcClientShip)
             << "ShipSimulationClient::onContainersUnloaded:"
             << "terminal handoff result=" << addSuccess;
+
+        if (!addSuccess)
+        {
+            const QString errorMessage =
+                QStringLiteral(
+                    "Failed to hand off unloaded ship "
+                    "containers from network '%1' port '%2' "
+                    "to scenario terminal '%3'")
+                    .arg(networkName, portName,
+                         resolution.scenarioTerminalId);
+            if (m_logger)
+            {
+                m_logger->logError(
+                    errorMessage,
+                    static_cast<int>(m_clientType));
+            }
+            emit errorOccurred(errorMessage);
+            return;
+        }
     }
 
     if (m_logger)
     {
-        m_logger->log("Containers unloaded at port: "
-                          + portName,
-                      static_cast<int>(m_clientType));
+        m_logger->log(
+            "Containers unloaded at ship port "
+                + portName
+                + " and handed off to scenario terminal "
+                + resolution.scenarioTerminalId,
+            static_cast<int>(m_clientType));
     }
     else
     {
-        qCInfo(lcClientShip) << "Containers unloaded at port:"
-                 << portName;
+        qCInfo(lcClientShip)
+            << "Containers unloaded at port:" << portName
+            << "scenarioTerminal="
+            << resolution.scenarioTerminalId;
     }
 }
 
