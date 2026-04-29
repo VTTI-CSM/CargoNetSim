@@ -12,6 +12,13 @@ class QIODevice;
 namespace CargoNetSim {
 namespace Cli {
 
+enum class ProgressRenderMode
+{
+    Auto,
+    AppendLines,
+    SingleLine
+};
+
 /**
  * @brief Rate-limited progress ticks for the CLI, streamed to stderr.
  *
@@ -51,7 +58,13 @@ public:
     ///               stderr — the production path. Non-null is a
     ///               test-only injection point; the device must
     ///               outlive the reporter.
-    explicit ProgressReporter(bool quiet = false, QIODevice *out = nullptr);
+    /// @param renderMode  Auto uses single-line rendering only for an
+    ///                    interactive stderr TTY; redirected logs and
+    ///                    injected test sinks remain append-only.
+    explicit ProgressReporter(
+        bool quiet = false,
+        QIODevice *out = nullptr,
+        ProgressRenderMode renderMode = ProgressRenderMode::Auto);
 
     /// Enable detailed per-path rendering. Default mode emits only
     /// aggregate progress.
@@ -78,6 +91,9 @@ public:
 private:
     bool                         m_quiet;
     bool                         m_verbose = false;
+    ProgressRenderMode           m_renderMode =
+        ProgressRenderMode::AppendLines;
+    bool                         m_liveLineActive = false;
     double                       m_lastPercent = -100.0;  // first call always emits
     QString                      m_lastFocusKey;
     QElapsedTimer                m_lastEmitTimer;

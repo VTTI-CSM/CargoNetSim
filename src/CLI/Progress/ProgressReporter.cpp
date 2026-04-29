@@ -5,8 +5,12 @@
 #include <QIODevice>
 #include <QString>
 #include <QStringList>
+#include <QtGlobal>
 
 #include <cstdio>
+#if defined(Q_OS_UNIX)
+#include <unistd.h>
+#endif
 
 namespace CargoNetSim {
 namespace Cli {
@@ -18,6 +22,16 @@ constexpr qint64 kElapsedThresholdMs = 2000;
 
 using CargoNetSim::Backend::Scenario::PathLifecycleState;
 using CargoNetSim::Backend::Scenario::SegmentLifecycleState;
+using CargoNetSim::Backend::TransportationTypes;
+
+bool stderrIsTerminal()
+{
+#if defined(Q_OS_UNIX)
+    return ::isatty(STDERR_FILENO);
+#else
+    return false;
+#endif
+}
 
 QString pathLifecycleName(PathLifecycleState lifecycle)
 {
@@ -92,10 +106,98 @@ QString focusKeyFor(
     return parts.join(QLatin1Char('|'));
 }
 
+const Backend::Scenario::PathProgressSnapshot *focusedPath(
+    const Backend::Scenario::ExecutionProgressSnapshot &snapshot)
+{
+    const Backend::Scenario::PathProgressSnapshot *fallback = nullptr;
+    for (const auto &path : snapshot.paths)
+    {
+        if (!path.executable)
+            continue;
+        if (!fallback)
+            fallback = &path;
+        if (path.lifecycle != PathLifecycleState::Completed)
+            return &path;
+    }
+    return fallback;
+}
+
+QString alternativeScope(
+    const Backend::Scenario::ExecutionProgressSnapshot &snapshot)
+{
+    if (snapshot.alternativeCount <= 1
+        || snapshot.activeAlternativeIndex < 0)
+        return QString();
+
+    return QStringLiteral("alternative=%1/%2")
+        .arg(snapshot.activeAlternativeIndex + 1)
+        .arg(snapshot.alternativeCount);
+}
+
+QString compactSnapshotLine(
+    double currentTimeSec,
+    const Backend::Scenario::ExecutionProgressSnapshot &snapshot)
+{
+    QStringList parts;
+    parts.append(QStringLiteral("[%1%]")
+                     .arg(snapshot.aggregatePercent, 5, 'f', 1));
+
+    const QString alternative = alternativeScope(snapshot);
+    if (!alternative.isEmpty())
+        parts.append(alternative);
+
+    parts.append(QStringLiteral("t=%1 s")
+                     .arg(currentTimeSec, 0, 'f', 1));
+
+    if (const auto *path = focusedPath(snapshot))
+    {
+        if (path->pathId >= 0)
+            parts.append(QStringLiteral("path=%1").arg(path->pathId));
+        if (path->rank >= 0)
+            parts.append(QStringLiteral("rank=%1").arg(path->rank));
+        if (path->activeSegmentIndex >= 0 && path->totalSegments > 0)
+        {
+            parts.append(QStringLiteral("segment=%1/%2")
+                             .arg(path->activeSegmentIndex + 1)
+                             .arg(path->totalSegments));
+        }
+        if (path->activeMode != TransportationTypes::
+                TransportationMode::Any)
+        {
+            parts.append(TransportationTypes::toString(path->activeMode));
+        }
+    }
+    else
+    {
+        parts.append(QStringLiteral("paths=%1/%2")
+                         .arg(snapshot.completedExecutablePaths)
+                         .arg(snapshot.executablePathCount));
+        parts.append(QStringLiteral("segments=%1/%2")
+                         .arg(snapshot.completedExecutableSegments)
+                         .arg(snapshot.executableSegmentCount));
+    }
+
+    return QStringLiteral("  ") + parts.join(QStringLiteral("  "));
+}
+
+QString aggregateProgressLine(double currentTimeSec, double percent)
+{
+    return QStringLiteral("  [%1%]  t=%2 s")
+        .arg(percent,        5, 'f', 1)
+        .arg(currentTimeSec, 0, 'f', 1);
+}
+
 } // namespace
 
-ProgressReporter::ProgressReporter(bool quiet, QIODevice *out)
+ProgressReporter::ProgressReporter(bool quiet, QIODevice *out,
+                                   ProgressRenderMode renderMode)
     : m_quiet(quiet)
+    , m_renderMode(
+          renderMode == ProgressRenderMode::Auto
+              ? (out == nullptr && stderrIsTerminal()
+                     ? ProgressRenderMode::SingleLine
+                     : ProgressRenderMode::AppendLines)
+              : renderMode)
     , m_out(out
                 ? std::make_unique<QTextStream>(out)
                 : std::make_unique<QTextStream>(stderr,
@@ -123,9 +225,16 @@ void ProgressReporter::report(double currentTimeSec, double percent)
 
     m_lastPercent = percent;
     m_lastEmitTimer.restart();
-    *m_out << QStringLiteral("  [%1%]  t=%2 s\n")
-                  .arg(percent,        5, 'f', 1)
-                  .arg(currentTimeSec, 0, 'f', 1);
+    const QString line = aggregateProgressLine(currentTimeSec, percent);
+    if (m_renderMode == ProgressRenderMode::SingleLine)
+    {
+        *m_out << QStringLiteral("\r\033[2K") << line;
+        m_liveLineActive = true;
+    }
+    else
+    {
+        *m_out << line << QLatin1Char('\n');
+    }
     m_out->flush();
 }
 
@@ -153,10 +262,24 @@ void ProgressReporter::reportSnapshot(
     m_lastFocusKey = focusKey;
     m_lastEmitTimer.restart();
 
+    if (m_renderMode == ProgressRenderMode::SingleLine)
+    {
+        *m_out << QStringLiteral("\r\033[2K")
+               << compactSnapshotLine(currentTimeSec, snapshot);
+        m_liveLineActive = true;
+        m_out->flush();
+        return;
+    }
+
+    const QString scope = alternativeScope(snapshot).isEmpty()
+        ? QString()
+        : QStringLiteral("  %1").arg(alternativeScope(snapshot));
+
     *m_out << QStringLiteral(
-                  "  [%1%]  t=%2 s  paths=%3/%4  segments=%5/%6\n")
+                  "  [%1%]  t=%2 s%3  paths=%4/%5  segments=%6/%7\n")
                   .arg(percent,        5, 'f', 1)
                   .arg(currentTimeSec, 0, 'f', 1)
+                  .arg(scope)
                   .arg(snapshot.completedExecutablePaths)
                   .arg(snapshot.executablePathCount)
                   .arg(snapshot.completedExecutableSegments)
@@ -216,8 +339,18 @@ void ProgressReporter::emitFinal(double percent)
 {
     qCDebug(lcCli) << "ProgressReporter::emitFinal: percent" << percent;
     if (m_quiet) return;
-    *m_out << QStringLiteral("  [%1%]  done\n")
-                  .arg(percent, 5, 'f', 1);
+    const QString line = QStringLiteral("  [%1%]  done")
+                             .arg(percent, 5, 'f', 1);
+    if (m_renderMode == ProgressRenderMode::SingleLine)
+    {
+        *m_out << QStringLiteral("\r\033[2K") << line
+               << QLatin1Char('\n');
+        m_liveLineActive = false;
+    }
+    else
+    {
+        *m_out << line << QLatin1Char('\n');
+    }
     m_out->flush();
 }
 
