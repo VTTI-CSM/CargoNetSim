@@ -48,7 +48,7 @@ struct TableColumn
 void emitStatus(QIODevice *sink, const QString &message)
 {
     streamToOr(sink, stderr,
-               QStringLiteral("paths: %1\n").arg(message));
+               QStringLiteral("discover: %1\n").arg(message));
 }
 
 QString modeName(Backend::TransportationTypes::TransportationMode mode)
@@ -567,7 +567,7 @@ bool parseArgs(const QStringList &args, Options &options,
             if (i + 1 >= args.size())
             {
                 *error = QStringLiteral(
-                    "paths: --top requires a positive integer\n");
+                    "discover: --top requires a positive integer\n");
                 return false;
             }
 
@@ -576,7 +576,7 @@ bool parseArgs(const QStringList &args, Options &options,
             if (!ok || value <= 0)
             {
                 *error = QStringLiteral(
-                    "paths: --top requires a positive integer\n");
+                    "discover: --top requires a positive integer\n");
                 return false;
             }
 
@@ -587,7 +587,7 @@ bool parseArgs(const QStringList &args, Options &options,
         if (arg.startsWith(QLatin1Char('-')))
         {
             *error = QStringLiteral(
-                "paths: unsupported flag '%1' "
+                "discover: unsupported flag '%1' "
                 "(supported: --top N, --json, --details)\n")
                          .arg(arg);
             return false;
@@ -598,14 +598,14 @@ bool parseArgs(const QStringList &args, Options &options,
     if (options.json && options.details)
     {
         *error = QStringLiteral(
-            "paths: --json and --details cannot be used together\n");
+            "discover: --json and --details cannot be used together\n");
         return false;
     }
 
     if (positional.size() != 1)
     {
         *error = QStringLiteral(
-            "paths: expected exactly one scenario argument\n");
+            "discover: expected exactly one scenario argument\n");
         return false;
     }
 
@@ -651,7 +651,7 @@ int PathsCommand::execute(const QStringList &args)
             : QStringLiteral(": ") + parseResult.message;
         streamToOr(m_err, stderr,
                    QStringLiteral(
-                       "paths: failed to parse %1%2\n")
+                       "discover: failed to parse %1%2\n")
                        .arg(options.scenarioPath, suffix));
         return static_cast<int>(ExitCode::ValidationFailed);
     }
@@ -675,7 +675,7 @@ int PathsCommand::execute(const QStringList &args)
             ? QStringLiteral("backend bootstrap failed")
             : bootstrapResult.message;
         streamToOr(m_err, stderr,
-                   QStringLiteral("paths: %1\n").arg(reason));
+                   QStringLiteral("discover: %1\n").arg(reason));
         return static_cast<int>(ExitCode::ConnectTimeout);
     }
     auto stopGuard = qScopeGuard([&controller]() {
@@ -690,7 +690,7 @@ int PathsCommand::execute(const QStringList &args)
     {
         streamToOr(m_err, stderr,
                    QStringLiteral(
-                       "paths: scenario apply failed: %1\n")
+                       "discover: scenario apply failed: %1\n")
                        .arg(loadResult.message));
         return static_cast<int>(ExitCode::RunFailed);
     }
@@ -719,7 +719,7 @@ int PathsCommand::execute(const QStringList &args)
             : preparedResult.message;
         streamToOr(m_err, stderr,
                    QStringLiteral(
-                       "paths: path discovery failed: %1\n")
+                       "discover: path discovery failed: %1\n")
                        .arg(reason));
         return static_cast<int>(
             preparedResult.status

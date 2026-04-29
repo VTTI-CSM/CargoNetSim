@@ -16,7 +16,9 @@
 #include "Backend/CliApi/ResultsApi.h"
 #include "Backend/CliApi/ScenarioDocumentApi.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Models/Path.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "CLI/Commands/CommandOutput.h"
 #include "CLI/Commands/IssueFormatter.h"
@@ -32,7 +34,7 @@ namespace {
 
 /// Argument shape for `run`. `--all` selects every prepared candidate
 /// path; `--paths` selects a comma-separated subset by the 1-based
-/// presentation index shown by the `paths` command. Selection is
+/// presentation index shown by the `discover` command. Selection is
 /// translated to stable prepared-path identities after discovery.
 /// A bare scenario path remains a documented alias for `--all`.
 struct Options
@@ -203,6 +205,112 @@ void emitStatus(QIODevice *sink, const QString &message)
 {
     streamToOr(sink, stderr,
                QStringLiteral("run: %1\n").arg(message));
+}
+
+const Backend::Path *findPathForResult(
+    const QList<Backend::Path *> &paths,
+    const Backend::Scenario::PathSimulationResult &result)
+{
+    for (const auto *path : paths)
+    {
+        if (!path)
+            continue;
+        if (!result.canonicalPathKey.isEmpty()
+            && path->canonicalPathKey() == result.canonicalPathKey)
+            return path;
+        if (!result.pathUid.isEmpty()
+            && path->getPathUid() == result.pathUid)
+            return path;
+        if (path->getPathId() == result.pathId
+            && path->getRank() == result.rank)
+            return path;
+    }
+    return nullptr;
+}
+
+QString modeSequenceForPath(const Backend::Path *path)
+{
+    if (!path)
+        return QStringLiteral("unknown");
+
+    QStringList modes;
+    for (const auto *segment : path->getSegments())
+    {
+        if (!segment)
+            continue;
+        modes.append(Backend::TransportationTypes::toString(
+            segment->getMode()));
+    }
+
+    return modes.isEmpty()
+        ? QStringLiteral("unknown")
+        : modes.join(QStringLiteral(" -> "));
+}
+
+int segmentCountForPath(const Backend::Path *path)
+{
+    return path ? path->getSegments().size() : 0;
+}
+
+QString money(double value)
+{
+    return QStringLiteral("$%1").arg(value, 0, 'f', 2);
+}
+
+void emitResultsSummary(
+    QIODevice *sink,
+    const Backend::Scenario::ScenarioDocument &doc,
+    const QList<Backend::Scenario::PathSimulationResult> &results,
+    const QList<Backend::Path *> &paths)
+{
+    const QString outDir = doc.output.directory.isEmpty()
+        ? QDir::currentPath()
+        : doc.output.directory;
+    const QDir outputDir(outDir);
+
+    streamToOr(sink, stderr,
+               QStringLiteral(
+                   "run: results saved to %1\n")
+                   .arg(outputDir.absolutePath()));
+    for (const auto &fmt : doc.output.formats)
+    {
+        if (fmt == QLatin1String("json")
+            || fmt == QLatin1String("csv"))
+        {
+            streamToOr(sink, stderr,
+                       QStringLiteral("run:   %1: %2\n")
+                           .arg(fmt,
+                                outputDir.absoluteFilePath(
+                                    QStringLiteral("results.%1")
+                                        .arg(fmt))));
+        }
+    }
+
+    streamToOr(sink, stderr,
+               QStringLiteral(
+                   "run: summary: %1 path(s) simulated\n")
+                   .arg(results.size()));
+
+    for (const auto &result : results)
+    {
+        const Backend::Path *path =
+            findPathForResult(paths, result);
+        const int segmentCount = segmentCountForPath(path);
+        const QString modes = modeSequenceForPath(path);
+
+        streamToOr(
+            sink, stderr,
+            QStringLiteral(
+                "run:   path_id=%1 rank=%2 containers=%3 segments=%4 [%5] total=%6 edges=%7 terminals=%8\n")
+                .arg(result.pathId)
+                .arg(result.rank)
+                .arg(result.effectiveContainerCount)
+                .arg(segmentCount)
+                .arg(modes)
+                .arg(money(result.totalCost),
+                     money(result.edgeCosts),
+                     money(result.terminalCosts)));
+    }
 }
 
 bool waitForSimulationEnd(Backend::Scenario::ScenarioRuntime &rt,
@@ -550,7 +658,11 @@ int RunCommand::execute(const QStringList &args)
     // Routes through the same sink as our diagnostics so tests (and
     // users who redirect stderr) capture everything in one stream.
     qCDebug(lcCli) << "RunCommand::execute: [stage 7] attaching progress reporter...";
-    ProgressReporter reporter(/*quiet=*/false, m_err);
+    ProgressReporter reporter(
+        /*quiet=*/false,
+        m_err,
+        m_verbose ? ProgressRenderMode::AppendLines
+                  : ProgressRenderMode::Auto);
     reporter.setVerbose(m_verbose);
     QObject::connect(
         &rt, &ScenarioRuntime::progressSnapshotChanged,
@@ -617,6 +729,8 @@ int RunCommand::execute(const QStringList &args)
                      pathKeysByCanonicalPath);
     if (writeCode != static_cast<int>(ExitCode::Success))
         return writeCode;
+
+    emitResultsSummary(m_err, rt.document(), results, rt.paths());
 
     qCInfo(lcCli) << "RunCommand::execute: finished — exit code = Success";
     return static_cast<int>(ExitCode::Success);

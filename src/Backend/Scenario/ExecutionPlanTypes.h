@@ -550,6 +550,8 @@ struct PathProgressSnapshot
 struct ExecutionProgressSnapshot
 {
     double aggregatePercent = 0.0;
+    int    activeAlternativeIndex = -1;
+    int    alternativeCount = 0;
     int    completedExecutablePaths = 0;
     int    executablePathCount = 0;
     int    completedExecutableSegments = 0;

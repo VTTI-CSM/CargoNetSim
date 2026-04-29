@@ -50,7 +50,7 @@ namespace Cli {
  * Argument contract: `run` takes exactly one positional scenario YAML
  * file. `--all` selects every prepared candidate path. `--paths`
  * selects a comma-separated subset by the 1-based presentation index
- * shown by `cargonetsim-cli paths`; the command translates those
+ * shown by `cargonetsim-cli discover`; the command translates those
  * indexes to stable prepared-path identities before simulation.
  * Every selected alternative executes as an isolated what-if run under
  * duplicate-demand comparison policy. A bare scenario path is treated

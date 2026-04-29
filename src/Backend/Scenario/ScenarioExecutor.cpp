@@ -685,6 +685,8 @@ bool ScenarioExecutor::runIsolatedAlternativeExecutions()
                           + (snapshot.aggregatePercent / 100.0))
                          / static_cast<double>(totalAlternatives))
                         * 100.0;
+                    adjusted.activeAlternativeIndex = index;
+                    adjusted.alternativeCount = totalAlternatives;
                     emit progressSnapshotChanged(currentTime,
                                                  adjusted);
                 });
