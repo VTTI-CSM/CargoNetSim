@@ -130,65 +130,19 @@ public:
     bool startAll();
 
     /**
+     * @brief Wait until all client-thread startup work completes
+     * @param timeoutMs Maximum time to wait for queued startup tasks
+     * @param errorMessage Optional error output when startup fails
+     * @return True when every client reported ready before timeout
+     */
+    bool waitForAllClientsReady(
+        int timeoutMs, QString *errorMessage = nullptr);
+
+    /**
      * @brief Stops all simulation clients
      * @return True if all clients stopped successfully
      */
     bool stopAll();
-
-    // ==========================================
-    // Simulation Orchestration
-    // ==========================================
-
-    /**
-     * @brief Run the simulation loop until completion
-     * @return True if simulation completed successfully
-     */
-    Q_INVOKABLE bool runSimulation();
-
-    /**
-     * @brief Execute a single simulation time step
-     * @return True if step completed, false if simulation ended
-     */
-    Q_INVOKABLE bool runSimulationStep();
-
-    /**
-     * @brief Pause the running simulation
-     */
-    Q_INVOKABLE void pauseSimulation();
-
-    /**
-     * @brief Resume a paused simulation
-     */
-    Q_INVOKABLE void resumeSimulation();
-
-    /**
-     * @brief Stop the simulation completely
-     */
-    Q_INVOKABLE void stopSimulation();
-
-    /**
-     * @brief Check if simulation is currently running
-     * @return True if running
-     */
-    Q_INVOKABLE bool isSimulationRunning() const;
-
-    /**
-     * @brief Check if simulation is paused
-     * @return True if paused
-     */
-    Q_INVOKABLE bool isSimulationPaused() const;
-
-    /**
-     * @brief Get current simulation time
-     * @return Current time in seconds
-     */
-    Q_INVOKABLE double getCurrentSimulationTime() const;
-
-    /**
-     * @brief Set the simulation end time
-     * @param endTime End time in seconds
-     */
-    Q_INVOKABLE void setSimulationEndTime(double endTime);
 
     // ==========================================
     // Dynamic Interventions
@@ -244,6 +198,12 @@ public:
      */
     Backend::TruckClient::TruckSimulationManager *
     getTruckManager() const;
+
+    /**
+     * @brief Returns the truck simulator executable path used to
+     *        initialize the controller.
+     */
+    QString truckExecutablePath() const;
 
     // ==========================================
     // GUI/CLI Façade Operations
@@ -389,6 +349,16 @@ signals:
      */
     void allClientsReady();
 
+    /**
+     * @brief Signal emitted whenever a queued client startup finishes
+     * @param clientType Type of client whose startup finished
+     * @param success Whether the queued startup succeeded
+     * @param errorMessage Error text when startup failed
+     */
+    void clientStartupFinished(
+        CargoNetSim::Backend::ClientType clientType, bool success,
+        const QString &errorMessage);
+
     ////////////// Terminal Client ////////////////////
     /**
      * @brief Signal to request terminal capacity
@@ -415,28 +385,6 @@ signals:
     void requestAddContainers(const QString &terminalId,
                               const QString &containersJson,
                               bool          &result);
-
-    /**
-     * @brief Emitted after each simulation step completes
-     * @param currentTime Current simulation time after step
-     * @param progress Overall progress percentage (0-100)
-     */
-    void simulationStepCompleted(double currentTime, double progress);
-
-    /**
-     * @brief Emitted when simulation completes
-     */
-    void simulationCompleted();
-
-    /**
-     * @brief Emitted when simulation is paused
-     */
-    void simulationPaused();
-
-    /**
-     * @brief Emitted when simulation is resumed
-     */
-    void simulationResumed();
 
     /**
      * @brief Emitted when a terminal is closed
@@ -499,9 +447,14 @@ private:
     void queueShipClientStartup();
     void queueTrainClientStartup();
     void queueTerminalClientStartup();
+    void recordClientStartupResult(
+        Backend::ClientType clientType, bool success,
+        const QString &errorMessage);
 
     // SimulationTime
     Backend::SimulationTime *m_simulationTime;
+
+    QString m_truckExecutablePath;
 
     // Client threads
     QThread *m_truckThread;
@@ -528,22 +481,14 @@ private:
 
     // Track client initialization status
     QMap<Backend::ClientType, bool> m_clientInitialized;
+    QMap<Backend::ClientType, bool> m_clientReady;
+    QMap<Backend::ClientType, QString> m_clientStartupErrors;
     int                    m_initializedClientCount;
+    int                    m_completedStartupCount;
     int                    m_readyClientCount;
-
-    // Simulation state
-    bool m_simulationRunning = false;
-    bool m_simulationPaused = false;
-    double m_simulationEndTime = 0.0;
 
     // Closed terminals for rerouting
     QMap<QString, QString> m_closedTerminals;  // terminalId -> alternativeId
-
-    // Private helper methods
-    void advanceAllSimulators(double deltaT);
-    void updateAllTerminalsSD(double currentTime, double deltaT);
-    void processSimulatorEvents();
-    bool checkSimulationComplete();
 };
 
 } // namespace CargoNetSim

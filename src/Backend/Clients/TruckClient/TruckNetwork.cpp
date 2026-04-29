@@ -839,6 +839,8 @@ IntegrationSimulationConfigReader::readConfig(
                 "Failed to initialize configuration");
         }
 
+        config->setSourceConfigPath(configFilePath);
+
         return config;
     }
     catch (const std::exception &e)

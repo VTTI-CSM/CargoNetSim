@@ -313,6 +313,11 @@ signals:
      * @param networkName Network name of the updated client
      */
     void clientUpdated(const QString &networkName);
+
+    void tripEnded(const QString &networkName,
+                   const QString &tripId);
+
+    void tripEndedWithData(const TripEndData &tripData);
 };
 
 } // namespace TruckClient

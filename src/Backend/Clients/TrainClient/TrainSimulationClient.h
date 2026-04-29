@@ -40,6 +40,8 @@ namespace CargoNetSim
 {
 namespace Backend
 {
+class SimulatorHealthProbeTransport;
+
 namespace TrainClient
 {
 
@@ -124,6 +126,8 @@ public:
         TerminalSimulationClient *terminalClient = nullptr,
         LoggerInterface *logger = nullptr) override;
 
+    bool probeCommandAvailability(int timeoutMs = 500) override;
+
     /**
      * @brief Defines a simulator using a network name
      *
@@ -163,20 +167,22 @@ public:
                          const QList<Train *> &trains = {});
 
     /**
-     * @brief Runs the simulator for specified networks
+     * @brief Runs the simulator for a bounded interactive chunk
      *
-     * Initiates simulation execution for given networks or
-     * all if
-     * "*" is specified.
+     * Initiates simulation execution for the given networks or
+     * all if "*" is specified, waiting for the server response
+     * associated with the requested chunk length.
      *
-     * @param networkNames List of network names or "*" for
-     * all
-     * @param byTimeSteps Steps to run, -1 for unlimited,
-     * defaults to -1
+     * Production code should prefer advanceByTimeStep(). This method
+     * accepts only positive bounded chunks; unlimited execution is not
+     * exposed by the CargoNetSim client API.
+     *
+     * @param networkNames List of network names or "*" for all
+     * @param byTimeSteps Explicit chunk length to request
      * @return True if simulation starts successfully
      */
     bool runSimulator(const QStringList &networkNames,
-                      double byTimeSteps = -1.0);
+                      double byTimeSteps);
 
     /**
      * @brief Advance simulation by a specific time step
@@ -310,7 +316,36 @@ protected:
     void onEventReceived(const QString     &normalizedEvent,
                          const QJsonObject &message) override;
 
+signals:
+    void segmentVehicleArrived(const QString &networkName,
+                               const QString &vehicleId,
+                               const QString &runtimeTerminalId,
+                               double         eventTimeSeconds);
+
+    void segmentUnloadSucceeded(const QString &networkName,
+                                const QString &vehicleId,
+                                const QString &terminalId,
+                                double         eventTimeSeconds);
+
+    void segmentUnloadFailed(const QString &networkName,
+                             const QString &vehicleId,
+                             const QString &terminalId,
+                             const QString &message,
+                             double         eventTimeSeconds);
+
+    void terminalHandoffSucceeded(const QString &networkName,
+                                  const QString &vehicleId,
+                                  const QString &scenarioTerminalId,
+                                  double         eventTimeSeconds);
+
+    void terminalHandoffFailed(const QString &networkName,
+                               const QString &vehicleId,
+                               const QString &message,
+                               double         eventTimeSeconds);
+
 private:
+    SimulatorHealthProbeTransport *m_healthProbeTransport =
+        nullptr;
     /**
      * @brief Internal method to unload containers from a
      * train
@@ -326,7 +361,8 @@ private:
      */
     bool unloadTrainPrivate(
         const QString &networkName, const QString &trainId,
-        const QStringList &containersDestinationNames);
+        const QStringList &containersDestinationNames,
+        QString           *errorMessage = nullptr);
 
     /**
      * @brief Handles simulation created event

@@ -337,6 +337,7 @@ QJsonObject segmentEntryToJson(
 
 QJsonObject pathRecordToJson(
     const Backend::Application::PathPresentationRecord &record,
+    int selectionIndex,
     const Backend::Application::PathPresentationSummary &summary,
     const QList<Backend::Application::PathPresentationTerminalEntry>
         &terminals,
@@ -344,6 +345,8 @@ QJsonObject pathRecordToJson(
         &segments)
 {
     QJsonObject object;
+    object[QStringLiteral("selection_index")] =
+        selectionIndex;
     object[QStringLiteral("path_identity")] =
         record.pathIdentity;
     object[QStringLiteral("canonical_path_key")] =
@@ -392,11 +395,13 @@ QJsonObject pathRecordToJson(
 
 QString summaryLine(
     const Backend::Application::PathPresentationRecord &record,
+    int selectionIndex,
     const Backend::Application::PathPresentationSummary &summary)
 {
     const auto &metrics = record.predictedMetrics;
 
     static const QList<TableColumn> kColumns = {
+        {QStringLiteral("Select"), 6, true},
         {QStringLiteral("Rank"), 4, true},
         {QStringLiteral("Route"), 42, false},
         {QStringLiteral("Total USD"), 12, true},
@@ -412,7 +417,8 @@ QString summaryLine(
     };
 
     return renderTableRow(
-        {QString::number(record.path ? record.path->getRank() : -1),
+        {QString::number(selectionIndex),
+         QString::number(record.path ? record.path->getRank() : -1),
          routeText(record, summary),
          formatNumber(summary.predictedTotalCost, 2),
          formatNumber(summary.predictedEdgeCost, 2),
@@ -488,6 +494,7 @@ QString segmentLine(
 QString summaryHeader()
 {
     static const QList<TableColumn> kColumns = {
+        {QStringLiteral("Select"), 6, true},
         {QStringLiteral("Rank"), 4, true},
         {QStringLiteral("Route"), 42, false},
         {QStringLiteral("Total USD"), 12, true},
@@ -742,6 +749,7 @@ int PathsCommand::execute(const QStringList &args)
             preparedResult.preparedPathCount;
 
         QJsonArray paths;
+        int selectionIndex = 1;
         for (const auto &record : records)
         {
             const auto summary =
@@ -750,8 +758,10 @@ int PathsCommand::execute(const QStringList &args)
                 presentationService.terminalEntries(record);
             const auto segments =
                 presentationService.segmentEntries(record);
-            paths.append(pathRecordToJson(record, summary,
+            paths.append(pathRecordToJson(record, selectionIndex,
+                                          summary,
                                           terminals, segments));
+            ++selectionIndex;
         }
         root[QStringLiteral("paths")] = paths;
 
@@ -769,19 +779,24 @@ int PathsCommand::execute(const QStringList &args)
     lines.append(QString());
     lines.append(summaryHeader());
 
+    int selectionIndex = 1;
     for (const auto &record : records)
     {
         const auto summary =
             presentationService.summary(record);
-        lines.append(summaryLine(record, summary));
+        lines.append(summaryLine(record, selectionIndex, summary));
 
         if (!options.details)
+        {
+            ++selectionIndex;
             continue;
+        }
 
         const auto &metrics = record.predictedMetrics;
         lines.append(QString());
-        lines.append(QStringLiteral("Path %1").arg(
-            record.path ? record.path->getRank() : -1));
+        lines.append(QStringLiteral("Selection %1 (rank %2)")
+                         .arg(selectionIndex)
+                         .arg(record.path ? record.path->getRank() : -1));
         lines.append(QStringLiteral("  Route: %1")
                          .arg(routeText(record, summary)));
         lines.append(QStringLiteral(
@@ -817,6 +832,8 @@ int PathsCommand::execute(const QStringList &args)
         for (const auto &segment : segments)
             lines.append(QStringLiteral("  %1")
                              .arg(segmentLine(segment)));
+
+        ++selectionIndex;
     }
 
     if (!options.details)

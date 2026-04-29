@@ -4,6 +4,7 @@
 #include <QEventLoop>
 #include <QIODevice>
 #include <QScopeGuard>
+#include <QSet>
 
 #include <cstdio>
 #include <functional>
@@ -29,52 +30,172 @@ namespace Cli {
 
 namespace {
 
-/// Argument shape for `run`. The parity target is explicit selection;
-/// Track A1 currently exposes only `--all`, while a bare scenario path
-/// remains a documented temporary alias for `--all`.
+/// Argument shape for `run`. `--all` selects every prepared candidate
+/// path; `--paths` selects a comma-separated subset by the 1-based
+/// presentation index shown by the `paths` command. Selection is
+/// translated to stable prepared-path identities after discovery.
+/// A bare scenario path remains a documented alias for `--all`.
 struct Options
 {
-    QString scenarioPath;
-    bool    selectAll = false;
+    QString      scenarioPath;
+    bool         selectAll = false;
+    bool         verbose = false;
+    QVector<int> selectedPathIndexes;
 };
+
+bool parsePathSelection(const QString &value,
+                        QVector<int>  &indexes,
+                        QString       *err)
+{
+    if (value.trimmed().isEmpty())
+    {
+        *err = QStringLiteral(
+            "run: --paths requires a comma-separated list of positive path indexes\n");
+        return false;
+    }
+
+    QVector<int> parsed;
+    QSet<int>    seen;
+    const QStringList parts =
+        value.split(QLatin1Char(','), Qt::KeepEmptyParts);
+    for (const QString &part : parts)
+    {
+        const QString token = part.trimmed();
+        bool          ok = false;
+        const int     index = token.toInt(&ok);
+        if (!ok || index <= 0)
+        {
+            *err = QStringLiteral(
+                       "run: --paths requires positive integer path indexes; got '%1'\n")
+                       .arg(token);
+            return false;
+        }
+        if (seen.contains(index))
+        {
+            *err = QStringLiteral(
+                       "run: --paths contains duplicate path index '%1'\n")
+                       .arg(index);
+            return false;
+        }
+
+        seen.insert(index);
+        parsed.append(index);
+    }
+
+    indexes = std::move(parsed);
+    return true;
+}
 
 bool parseArgs(const QStringList &args, Options &o, QString *err)
 {
     QStringList positional;
 
-    for (const QString &arg : args)
+    for (int i = 0; i < args.size(); ++i)
     {
+        const QString &arg = args.at(i);
         if (arg == QLatin1String("--all"))
         {
             o.selectAll = true;
+            continue;
+        }
+        if (arg == QLatin1String("--paths"))
+        {
+            if (i + 1 >= args.size())
+            {
+                *err = QStringLiteral(
+                    "run: --paths requires a comma-separated list of positive path indexes\n");
+                return false;
+            }
+            if (!parsePathSelection(args.at(++i),
+                                    o.selectedPathIndexes, err))
+                return false;
+            continue;
+        }
+        if (arg.startsWith(QLatin1String("--paths=")))
+        {
+            const QString value =
+                arg.mid(QStringLiteral("--paths=").size());
+            if (!parsePathSelection(value,
+                                    o.selectedPathIndexes, err))
+                return false;
+            continue;
+        }
+        if (arg == QLatin1String("--verbose"))
+        {
+            o.verbose = true;
             continue;
         }
         if (arg.startsWith(QLatin1Char('-')))
         {
             *err = QStringLiteral(
                 "run: unsupported flag '%1' "
-                "(supported today: --all)\n")
+                "(supported: --all, --paths LIST, --verbose)\n")
                 .arg(arg);
             return false;
         }
         positional.append(arg);
     }
 
+    if (o.selectAll && !o.selectedPathIndexes.isEmpty())
+    {
+        *err = QStringLiteral(
+            "run: --all and --paths cannot be used together\n");
+        return false;
+    }
+
     if (positional.size() != 1)
     {
         *err = QStringLiteral(
             "run: expected exactly one scenario argument "
-            "and optional --all\n");
+            "and optional --all/--paths/--verbose\n");
         return false;
     }
 
     o.scenarioPath = positional.first();
-    if (!o.selectAll)
+    if (!o.selectAll && o.selectedPathIndexes.isEmpty())
     {
         // Transition behavior: bare `run scenario.yml` still maps to
-        // `--all` until narrower subset-addressing is introduced.
+        // `--all` for existing scripts.
         o.selectAll = true;
     }
+    return true;
+}
+
+bool selectedPathIdentitiesForIndexes(
+    const Backend::Scenario::PreparedPathSet &prepared,
+    const QVector<int>                       &indexes,
+    QVector<QString>                         *selected,
+    QString                                  *err)
+{
+    selected->clear();
+    selected->reserve(indexes.size());
+
+    const auto &records = prepared.records();
+    for (int presentationIndex : indexes)
+    {
+        const int zeroBasedIndex = presentationIndex - 1;
+        if (zeroBasedIndex < 0
+            || zeroBasedIndex >= static_cast<int>(records.size()))
+        {
+            *err = QStringLiteral(
+                       "run: --paths requested path index %1, but only %2 path(s) were discovered\n")
+                       .arg(presentationIndex)
+                       .arg(records.size());
+            return false;
+        }
+
+        const QString &identity =
+            records.at(static_cast<size_t>(zeroBasedIndex)).pathIdentity;
+        if (identity.isEmpty())
+        {
+            *err = QStringLiteral(
+                       "run: discovered path index %1 does not have a stable path identity\n")
+                       .arg(presentationIndex);
+            return false;
+        }
+        selected->append(identity);
+    }
+
     return true;
 }
 
@@ -164,8 +285,9 @@ int RunCommand::writeOutputs(
     }
     qCDebug(lcCli) << "RunCommand::writeOutputs: output directory ="
                    << outDir;
-    emitStatus(m_err,
-               QStringLiteral("writing outputs to %1").arg(outDir));
+    if (m_verbose)
+        emitStatus(m_err,
+                   QStringLiteral("writing outputs to %1").arg(outDir));
 
     bool writerFailed = false;
     for (const auto &fmt : doc.output.formats)
@@ -245,6 +367,7 @@ int RunCommand::execute(const QStringList &args)
         streamToOr(m_err, stderr, err);
         return static_cast<int>(ExitCode::BadArgs);
     }
+    m_verbose = opt.verbose;
 
     qCInfo(lcCli) << "RunCommand::execute: scenario path =" << opt.scenarioPath;
 
@@ -307,7 +430,8 @@ int RunCommand::execute(const QStringList &args)
     // stopAll fires on every exit path from here on — success OR
     // failure. No leaked client threads.
     auto ctlGuard = qScopeGuard([&ctl] { ctl.stopAll(); });
-    emitStatus(m_err, QStringLiteral("backend clients started"));
+    if (m_verbose)
+        emitStatus(m_err, QStringLiteral("backend clients started"));
 
     // ---- 4. Construct runtime + apply scenario -------------------------
     qCDebug(lcCli) << "RunCommand::execute: [stage 4] constructing runtime and applying scenario...";
@@ -323,14 +447,16 @@ int RunCommand::execute(const QStringList &args)
     }
     ScenarioRuntime &rt = *loadResult.runtime;
     qCDebug(lcCli) << "RunCommand::execute: scenario applied successfully";
-    emitStatus(m_err, QStringLiteral("scenario loaded"));
+    if (m_verbose)
+        emitStatus(m_err, QStringLiteral("scenario loaded"));
 
     // ---- 5. Path discovery ---------------------------------------------
     const int n = ctl.getSimulationParams()
                       .value("shortest_paths", 5).toInt();
     qCDebug(lcCli) << "RunCommand::execute: [stage 5] running path discovery (shortestPathsN ="
                    << n << ")...";
-    emitStatus(m_err, QStringLiteral("discovering candidate paths"));
+    if (m_verbose)
+        emitStatus(m_err, QStringLiteral("discovering candidate paths"));
     Backend::Application::PreparedPathService preparedPathService(
         &ctl);
     auto preparedResult =
@@ -353,9 +479,10 @@ int RunCommand::execute(const QStringList &args)
     qCDebug(lcCli) << "RunCommand::execute: path discovery found"
                    << preparedResult.preparedPathCount
                    << "paths";
-    emitStatus(m_err,
-               QStringLiteral("discovered %1 path(s)")
-                   .arg(preparedResult.preparedPathCount));
+    if (m_verbose)
+        emitStatus(m_err,
+                   QStringLiteral("discovered %1 path(s)")
+                       .arg(preparedResult.preparedPathCount));
 
     auto prepared = std::move(preparedResult.preparedPaths);
     rt.setPreparedPaths(prepared);
@@ -366,25 +493,40 @@ int RunCommand::execute(const QStringList &args)
 
     // ---- 6. Determine the selected simulation set ----------------------
     Backend::Application::SimulationRunService runService;
+    QVector<QString> selectedPathIdentities;
     if (opt.selectAll)
     {
-        const auto selectionResult =
-            runService.selectAndValidate(
-                rt, prepared.pathIdentities());
-        if (!selectionResult.succeeded())
+        selectedPathIdentities = prepared.pathIdentities();
+    }
+    else
+    {
+        QString selectionError;
+        if (!selectedPathIdentitiesForIndexes(
+                prepared, opt.selectedPathIndexes,
+                &selectedPathIdentities, &selectionError))
         {
-            streamToOr(m_err, stderr,
-                       QStringLiteral("run: %1\n")
-                           .arg(selectionResult.message.isEmpty()
-                                    ? QStringLiteral(
-                                          "failed to select prepared paths")
-                                    : selectionResult.message));
-            return static_cast<int>(
-                selectionResult.status
-                    == Backend::Application::SimulationRunServiceStatus::ValidationFailed
-                ? ExitCode::ConnectTimeout
-                : ExitCode::RunFailed);
+            streamToOr(m_err, stderr, selectionError);
+            return static_cast<int>(ExitCode::BadArgs);
         }
+    }
+
+    const auto selectionResult =
+        runService.selectAndValidate(
+            rt, selectedPathIdentities,
+            ExecutionDemandPolicy::DuplicateDemandPerSelectedPath);
+    if (!selectionResult.succeeded())
+    {
+        streamToOr(m_err, stderr,
+                   QStringLiteral("run: %1\n")
+                       .arg(selectionResult.message.isEmpty()
+                                ? QStringLiteral(
+                                      "failed to select prepared paths")
+                                : selectionResult.message));
+        return static_cast<int>(
+            selectionResult.status
+                == Backend::Application::SimulationRunServiceStatus::ValidationFailed
+            ? ExitCode::ConnectTimeout
+            : ExitCode::RunFailed);
     }
 
     const QList<Backend::Path *> simulationSet = rt.paths();
@@ -396,27 +538,38 @@ int RunCommand::execute(const QStringList &args)
         return static_cast<int>(ExitCode::RunFailed);
     }
 
-    emitStatus(m_err,
-               QStringLiteral("selected %1 path(s) for simulation")
-                   .arg(simulationSet.size()));
+    if (m_verbose)
+    {
+        emitStatus(m_err,
+                   QStringLiteral(
+                       "selected %1 path(s) for sequential duplicate-demand comparison")
+                       .arg(simulationSet.size()));
+    }
 
     // ---- 7. Progress reporter + status streaming -----------------------
     // Routes through the same sink as our diagnostics so tests (and
     // users who redirect stderr) capture everything in one stream.
     qCDebug(lcCli) << "RunCommand::execute: [stage 7] attaching progress reporter...";
     ProgressReporter reporter(/*quiet=*/false, m_err);
-    QObject::connect(&rt, &ScenarioRuntime::progressChanged,
-                     [&reporter](double t, double p) {
-                         reporter.report(t, p);
-                     });
-    QObject::connect(&rt, &ScenarioRuntime::statusMessage,
-                     [this](const QString &message) {
-                         emitStatus(m_err, message);
-                     });
+    reporter.setVerbose(m_verbose);
+    QObject::connect(
+        &rt, &ScenarioRuntime::progressSnapshotChanged,
+        [&reporter](double t,
+                    const ExecutionProgressSnapshot &snapshot) {
+            reporter.reportSnapshot(t, snapshot);
+        });
+    if (m_verbose)
+    {
+        QObject::connect(&rt, &ScenarioRuntime::statusMessage,
+                         [this](const QString &message) {
+                             emitStatus(m_err, message);
+                         });
+    }
 
     // ---- 8. Start + block until completed / failed ---------------------
     qCInfo(lcCli) << "RunCommand::execute: [stage 8] starting simulation...";
-    emitStatus(m_err, QStringLiteral("starting simulation"));
+    if (m_verbose)
+        emitStatus(m_err, QStringLiteral("starting simulation"));
     QString       failMsg;
     Backend::Application::SimulationRunServiceResult startResult;
     const bool okRun = waitForSimulationEnd(

@@ -122,6 +122,50 @@ findTruck(const ScenarioRegistry &registry,
     return net;
 }
 
+TruckClient::IntegrationSimulationConfig *
+findTruckConfig(const ScenarioRegistry &registry,
+                const QString          &regionName,
+                const QString          &networkName)
+{
+    qCDebug(lcScenario) << "NetworkLookup::findTruckConfig:"
+                        << "region =" << regionName
+                        << ", network =" << networkName;
+
+    if (registry.hasPreviewNetworks())
+    {
+        auto *cfg = registry.previewTruckConfig(networkName);
+        if (!cfg)
+        {
+            qCWarning(lcScenario)
+                << "NetworkLookup::findTruckConfig:"
+                << "preview truck config" << networkName
+                << "not found";
+        }
+        return cfg;
+    }
+
+    auto *rdc =
+        CargoNetSim::CargoNetSimController::getInstance()
+            .getRegionDataController();
+    auto *rd = rdc ? rdc->getRegionData(regionName) : nullptr;
+    if (!rd)
+    {
+        qCWarning(lcScenario) << "NetworkLookup::findTruckConfig:"
+                              << "no region data for" << regionName;
+        return nullptr;
+    }
+
+    auto *cfg = rd->getTruckNetworkConfig(networkName);
+    if (!cfg)
+    {
+        qCWarning(lcScenario)
+            << "NetworkLookup::findTruckConfig:"
+            << "truck config" << networkName
+            << "not found in region" << regionName;
+    }
+    return cfg;
+}
+
 QString networkNameOf(QObject *network, NetworkKind *outKind)
 {
     if (!network) return QString();

@@ -11,6 +11,7 @@
 #include <thread>
 
 #include "Backend/Commons/LogCategories.h"
+#include <QCoreApplication>
 #ifdef _WIN32
 #include <winsock2.h>
 #else
@@ -21,6 +22,60 @@ namespace CargoNetSim
 {
 namespace Backend
 {
+
+namespace
+{
+
+QString makeScopedReplySuffix()
+{
+    return QStringLiteral("%1.%2")
+        .arg(static_cast<qint64>(QCoreApplication::applicationPid()))
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+}
+
+QString makeScopedResponseQueueName(const QString &baseQueueName,
+                                    const QString &replySuffix)
+{
+    return QStringLiteral("%1.%2").arg(baseQueueName, replySuffix);
+}
+
+QStringList makeScopedReceivingRoutingKeys(
+    const QStringList &baseRoutingKeys, const QString &replySuffix)
+{
+    QStringList scopedRoutingKeys;
+    scopedRoutingKeys.reserve(baseRoutingKeys.size());
+    for (const QString &routingKey : baseRoutingKeys)
+    {
+        scopedRoutingKeys.append(
+            QStringLiteral("%1.%2").arg(routingKey, replySuffix));
+    }
+    return scopedRoutingKeys;
+}
+
+int openSocketWithTimeout(amqp_socket_t *socket, const QString &host,
+                          int port)
+{
+    QByteArray hostBytes = host.toUtf8();
+    timeval    timeout;
+    timeout.tv_sec  = 2;
+    timeout.tv_usec = 0;
+    return amqp_socket_open_noblock(
+        socket, hostBytes.constData(), port, &timeout);
+}
+
+void configureConnectionTimeouts(amqp_connection_state_t connection)
+{
+    if (connection == nullptr)
+        return;
+
+    timeval timeout;
+    timeout.tv_sec  = 2;
+    timeout.tv_usec = 0;
+    amqp_set_handshake_timeout(connection, &timeout);
+    amqp_set_rpc_timeout(connection, &timeout);
+}
+
+} // namespace
 
 /**
  * Constructor initializes the RabbitMQ handler with
@@ -43,9 +98,12 @@ RabbitMQHandler::RabbitMQHandler(
     , m_password(password)
     , m_exchange(exchange)
     , m_commandQueue(commandQueue)
-    , m_responseQueue(responseQueue)
+    , m_responseQueue(
+          makeScopedResponseQueueName(responseQueue, makeScopedReplySuffix()))
     , m_sendingRoutingKey(sendingRoutingKey)
-    , m_receivingRoutingKeys(receivingRoutingKeys)
+    , m_receivingRoutingKeys(makeScopedReceivingRoutingKeys(
+          receivingRoutingKeys,
+          m_responseQueue.mid(responseQueue.size() + 1)))
     , m_consumerThread(nullptr)
     , m_heartbeatThread(nullptr)
     , m_threadRunning(false)
@@ -101,9 +159,10 @@ bool RabbitMQHandler::establishConnection()
                     << "Failed to create send connection";
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
+            configureConnectionTimeouts(m_sendConnection);
 
             // Create and open socket for sending
             amqp_socket_t *sendSocket =
@@ -116,14 +175,13 @@ bool RabbitMQHandler::establishConnection()
                 m_sendConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
             // Open send socket
-            int status = amqp_socket_open(
-                sendSocket, m_host.toUtf8().constData(),
-                m_port);
+            int status = openSocketWithTimeout(
+                sendSocket, m_host, m_port);
             if (status != AMQP_STATUS_OK)
             {
                 qCWarning(lcRabbitMQ) << "Failed to open send socket: "
@@ -132,7 +190,7 @@ bool RabbitMQHandler::establishConnection()
                 m_sendConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
@@ -156,7 +214,7 @@ bool RabbitMQHandler::establishConnection()
                 m_sendConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
@@ -172,7 +230,7 @@ bool RabbitMQHandler::establishConnection()
                 m_sendConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
@@ -186,9 +244,10 @@ bool RabbitMQHandler::establishConnection()
                 m_sendConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
+            configureConnectionTimeouts(m_receiveConnection);
 
             // Create and open socket for receiving
             amqp_socket_t *receiveSocket =
@@ -204,14 +263,13 @@ bool RabbitMQHandler::establishConnection()
                 m_receiveConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
             // Open receive socket
-            status = amqp_socket_open(
-                receiveSocket, m_host.toUtf8().constData(),
-                m_port);
+            status = openSocketWithTimeout(
+                receiveSocket, m_host, m_port);
             if (status != AMQP_STATUS_OK)
             {
                 qCWarning(lcRabbitMQ)
@@ -224,7 +282,7 @@ bool RabbitMQHandler::establishConnection()
                 m_receiveConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
@@ -251,7 +309,7 @@ bool RabbitMQHandler::establishConnection()
                 m_receiveConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
@@ -271,7 +329,7 @@ bool RabbitMQHandler::establishConnection()
                 m_receiveConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
@@ -288,7 +346,7 @@ bool RabbitMQHandler::establishConnection()
                 m_receiveConnection = nullptr;
                 retryCount++;
                 std::this_thread::sleep_for(
-                    std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
                 continue;
             }
 
@@ -337,7 +395,7 @@ bool RabbitMQHandler::establishConnection()
             m_connected = false;
             retryCount++;
             std::this_thread::sleep_for(
-                std::chrono::seconds(2 * retryCount));
+                    std::chrono::milliseconds(250 * retryCount));
         }
     }
 
@@ -450,14 +508,27 @@ bool RabbitMQHandler::isConnected() const
 bool RabbitMQHandler::sendCommand(
     const QJsonObject &message, const QString &routingKey)
 {
+    QJsonObject envelope = message;
+    if (!envelope.contains(QStringLiteral("replyRoutingKey"))
+        && !m_receivingRoutingKeys.isEmpty())
+    {
+        envelope[QStringLiteral("replyRoutingKey")] =
+            m_receivingRoutingKeys.constFirst();
+    }
+    if (!envelope.contains(QStringLiteral("replyQueue"))
+        && !m_responseQueue.isEmpty())
+    {
+        envelope[QStringLiteral("replyQueue")] = m_responseQueue;
+    }
+
     // Convert message to JSON string
-    QJsonDocument doc(message);
+    QJsonDocument doc(envelope);
     QByteArray    data = doc.toJson(QJsonDocument::Compact);
 
     // Extract message ID if it exists
     QString messageId =
-        message.contains("messageId")
-            ? message["messageId"].toString()
+        envelope.contains("messageId")
+            ? envelope["messageId"].toString()
             : QString();
 
     return sendMessage(data, "application/json", messageId,
@@ -581,9 +652,9 @@ bool RabbitMQHandler::setupQueues()
             amqp_cstring_bytes(
                 m_responseQueue.toUtf8().constData()),
             0, // passive
-            1, // durable
-            0, // exclusive
-            0, // auto delete
+            0, // durable
+            1, // exclusive
+            1, // auto delete
             amqp_empty_table);
 
         reply = amqp_get_rpc_reply(m_receiveConnection);

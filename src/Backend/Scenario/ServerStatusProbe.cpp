@@ -74,8 +74,7 @@ QList<ServerStatusProbe::ServerStatus> ServerStatusProbe::pollAll()
             terminal.connected    = c->isConnected();
             if (auto *h = c->getRabbitMQHandler())
                 terminal.hasConsumers = h->hasCommandQueueConsumers();
-            terminal.commandAvailable = isCommandAvailable(
-                terminal.connected, terminal.hasConsumers);
+            terminal.commandAvailable = isCommandAvailable(c);
         }
         qCDebug(lcScenario) << "ServerStatusProbe::pollAll: TerminalSim"
                             << "connected=" << terminal.connected
@@ -87,8 +86,7 @@ QList<ServerStatusProbe::ServerStatus> ServerStatusProbe::pollAll()
             train.connected    = c->isConnected();
             if (auto *h = c->getRabbitMQHandler())
                 train.hasConsumers = h->hasCommandQueueConsumers();
-            train.commandAvailable = isCommandAvailable(
-                train.connected, train.hasConsumers);
+            train.commandAvailable = isCommandAvailable(c);
         }
         qCDebug(lcScenario) << "ServerStatusProbe::pollAll: NeTrainSim"
                             << "connected=" << train.connected
@@ -100,8 +98,7 @@ QList<ServerStatusProbe::ServerStatus> ServerStatusProbe::pollAll()
             ship.connected    = c->isConnected();
             if (auto *h = c->getRabbitMQHandler())
                 ship.hasConsumers = h->hasCommandQueueConsumers();
-            ship.commandAvailable = isCommandAvailable(
-                ship.connected, ship.hasConsumers);
+            ship.commandAvailable = isCommandAvailable(c);
         }
         qCDebug(lcScenario) << "ServerStatusProbe::pollAll: ShipNetSim"
                             << "connected=" << ship.connected

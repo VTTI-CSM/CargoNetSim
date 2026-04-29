@@ -288,6 +288,15 @@ public:
     }
 
     /**
+     * @brief Get the original master configuration file path used to
+     *        construct this integration config.
+     */
+    QString getSourceConfigPath() const
+    {
+        return m_sourceConfigPath;
+    }
+
+    /**
      * @brief Get input file path
      * @param key Input file key
      * @return Full path to input file
@@ -307,6 +316,15 @@ public:
      */
     QJsonObject toJson() const;
 
+    /**
+     * @brief Record the source master configuration file path used to
+     *        build this config object.
+     */
+    void setSourceConfigPath(const QString &path)
+    {
+        m_sourceConfigPath = path;
+    }
+
 signals:
     /**
      * @brief Signal emitted when configuration changes
@@ -316,6 +334,9 @@ signals:
 private:
     // Configuration directory
     QString m_configDir;
+
+    // Original config file path used to build this config.
+    QString m_sourceConfigPath;
 
     // Simulation title
     QString m_title;

@@ -104,9 +104,10 @@ QPair<double, double> terminalSceneCoords(const TerminalPlacement &t,
     return { 0.0, 0.0 };
 }
 
-// Network lookup moved to NetworkLookup.{h,cpp} — single source of truth
-// shared with SimulationRequestBuilder. See NetworkLookup::collectRail /
-// collectTruck for the preview-vs-live resolution policy.
+// Network lookup moved to NetworkLookup.{h,cpp} as the single source of
+// truth shared by linking, execution planning, and dispatch construction.
+// See NetworkLookup::collectRail / collectTruck for the preview-vs-live
+// resolution policy.
 
 LinkageRuleFn landTerminalToRailNodeRule()
 {

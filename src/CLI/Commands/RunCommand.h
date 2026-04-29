@@ -37,8 +37,8 @@ namespace Cli {
  *   4. `ScenarioLoadService::loadValidatedDocument`
  *      — apply the validated scenario into a runtime.
  *   5. `PreparedPathService`               — produce the top-N paths.
- *   6. `ProgressReporter` (Task 8)         — rate-limited stderr
- *      ticks driven by `ScenarioRuntime::progressChanged`.
+ *   6. `ProgressReporter`                  — rate-limited stderr
+ *      ticks driven by runtime progress snapshots.
  *   7. `ScenarioRuntime::statusMessage`    — direct stage updates
  *      streamed to the terminal during the blocking run.
  *   8. `SimulationRunService::validateAndStart`
@@ -47,10 +47,14 @@ namespace Cli {
  *   9. `JsonResultsWriter` / `CsvResultsWriter` (Tasks 6 + 7) —
  *      emit `results.{json,csv}` under the YAML's `output.directory`.
  *
- * Argument contract (Track A1 transition): `run` takes exactly one
- * positional scenario YAML file and currently supports only `--all`
- * as explicit selection intent. A bare scenario path is still treated
- * as a temporary alias for `--all`.
+ * Argument contract: `run` takes exactly one positional scenario YAML
+ * file. `--all` selects every prepared candidate path. `--paths`
+ * selects a comma-separated subset by the 1-based presentation index
+ * shown by `cargonetsim-cli paths`; the command translates those
+ * indexes to stable prepared-path identities before simulation.
+ * Every selected alternative executes as an isolated what-if run under
+ * duplicate-demand comparison policy. A bare scenario path is treated
+ * as an alias for `--all`.
  *
  * Cleanup: controller startup is released via `qScopeGuard` on every
  * exit path, success or failure.
@@ -103,6 +107,7 @@ private:
             defaultWriterHooks()) const;
 
     QIODevice *m_err;  // not owned; nullptr → write to stderr
+    bool       m_verbose = false;
 };
 
 } // namespace Cli

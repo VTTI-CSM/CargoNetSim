@@ -32,21 +32,32 @@
 
 int main(int argc, char *argv[])
 {
-    // Configure logging: debug enabled in debug builds only.
-    // Override at runtime: QT_LOGGING_RULES="cargonetsim.*=true"
-#ifdef QT_DEBUG
-    QLoggingCategory::setFilterRules(QStringLiteral(
-        "cargonetsim.*.debug=true\n"
-        "cargonetsim.*.info=true\n"
-        "cargonetsim.*.warning=true\n"
-        "cargonetsim.*.critical=true\n"));
-#else
-    QLoggingCategory::setFilterRules(QStringLiteral(
-        "cargonetsim.*.debug=false\n"
-        "cargonetsim.*.info=true\n"
-        "cargonetsim.*.warning=true\n"
-        "cargonetsim.*.critical=true\n"));
-#endif
+    bool verbose = false;
+    for (int i = 1; i < argc; ++i)
+    {
+        if (QString::fromLocal8Bit(argv[i])
+            == QLatin1String("--verbose"))
+        {
+            verbose = true;
+            break;
+        }
+    }
+
+    // Keep CLI runs quiet by default. User-facing diagnostics are written
+    // explicitly by commands; Qt category logs are enabled only when the
+    // caller asks for verbose execution.
+    QLoggingCategory::setFilterRules(
+        verbose
+            ? QStringLiteral(
+                  "cargonetsim.*.debug=true\n"
+                  "cargonetsim.*.info=true\n"
+                  "cargonetsim.*.warning=true\n"
+                  "cargonetsim.*.critical=true\n")
+            : QStringLiteral(
+                  "cargonetsim.*.debug=false\n"
+                  "cargonetsim.*.info=false\n"
+                  "cargonetsim.*.warning=false\n"
+                  "cargonetsim.*.critical=false\n"));
 
     // stderr-only handler for CLI (no GUI bridge).
     CargoNetSim::Backend::installCargoNetSimLogHandler(
@@ -87,8 +98,11 @@ int main(int argc, char *argv[])
                       std::make_shared<ValidateCommand>());
     d.registerCommand(QStringLiteral("preview"),
                       std::make_shared<PreviewCommand>());
-    d.registerCommand(QStringLiteral("paths"),
-                      std::make_shared<PathsCommand>());
+    auto discover = std::make_shared<PathsCommand>();
+    d.registerCommand(QStringLiteral("discover"), discover);
+    // Compatibility alias for existing scripts. The documented command
+    // name is `discover` so it is not confused with `run --paths`.
+    d.registerCommand(QStringLiteral("paths"), discover);
     d.registerCommand(QStringLiteral("connections"),
                       std::make_shared<ConnectionsCommand>());
 

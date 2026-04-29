@@ -278,6 +278,8 @@ BackendBootstrapService::initializeController(
 
 BackendBootstrapResult BackendBootstrapService::startController() const
 {
+    static constexpr int kClientStartupTimeoutMs = 10000;
+
     registerMetatypesOnce();
 
     auto controllerCheck = requireController();
@@ -291,6 +293,21 @@ BackendBootstrapResult BackendBootstrapService::startController() const
         result.status = BackendBootstrapStatus::StartFailed;
         result.message = QStringLiteral(
             "CargoNetSimController::startAll failed");
+        return result;
+    }
+
+    QString startupError;
+    if (!controller.waitForAllClientsReady(kClientStartupTimeoutMs,
+                                           &startupError))
+    {
+        controller.stopAll();
+
+        BackendBootstrapResult result;
+        result.status = BackendBootstrapStatus::StartFailed;
+        result.message = startupError.isEmpty()
+                             ? QStringLiteral(
+                                   "Queued client-thread startup did not complete")
+                             : startupError;
         return result;
     }
 

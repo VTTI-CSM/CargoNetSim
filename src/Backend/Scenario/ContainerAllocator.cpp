@@ -12,18 +12,53 @@ namespace Backend {
 namespace Scenario {
 namespace ContainerAllocator {
 
+namespace {
+
+QString odKey(const QString &originId, const QString &destinationId)
+{
+    return originId + QChar(0x1f) + destinationId;
+}
+
+QString policyName(ExecutionDemandPolicy policy)
+{
+    switch (policy)
+    {
+    case ExecutionDemandPolicy::AllocatedOnly:
+        return QStringLiteral("AllocatedOnly");
+    case ExecutionDemandPolicy::DuplicateDemandPerSelectedPath:
+        return QStringLiteral("DuplicateDemandPerSelectedPath");
+    case ExecutionDemandPolicy::SplitAcrossSelectedPaths:
+        return QStringLiteral("SplitAcrossSelectedPaths");
+    }
+    return QStringLiteral("Unknown");
+}
+
+} // namespace
+
 PathAllocation allocate(const ScenarioDocument &doc,
-                        const QList<Path *>    &paths)
+                        const QList<Path *>    &paths,
+                        ExecutionDemandPolicy   demandPolicy)
 {
     qCDebug(lcScenario) << "ContainerAllocator::allocate:"
                         << "origin count =" << doc.originTerminalIds().size()
-                        << ", path count =" << paths.size();
+                        << ", path count =" << paths.size()
+                        << ", demandPolicy =" << policyName(demandPolicy);
 
     PathAllocation out;
 
-    // Index paths by (origin, destination, rank) so we can locate
-    // rank-0 for a given (origin, destination) pair in O(1).
+    if (demandPolicy == ExecutionDemandPolicy::SplitAcrossSelectedPaths)
+    {
+        qCWarning(lcScenario) << "ContainerAllocator::allocate:"
+                              << "SplitAcrossSelectedPaths is not implemented;"
+                              << "falling back to AllocatedOnly";
+        demandPolicy = ExecutionDemandPolicy::AllocatedOnly;
+    }
+
+    // Index paths by rank and by OD. AllocatedOnly targets rank 0.
+    // DuplicateDemandPerSelectedPath targets every selected path for
+    // the same OD pair.
     QHash<PathKey, Path *> pathByKey;
+    QHash<QString, QList<Path *>> pathsByOd;
     QHash<QString, QHash<QString, int>> rankCounter;
     for (auto *p : paths)
     {
@@ -40,6 +75,7 @@ PathAllocation allocate(const ScenarioDocument &doc,
                           : p->getRank();
         PathKey key{ o, d, r };
         pathByKey.insert(key, p);
+        pathsByOd[odKey(o, d)].append(p);
         out.keyByCanonicalPath.insert(p->canonicalPathKey(), key);
         out.effectiveContainerCountByCanonicalPath.insert(
             p->canonicalPathKey(), 0);
@@ -60,25 +96,35 @@ PathAllocation allocate(const ScenarioDocument &doc,
             continue;
         }
 
-        // Filter to reachable destinations — those with a rank-0 path.
-        // Unreachable destinations' share is redistributed across the
-        // reachable subset proportionally (re-normalized LRM).
+        // Filter to reachable destinations. Under operational allocation a
+        // destination is reachable through rank 0. Under duplicate-demand
+        // comparison it is reachable through any selected alternative path
+        // for the OD pair. Unreachable destinations' share is redistributed
+        // across the reachable subset proportionally (re-normalized LRM).
         QList<DestinationRoute> routes;
         double reachableFractionSum = 0.0;
         for (const auto &r : allRoutes)
         {
             const PathKey key{ originId, r.terminal, 0 };
-            if (pathByKey.contains(key))
+            const bool reachable =
+                demandPolicy
+                        == ExecutionDemandPolicy::
+                            DuplicateDemandPerSelectedPath
+                    ? pathsByOd.contains(odKey(originId, r.terminal))
+                    : pathByKey.contains(key);
+            if (reachable)
             {
                 routes.append(r);
                 reachableFractionSum += r.fraction;
             }
             else
             {
-                qCWarning(lcScenario) << "ContainerAllocator: no rank-0 path for"
-                           << originId << "->" << r.terminal
-                           << "— redistributing its"
-                           << (r.fraction * 100) << "% share";
+                qCWarning(lcScenario)
+                    << "ContainerAllocator: no selected executable path for"
+                    << originId << "->" << r.terminal
+                    << "under policy" << policyName(demandPolicy)
+                    << "— redistributing its"
+                    << (r.fraction * 100) << "% share";
             }
         }
         if (routes.isEmpty())
@@ -119,31 +165,54 @@ PathAllocation allocate(const ScenarioDocument &doc,
         }
 
         // Assign containers. Every route in `routes` is guaranteed
-        // reachable (filtered above) — no silent drops.
+        // reachable (filtered above) — no silent drops. Duplicate policy
+        // reuses the same source-container view for every selected
+        // alternative path; dispatch creates path-scoped runtime copies.
         int cursor = 0;
         int assignedForOrigin = 0;
+        int logicalAssignmentsForOrigin = 0;
         for (int i = 0; i < routes.size() && cursor < N; ++i)
         {
-            const PathKey key{ originId, routes[i].terminal, 0 };
-            auto it = pathByKey.constFind(key);
-            Q_ASSERT(it != pathByKey.constEnd());
-
             QList<ContainerCore::Container *> share;
             share.reserve(counts[i]);
             for (int j = 0; j < counts[i] && cursor < N; ++j, ++cursor)
                 share.append(pool[cursor]);
-            out.byCanonicalPath[(*it)->canonicalPathKey()] =
-                share;
-            out.effectiveContainerCountByCanonicalPath[(*it)->canonicalPathKey()] =
-                share.size();
             assignedForOrigin += share.size();
+
+            if (demandPolicy
+                == ExecutionDemandPolicy::DuplicateDemandPerSelectedPath)
+            {
+                const auto alternatives =
+                    pathsByOd.value(odKey(originId, routes[i].terminal));
+                for (auto *path : alternatives)
+                {
+                    if (!path)
+                        continue;
+                    out.byCanonicalPath[path->canonicalPathKey()] = share;
+                    out.effectiveContainerCountByCanonicalPath
+                        [path->canonicalPathKey()] = share.size();
+                    logicalAssignmentsForOrigin += share.size();
+                }
+            }
+            else
+            {
+                const PathKey key{ originId, routes[i].terminal, 0 };
+                auto it = pathByKey.constFind(key);
+                Q_ASSERT(it != pathByKey.constEnd());
+                out.byCanonicalPath[(*it)->canonicalPathKey()] = share;
+                out.effectiveContainerCountByCanonicalPath
+                    [(*it)->canonicalPathKey()] = share.size();
+                logicalAssignmentsForOrigin += share.size();
+            }
         }
 
         qCDebug(lcScenario) << "ContainerAllocator::allocate:"
                             << "origin" << originId
                             << "-> assigned" << assignedForOrigin
-                            << "of" << N << "containers across"
-                            << routes.size() << "destinations";
+                            << "of" << N << "source containers across"
+                            << routes.size() << "destinations"
+                            << "logicalAssignments="
+                            << logicalAssignmentsForOrigin;
 
         if (assignedForOrigin < N)
             qCWarning(lcScenario) << "ContainerAllocator::allocate:"
@@ -157,8 +226,9 @@ PathAllocation allocate(const ScenarioDocument &doc,
          it != out.byCanonicalPath.constEnd(); ++it)
         totalAllocated += it.value().size();
     qCInfo(lcScenario) << "ContainerAllocator::allocate:"
-                       << "completed — total containers allocated ="
-                       << totalAllocated;
+                       << "completed — total logical container assignments ="
+                       << totalAllocated
+                       << "policy=" << policyName(demandPolicy);
 
     return out;
 }

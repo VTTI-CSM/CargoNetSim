@@ -3,6 +3,8 @@
 #include <QString>
 #include <QVector>
 
+#include "Backend/Scenario/ExecutionPlanTypes.h"
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -44,10 +46,20 @@ public:
 
     SimulationRunServiceResult selectAndValidate(
         Scenario::ScenarioRuntime &runtime,
+        const QVector<QString>    &selectedPathKeys,
+        Scenario::ExecutionDemandPolicy demandPolicy) const;
+
+    SimulationRunServiceResult selectAndValidate(
+        Scenario::ScenarioRuntime &runtime,
         const QVector<QString>    &selectedPathKeys) const;
 
     SimulationRunServiceResult validateAndStart(
         Scenario::ScenarioRuntime &runtime) const;
+
+    SimulationRunServiceResult selectValidateAndStart(
+        Scenario::ScenarioRuntime &runtime,
+        const QVector<QString>    &selectedPathKeys,
+        Scenario::ExecutionDemandPolicy demandPolicy) const;
 
     SimulationRunServiceResult selectValidateAndStart(
         Scenario::ScenarioRuntime &runtime,

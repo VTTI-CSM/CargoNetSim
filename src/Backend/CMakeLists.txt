@@ -93,6 +93,8 @@ set(Backend_SOURCES
     # BaseClient
     Clients/BaseClient/RabbitMQHandler.h
     Clients/BaseClient/RabbitMQHandler.cpp
+    Clients/BaseClient/SimulatorHealthProbeTransport.h
+    Clients/BaseClient/SimulatorHealthProbeTransport.cpp
     Clients/BaseClient/SimulationClientBase.h
     Clients/BaseClient/SimulationClientBase.cpp
 
@@ -189,6 +191,8 @@ set(Backend_SOURCES
     Scenario/RegionSpec.h
     Scenario/RuntimeArtifactIdentity.h
     Scenario/RuntimeArtifactIdentity.cpp
+    Scenario/ExecutionContainerIdentity.h
+    Scenario/ExecutionContainerIdentity.cpp
     Scenario/PathAllocation.h
     Scenario/PathDiscovery.h
     Scenario/PathDiscovery.cpp
@@ -196,6 +200,27 @@ set(Backend_SOURCES
     Scenario/PathDemandResolver.cpp
     Scenario/PathDistancePopulator.h
     Scenario/PathDistancePopulator.cpp
+    Scenario/SimulationDispatchTypes.h
+    Scenario/SimulationDispatchTypes.cpp
+    Scenario/ExecutionPlanBuilder.h
+    Scenario/ExecutionPlanBuilder.cpp
+    Scenario/ExecutionProgressCalculator.h
+    Scenario/ExecutionProgressCalculator.cpp
+    Scenario/PathExecutionCoordinator.h
+    Scenario/PathExecutionCoordinator.cpp
+    Scenario/TerminalInventoryGateway.h
+    Scenario/TerminalInventoryGateway.cpp
+    Scenario/TerminalPickupCoordinator.h
+    Scenario/TerminalPickupCoordinator.cpp
+    Scenario/ExecutionEventAdapter.h
+    Scenario/ExecutionEventAdapter.cpp
+    Scenario/BufferedExecutionEventQueue.h
+    Scenario/BufferedExecutionEventQueue.cpp
+    Scenario/NetworkExecutionSessionManager.h
+    Scenario/NetworkExecutionSessionManager.cpp
+    Scenario/DispatchableWaveBuilder.h
+    Scenario/DispatchableWaveBuilder.cpp
+    Scenario/ExecutionPlanTypes.h
     Scenario/PathKey.h
     Scenario/PreparedPathEligibilityService.h
     Scenario/PreparedPathEligibilityService.cpp
@@ -234,12 +259,12 @@ set(Backend_SOURCES
     Scenario/EstimatedPhysicsPopulator.cpp
     Scenario/ServerStatusProbe.h
     Scenario/ServerStatusProbe.cpp
-    Scenario/SimulationOrchestrator.h
-    Scenario/SimulationOrchestrator.cpp
-    Scenario/SimulationRequestBuilder.h
-    Scenario/SimulationRequestBuilder.cpp
+    Scenario/SegmentDispatchFactory.h
+    Scenario/SegmentDispatchFactory.cpp
     Scenario/TerminalHandoffResolver.h
     Scenario/TerminalHandoffResolver.cpp
+    Scenario/TerminalGraphBootstrap.h
+    Scenario/TerminalGraphBootstrap.cpp
     Scenario/SimulationSettings.h
     Scenario/SystemDynamicsSpec.h
     Scenario/TerminalCostMath.h

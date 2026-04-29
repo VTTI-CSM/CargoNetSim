@@ -28,9 +28,18 @@ QString encode(const RuntimeArtifactIdentity &id);
 bool decode(const QString &encoded,
             RuntimeArtifactIdentity &out);
 
+QString vehicleId(const QString &canonicalPathKey,
+                  int            segmentIndex,
+                  int            artifactIndex,
+                  const QString &artifactType);
+
 QString vehicleId(const Backend::Path *path, int segmentIndex,
                   int artifactIndex,
                   const QString &artifactType);
+
+QString copiedContainerId(
+    const QString &canonicalPathKey, int segmentIndex,
+    int artifactIndex, const QString &sourceContainerId);
 
 QString copiedContainerId(
     const Backend::Path *path, int segmentIndex,

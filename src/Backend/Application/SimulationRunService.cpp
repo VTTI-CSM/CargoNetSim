@@ -14,7 +14,8 @@ namespace Application
 
 SimulationRunServiceResult SimulationRunService::selectAndValidate(
     Scenario::ScenarioRuntime &runtime,
-    const QVector<QString>    &selectedPathKeys) const
+    const QVector<QString>    &selectedPathKeys,
+    Scenario::ExecutionDemandPolicy demandPolicy) const
 {
     SimulationRunServiceResult result;
     result.selectedPathKeys = selectedPathKeys;
@@ -37,6 +38,7 @@ SimulationRunServiceResult SimulationRunService::selectAndValidate(
         return result;
     }
 
+    runtime.setDemandPolicy(demandPolicy);
     runtime.refreshPreparedPathEligibility();
 
     if (!runtime.validateCurrentSelectionForSimulation(&selectionError))
@@ -51,6 +53,15 @@ SimulationRunServiceResult SimulationRunService::selectAndValidate(
     result.status = SimulationRunServiceStatus::Success;
     result.selectedPathCount = runtime.paths().size();
     return result;
+}
+
+SimulationRunServiceResult SimulationRunService::selectAndValidate(
+    Scenario::ScenarioRuntime &runtime,
+    const QVector<QString>    &selectedPathKeys) const
+{
+    return selectAndValidate(
+        runtime, selectedPathKeys,
+        Scenario::ExecutionDemandPolicy::AllocatedOnly);
 }
 
 SimulationRunServiceResult SimulationRunService::validateAndStart(
@@ -100,9 +111,11 @@ SimulationRunServiceResult SimulationRunService::validateAndStart(
 
 SimulationRunServiceResult SimulationRunService::selectValidateAndStart(
     Scenario::ScenarioRuntime &runtime,
-    const QVector<QString>    &selectedPathKeys) const
+    const QVector<QString>    &selectedPathKeys,
+    Scenario::ExecutionDemandPolicy demandPolicy) const
 {
-    auto result = selectAndValidate(runtime, selectedPathKeys);
+    auto result =
+        selectAndValidate(runtime, selectedPathKeys, demandPolicy);
     if (!result.succeeded())
         return result;
 
@@ -111,6 +124,15 @@ SimulationRunServiceResult SimulationRunService::selectValidateAndStart(
     if (startResult.selectedPathCount <= 0)
         startResult.selectedPathCount = result.selectedPathCount;
     return startResult;
+}
+
+SimulationRunServiceResult SimulationRunService::selectValidateAndStart(
+    Scenario::ScenarioRuntime &runtime,
+    const QVector<QString>    &selectedPathKeys) const
+{
+    return selectValidateAndStart(
+        runtime, selectedPathKeys,
+        Scenario::ExecutionDemandPolicy::AllocatedOnly);
 }
 
 } // namespace Application

@@ -1,4 +1,5 @@
 #include "SimulationClientBase.h"
+#include <cmath>
 #include <QDateTime>
 #include <QDebug>
 #include <QDomDocument>
@@ -124,6 +125,29 @@ void SimulationClientBase::initializeClient(
     }
 }
 
+void SimulationClientBase::setExecutionTimeOverride(
+    double currentTimeSeconds)
+{
+    m_executionTimeOverrideSeconds.store(currentTimeSeconds);
+}
+
+void SimulationClientBase::clearExecutionTimeOverride()
+{
+    m_executionTimeOverrideSeconds.store(
+        std::numeric_limits<double>::quiet_NaN());
+}
+
+double SimulationClientBase::currentExecutionTime() const
+{
+    const double overrideTime =
+        m_executionTimeOverrideSeconds.load();
+    if (std::isfinite(overrideTime))
+        return overrideTime;
+
+    return m_simulationTime ? m_simulationTime->getCurrentTime()
+                            : -1.0;
+}
+
 void SimulationClientBase::setController(
     CargoNetSimController *controller)
 {
@@ -193,6 +217,30 @@ bool SimulationClientBase::connectToServer()
     }
 
     return success;
+}
+
+bool SimulationClientBase::probeCommandAvailability(int timeoutMs)
+{
+    if (!isConnected())
+        return false;
+
+    try
+    {
+        return executeSerializedCommand([&]() {
+            return sendCommandAndWait(
+                QStringLiteral("checkConnection"),
+                QJsonObject{},
+                {QStringLiteral("connectionStatus")},
+                timeoutMs);
+        });
+    }
+    catch (const std::exception &e)
+    {
+        qCWarning(lcClient)
+            << "SimulationClientBase::probeCommandAvailability failed for"
+            << getClientTypeString() << ":" << e.what();
+        return false;
+    }
 }
 
 /**
@@ -275,8 +323,12 @@ bool SimulationClientBase::sendCommandAndWait(
         return false;
     }
 
+    const QString errorEvent =
+        normalizeEventName(QStringLiteral("errorOccurred"));
+
     // Clear any previously received events with the same
-    // names
+    // names. Also clear the generic error event so a command
+    // cannot succeed after the server reports a failure for it.
     {
         CargoNetSim::Backend::Commons::ScopedWriteLock
             locker(m_eventMutex);
@@ -285,6 +337,7 @@ bool SimulationClientBase::sendCommandAndWait(
             QString normalized = normalizeEventName(event);
             m_receivedEvents.remove(normalized);
         }
+        m_receivedEvents.remove(errorEvent);
     }
 
     // Send the command
@@ -302,8 +355,14 @@ bool SimulationClientBase::sendCommandAndWait(
         return false;
     }
 
-    // Wait for the expected event
-    bool received = waitForEvent(expectedEvents, timeoutMs);
+    // Wait for either the expected event or an explicit server
+    // error. Some upstream servers publish errorOccurred as an
+    // event rather than as a failed command response, so this
+    // prevents a later success-shaped event from masking the
+    // command failure.
+    QStringList waitEvents = expectedEvents;
+    waitEvents.append(QStringLiteral("errorOccurred"));
+    bool received = waitForEvent(waitEvents, timeoutMs);
     if (!received)
     {
         qCWarning(lcClient)
@@ -317,6 +376,40 @@ bool SimulationClientBase::sendCommandAndWait(
                 static_cast<int>(m_clientType));
         }
         return false;
+    }
+
+    {
+        CargoNetSim::Backend::Commons::ScopedReadLock
+            locker(m_eventMutex);
+        const auto it = m_receivedEvents.constFind(errorEvent);
+        if (it != m_receivedEvents.constEnd())
+        {
+            const QJsonObject errorData = it.value();
+            QString errorMsg = errorData
+                                   .value(QStringLiteral(
+                                       "errorMessage"))
+                                   .toString();
+            if (errorMsg.isEmpty())
+            {
+                errorMsg =
+                    errorData
+                        .value(QStringLiteral("error"))
+                        .toString(QStringLiteral(
+                            "Server reported an error"));
+            }
+
+            qCWarning(lcClient)
+                << "Server reported error for command:" << command
+                << "-" << errorMsg;
+            if (m_logger)
+            {
+                m_logger->logError(
+                    "Server reported error for command "
+                        + command + ": " + errorMsg,
+                    static_cast<int>(m_clientType));
+            }
+            return false;
+        }
     }
 
     return true;

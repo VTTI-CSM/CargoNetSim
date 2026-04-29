@@ -246,8 +246,8 @@ public:
     int originContainerCount(const QString &terminalId) const;
 
     /// Flattened view over every seeded container across all origins.
-    /// Preserved for Plan 3's `SimulationRequestBuilder` /
-    /// `ScenarioExecutor` which pre-date the per-origin storage.
+    /// Preserved for allocation and live execution planning paths that
+    /// consume the per-origin pools without taking ownership.
     ///
     /// RETURN VALUE CHANGE (2026-04-14 Task 0 retrofit): formerly
     /// returned `const QList<Container*>&` (reference to member);

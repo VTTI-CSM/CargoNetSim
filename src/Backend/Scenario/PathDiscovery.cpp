@@ -5,16 +5,11 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/ConfigController.h"
 #include "Backend/Models/Path.h"
-#include "Backend/Models/PathSegment.h"
-#include "Backend/Models/Terminal.h"
-#include "Backend/Scenario/Connection.h"
-#include "Backend/Scenario/GlobalLink.h"
-#include "Backend/Scenario/RouteMetricUnits.h"
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioRegistry.h"
 #include "Backend/Scenario/SimulatorCommandAvailability.h"
+#include "Backend/Scenario/TerminalGraphBootstrap.h"
 
 #include <QThread>
 
@@ -23,12 +18,6 @@ namespace Backend {
 namespace Scenario {
 
 namespace {
-
-// Type alias for the nested enum class — `TransportationTypes` is a
-// class (with a Q_ENUM-registered `TransportationMode` inside) rather
-// than a namespace, so the using-declaration form is awkward. Matches
-// the pattern in `ScenarioApplier.cpp:197`.
-using Mode = TransportationTypes::TransportationMode;
 
 /// Presence check over `TerminalSimulationClient::getTerminalStatus`.
 ///
@@ -47,25 +36,6 @@ bool isTerminalKnownToServer(TerminalSimulationClient *client,
                              const QString            &terminalId)
 {
     return client->getTerminalStatus(terminalId) != nullptr;
-}
-
-/// Human-readable stable id for a `PathSegment`. The segment id is
-/// required to be non-empty (`PathSegment.h:48-49` throws on empty)
-/// but has no uniqueness contract outside of this list — synthesising
-/// `"<from>-><to>:<mode>"` is enough because every `(from, to, mode)`
-/// tuple appears at most once across `doc.connections + doc.globalLinks`
-/// (ScenarioValidator enforces this at schema-load time).
-///
-/// Uses `transportationModeToString` (lowercase internal vocabulary —
-/// `"truck"` / `"rail"` / `"ship"`), NOT `interfaceModeCanonicalString`
-/// (`"Truck"` / `"Rail"` / `"Ship"` — reserved for YAML schema
-/// boundaries). The segment id is an internal identifier, not a
-/// schema value, so the lowercase form is appropriate.
-QString makeSegmentId(const QString &from, const QString &to,
-                      Mode           mode)
-{
-    return QStringLiteral("%1->%2:%3")
-        .arg(from, to, transportationModeToString(mode));
 }
 
 } // namespace
@@ -140,110 +110,13 @@ QList<CargoNetSim::Backend::Path *> PathDiscovery::findTopPaths(
         return result;
     }
 
-    // --- Reset server + configure cost weights ---------------------------
-    // Equivalent to PathFindingWorker.cpp:52-67. Reads the *authoritative*
-    // weights from ConfigController (populated by ScenarioApplier's
-    // applySettings step — same weights the GUI sees).
-    if (!terminalClient->resetServer())
+    if (!TerminalGraphBootstrap::resetAndLoad(
+            doc, registry, controller, err,
+            QStringLiteral("PathDiscovery::findTopPaths")))
     {
         qCCritical(lcScenario) << "PathDiscovery::findTopPaths:"
-                               << "failed to reset terminal server";
-        if (err) *err = QStringLiteral("Failed to reset terminal server");
-        return result;
-    }
-    auto *config = controller.getConfigController();
-    if (!config)
-    {
-        qCCritical(lcScenario) << "PathDiscovery::findTopPaths:"
-                               << "ConfigController unavailable";
-        if (err) *err = QStringLiteral("ConfigController unavailable");
-        return result;
-    }
-    terminalClient->setCostFunctionParameters(
-        config->getCostFunctionWeights());
-
-    // --- Push terminals to the server ------------------------------------
-    // Reuse Plan 2's registry-populated `Backend::Terminal*`s — no local
-    // reconstruction (the 136-line createTerminalObject that lived in
-    // the pre-Plan-5 PathFindingWorker is gone; registry is the single
-    // source of truth).
-    QList<Terminal *> terminals;
-    terminals.reserve(doc.terminals.size());
-    for (auto it = doc.terminals.constBegin();
-         it != doc.terminals.constEnd(); ++it)
-    {
-        if (Terminal *t = registry.terminal(it.key()))
-            terminals.append(t);
-    }
-    qCDebug(lcScenario) << "PathDiscovery::findTopPaths:"
-                        << "pushing" << terminals.size()
-                        << "terminals to server";
-    if (!terminalClient->addTerminals(terminals))
-    {
-        qCCritical(lcScenario) << "PathDiscovery::findTopPaths:"
-                               << "failed to add terminals to server";
-        if (err) *err = QStringLiteral("Failed to add terminals to server");
-        return result;
-    }
-
-    // --- Push routes (regional connections + cross-region links) ---------
-    // Connection::mode and GlobalLink::mode are typed TransportationMode
-    // enums (Plan 2 / Plan 7) — pass them through directly. PathSegment
-    // takes ownership-agnostic pointers; we delete them after the bulk
-    // add call.
-    QList<PathSegment *> routes;
-    routes.reserve(doc.connections.size() + doc.globalLinks.size());
-    for (const auto &c : doc.connections)
-    {
-        const QStringList missingKeys =
-            RouteMetricUnits::missingCanonicalRouteMetricKeys(
-                c.properties);
-        if (!missingKeys.isEmpty())
-        {
-            qCWarning(lcScenario)
-                << "PathDiscovery::findTopPaths:"
-                << "regional connection" << c.fromTerminalId
-                << "->" << c.toTerminalId
-                << "is missing canonical route metrics"
-                << missingKeys;
-        }
-        routes.append(new PathSegment(
-            makeSegmentId(c.fromTerminalId, c.toTerminalId, c.mode),
-            c.fromTerminalId, c.toTerminalId, c.mode,
-            RouteMetricUnits::routeAttributesFromCanonical(
-                c.properties)));
-    }
-    for (const auto &gl : doc.globalLinks)
-    {
-        const QStringList missingKeys =
-            RouteMetricUnits::missingCanonicalRouteMetricKeys(
-                gl.properties);
-        if (!missingKeys.isEmpty())
-        {
-            qCWarning(lcScenario)
-                << "PathDiscovery::findTopPaths:"
-                << "global link" << gl.fromTerminalId
-                << "->" << gl.toTerminalId
-                << "is missing canonical route metrics"
-                << missingKeys;
-        }
-        routes.append(new PathSegment(
-            makeSegmentId(gl.fromTerminalId, gl.toTerminalId, gl.mode),
-            gl.fromTerminalId, gl.toTerminalId, gl.mode,
-            RouteMetricUnits::routeAttributesFromCanonical(
-                gl.properties)));
-    }
-    qCDebug(lcScenario) << "PathDiscovery::findTopPaths:"
-                        << "pushing" << routes.size() << "routes to server"
-                        << "(" << doc.connections.size() << "connections +"
-                        << doc.globalLinks.size() << "global links)";
-    const bool routesOk = terminalClient->addRoutes(routes);
-    qDeleteAll(routes);
-    if (!routesOk)
-    {
-        qCCritical(lcScenario) << "PathDiscovery::findTopPaths:"
-                               << "failed to add routes to server";
-        if (err) *err = QStringLiteral("Failed to add routes to server");
+                               << "failed to load TerminalSim baseline"
+                               << (err ? *err : QString());
         return result;
     }
 

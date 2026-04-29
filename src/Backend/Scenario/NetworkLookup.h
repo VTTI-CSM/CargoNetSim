@@ -16,13 +16,14 @@ namespace Backend
 namespace Scenario
 {
 class ScenarioRegistry;
+class RegionData;
 
 /**
  * @brief Shared "preview-or-live" network lookup policy.
  *
  * One implementation, two consumers:
  *   - ScenarioLinker (auto-link rule evaluation)
- *   - SimulationRequestBuilder (per-segment orchestration)
+ *   - ExecutionPlanBuilder / SegmentDispatchFactory (live execution)
  *
  * Preferred resolution order:
  *   1. If the registry holds preview networks (CLI preview / headless
@@ -56,6 +57,12 @@ TruckClient::IntegrationNetwork *
 findTruck(const ScenarioRegistry &registry,
           const QString          &regionName,
           const QString          &networkName);
+
+/** @brief Single truck config by name, or nullptr if not found. */
+TruckClient::IntegrationSimulationConfig *
+findTruckConfig(const ScenarioRegistry &registry,
+                const QString          &regionName,
+                const QString          &networkName);
 
 /**
  * @brief Reverse lookup: given a `QObject*` that is expected to be

@@ -63,6 +63,7 @@ public:
 
     TrainClient::NeTrainSimNetwork  *previewRailNetwork (const QString &name) const;
     TruckClient::IntegrationNetwork *previewTruckNetwork(const QString &name) const;  // returns config->getNetwork()
+    TruckClient::IntegrationSimulationConfig *previewTruckConfig(const QString &name) const;
 
     QStringList previewRailNetworkNames()  const;
     QStringList previewTruckNetworkNames() const;

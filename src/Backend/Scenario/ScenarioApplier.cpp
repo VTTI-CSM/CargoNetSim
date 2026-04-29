@@ -473,10 +473,10 @@ bool ScenarioApplier::applyOriginContainers(ScenarioDocument &doc,
     // applier extension layered on top of this one.
     //
     // Containers start with ONLY `containerCurrentLocation = terminalId`.
-    // `containerNextDestinations` stays empty on purpose: the downstream
-    // `SimulationRequestBuilder::takeContainersForVehicle` appends
-    // segment-level graph-node ids per vehicle at dispatch time. Seeding
-    // here (with a terminal id) would corrupt the routing sequence.
+    // `containerNextDestinations` stays empty on purpose: live dispatch
+    // construction writes the next runtime graph target for the active
+    // segment. Seeding here with a terminal id would corrupt the routing
+    // sequence.
     for (auto it = doc.terminals.constBegin();
          it != doc.terminals.constEnd(); ++it)
     {

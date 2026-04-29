@@ -67,8 +67,15 @@ bool decode(const QString &encoded, RuntimeArtifactIdentity &out)
 QString vehicleId(const Backend::Path *path, int segmentIndex,
                   int artifactIndex, const QString &artifactType)
 {
+    return vehicleId(path ? path->canonicalPathKey() : QString(),
+                     segmentIndex, artifactIndex, artifactType);
+}
+
+QString vehicleId(const QString &canonicalPathKey, int segmentIndex,
+                  int artifactIndex, const QString &artifactType)
+{
     RuntimeArtifactIdentity id;
-    id.pathKey = path ? path->canonicalPathKey() : QString();
+    id.pathKey = canonicalPathKey;
     id.segmentIndex = segmentIndex;
     id.artifactIndex = artifactIndex;
     id.artifactType = artifactType;
@@ -79,8 +86,18 @@ QString copiedContainerId(const Backend::Path *path, int segmentIndex,
                           int artifactIndex,
                           const QString &sourceContainerId)
 {
+    return copiedContainerId(
+        path ? path->canonicalPathKey() : QString(),
+        segmentIndex, artifactIndex, sourceContainerId);
+}
+
+QString copiedContainerId(const QString &canonicalPathKey,
+                          int segmentIndex, int artifactIndex,
+                          const QString &sourceContainerId)
+{
     return QStringLiteral("%1|src=%2")
-        .arg(vehicleId(path, segmentIndex, artifactIndex,
+        .arg(vehicleId(canonicalPathKey, segmentIndex,
+                       artifactIndex,
                        QStringLiteral("container")),
              escapePart(sourceContainerId));
 }

@@ -52,8 +52,7 @@ namespace Scenario
  *
  * Stateless — no cached state between extract() calls. Clients are
  * owned by CargoNetSimController; this class takes raw non-owning
- * pointers. Follows the same ownership contract as
- * SimulationOrchestrator.
+ * pointers and is invoked by the executor-owned live execution path.
  */
 class ResultsExtractor : public QObject
 {

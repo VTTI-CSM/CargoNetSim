@@ -5,6 +5,8 @@
 
 #include <memory>
 
+#include "Backend/Scenario/ExecutionPlanTypes.h"
+
 class QIODevice;
 
 namespace CargoNetSim {
@@ -13,10 +15,9 @@ namespace Cli {
 /**
  * @brief Rate-limited progress ticks for the CLI, streamed to stderr.
  *
- * Plan 5 Task 8. Consumes `ScenarioRuntime::progressChanged(current,
- * percent)` via a Qt signal connection in `RunCommand` (Task 17) and
- * prints a short status line every 5% of progress OR every 2 seconds
- * of wall time, whichever comes first. Spec §8.3.
+ * Consumes aggregate or per-path progress snapshots via RunCommand and
+ * prints a short status line every 5% of progress. Verbose mode also
+ * emits when active path focus changes or every 2 seconds of wall time.
  *
  * Output format (stderr, one line per tick):
  * @code
@@ -52,10 +53,21 @@ public:
     ///               outlive the reporter.
     explicit ProgressReporter(bool quiet = false, QIODevice *out = nullptr);
 
+    /// Enable detailed per-path rendering. Default mode emits only
+    /// aggregate progress.
+    void setVerbose(bool verbose);
+
     /// Emit a progress tick at @p percent (0..100) if the rate-limit
     /// predicate allows. Always emits on the first call (post-ctor).
     /// @p currentTimeSec is the simulation clock, not wall time.
     void report(double currentTimeSec, double percent);
+
+    /// Emit aggregate progress and, in verbose mode, per-selected-path
+    /// progress including the active segment and transportation mode.
+    void reportSnapshot(
+        double currentTimeSec,
+        const CargoNetSim::Backend::Scenario::ExecutionProgressSnapshot
+            &snapshot);
 
     /// Force a final line regardless of rate limiting. Still honours
     /// quiet mode. Use exactly once per simulation, after the last
@@ -65,7 +77,9 @@ public:
 
 private:
     bool                         m_quiet;
+    bool                         m_verbose = false;
     double                       m_lastPercent = -100.0;  // first call always emits
+    QString                      m_lastFocusKey;
     QElapsedTimer                m_lastEmitTimer;
     std::unique_ptr<QTextStream> m_out;
 };

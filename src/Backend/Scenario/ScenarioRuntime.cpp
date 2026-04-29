@@ -1,6 +1,7 @@
 #include "ScenarioRuntime.h"
 
 #include <QMetaObject>
+#include <QMetaType>
 #include <QSet>
 #include <QStringList>
 #include <QThread>
@@ -27,14 +28,6 @@ ScenarioRuntime::ScenarioRuntime(
     : QObject(parent)
     , m_document(std::move(doc))
 {
-    // Relay CargoNetSimController progress/completion signals through
-    // this runtime so consumers subscribe to one source of truth.
-    auto &controller =
-        CargoNetSim::CargoNetSimController::getInstance();
-    connect(&controller,
-            &CargoNetSim::CargoNetSimController::
-                simulationStepCompleted,
-            this, &ScenarioRuntime::onStepCompleted);
 }
 
 ScenarioRuntime::~ScenarioRuntime()
@@ -80,17 +73,22 @@ bool ScenarioRuntime::load()
         return false;
     }
 
-    m_endTime = m_document->simulation.endTimeUnits()
-                    .value_or(Units::seconds(86400.0))
-                    .value();
-    controller.setSimulationEndTime(m_endTime);
+    const auto endTimeUnits = m_document->simulation.endTimeUnits();
+    m_endTime = endTimeUnits.has_value()
+        ? std::optional<double>(endTimeUnits->value())
+        : std::nullopt;
     m_preparedPaths = PreparedPathSet();
     m_preparedPathEligibility.clear();
     m_paths.clear();
     m_selectedPathKeys.clear();
+    m_demandPolicy = ExecutionDemandPolicy::AllocatedOnly;
     m_lastExecutionResults = ScenarioExecutionResultSet();
     m_loaded = true;
-    qCInfo(lcScenario) << "ScenarioRuntime::load: succeeded, endTime:" << m_endTime;
+    qCInfo(lcScenario)
+        << "ScenarioRuntime::load: succeeded, endTime:"
+        << (m_endTime.has_value()
+                ? QString::number(m_endTime.value())
+                : QStringLiteral("<unbounded>"));
     return true;
 }
 
@@ -179,6 +177,15 @@ bool ScenarioRuntime::setSelectedPathKeys(
     return true;
 }
 
+void ScenarioRuntime::setDemandPolicy(
+    ExecutionDemandPolicy demandPolicy)
+{
+    m_demandPolicy = demandPolicy;
+    qCDebug(lcScenario)
+        << "ScenarioRuntime::setDemandPolicy:"
+        << static_cast<int>(m_demandPolicy);
+}
+
 bool ScenarioRuntime::startSimulation()
 {
     qCInfo(lcScenario) << "ScenarioRuntime::startSimulation: entry";
@@ -203,6 +210,12 @@ bool ScenarioRuntime::startSimulation()
     m_failureMessage.clear();
     m_terminalSignaled = false;
     m_lastExecutionResults = ScenarioExecutionResultSet();
+    m_lastProgressSnapshot = ExecutionProgressSnapshot();
+    m_lastTime = 0.0;
+    m_lastProgress = 0.0;
+
+    qRegisterMetaType<ExecutionProgressSnapshot>(
+        "CargoNetSim::Backend::Scenario::ExecutionProgressSnapshot");
 
     // Plan-deviation: Task 23 decoupled the executor from the runtime.
     // Inject inputs directly instead of setContext(this).
@@ -210,6 +223,12 @@ bool ScenarioRuntime::startSimulation()
     m_executor->setRegistry(&m_registry);
     m_executor->setPaths(m_paths);
     m_executor->setPathIdentities(m_selectedPathKeys);
+    m_executor->setDemandPolicy(m_demandPolicy);
+    m_executor->setIsolationPolicy(
+        m_demandPolicy
+                == ExecutionDemandPolicy::DuplicateDemandPerSelectedPath
+            ? ExecutionIsolationPolicy::IsolatedAlternatives
+            : ExecutionIsolationPolicy::SharedSimulatorState);
 
     m_executor->moveToThread(m_workerThread);
 
@@ -219,6 +238,10 @@ bool ScenarioRuntime::startSimulation()
             this, &ScenarioRuntime::statusMessage);
     connect(m_executor, &ScenarioExecutor::errorMessage,
             this, &ScenarioRuntime::errorMessage);
+    connect(m_executor, &ScenarioExecutor::progressChanged,
+            this, &ScenarioRuntime::onStepCompleted);
+    connect(m_executor, &ScenarioExecutor::progressSnapshotChanged,
+            this, &ScenarioRuntime::onProgressSnapshotChanged);
     connect(m_executor, &ScenarioExecutor::succeeded, this,
             &ScenarioRuntime::onExecutorSucceeded);
     connect(m_executor, &ScenarioExecutor::failed, this,
@@ -249,6 +272,14 @@ void ScenarioRuntime::onStepCompleted(double currentTime,
     m_lastTime     = currentTime;
     m_lastProgress = progress;
     emit progressChanged(currentTime, progress);
+}
+
+void ScenarioRuntime::onProgressSnapshotChanged(
+    double currentTime, const ExecutionProgressSnapshot &snapshot)
+{
+    m_lastTime = currentTime;
+    m_lastProgressSnapshot = snapshot;
+    emit progressSnapshotChanged(currentTime, snapshot);
 }
 
 void ScenarioRuntime::onExecutorFinished()
@@ -322,22 +353,22 @@ void ScenarioRuntime::cleanupWorker()
 void ScenarioRuntime::stop()
 {
     qCInfo(lcScenario) << "ScenarioRuntime::stop: requested";
-    CargoNetSim::CargoNetSimController::getInstance()
-        .stopSimulation();
+    if (m_executor)
+        m_executor->requestStop();
 }
 
 void ScenarioRuntime::pause()
 {
     qCInfo(lcScenario) << "ScenarioRuntime::pause: requested";
-    CargoNetSim::CargoNetSimController::getInstance()
-        .pauseSimulation();
+    if (m_executor)
+        m_executor->requestPause();
 }
 
 void ScenarioRuntime::resume()
 {
     qCInfo(lcScenario) << "ScenarioRuntime::resume: requested";
-    CargoNetSim::CargoNetSimController::getInstance()
-        .resumeSimulation();
+    if (m_executor)
+        m_executor->requestResume();
 }
 
 double ScenarioRuntime::currentTime() const
@@ -348,6 +379,11 @@ double ScenarioRuntime::currentTime() const
 double ScenarioRuntime::progress() const
 {
     return m_lastProgress;
+}
+
+ExecutionProgressSnapshot ScenarioRuntime::progressSnapshot() const
+{
+    return m_lastProgressSnapshot;
 }
 
 bool ScenarioRuntime::isRunning() const

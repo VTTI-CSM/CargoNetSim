@@ -28,6 +28,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
+#include <QProgressBar>
 #include <QScrollBar>
 #include <QSet>
 #include <QVariant>
@@ -53,6 +54,7 @@ enum TableColumn : int
     ColumnSelect = 0,
     ColumnPathId,
     ColumnStatus,
+    ColumnExecutionProgress,
     ColumnTerminalPath,
     ColumnPredictedCost,
     ColumnActualCost,
@@ -114,6 +116,86 @@ QString vehicleBreakdownLabel(
                          .arg(requirement.vehiclesNeeded));
     }
     return parts.join(QStringLiteral(" | "));
+}
+
+QString pathLifecycleLabel(
+    Backend::Scenario::PathLifecycleState lifecycle)
+{
+    using Backend::Scenario::PathLifecycleState;
+    switch (lifecycle)
+    {
+    case PathLifecycleState::Pending:
+        return QObject::tr("pending");
+    case PathLifecycleState::Running:
+        return QObject::tr("running");
+    case PathLifecycleState::WaitingForTerminalHandoff:
+        return QObject::tr("terminal handoff");
+    case PathLifecycleState::WaitingForTerminalProcessing:
+        return QObject::tr("terminal processing");
+    case PathLifecycleState::ReadyForNextSegment:
+        return QObject::tr("ready for next segment");
+    case PathLifecycleState::Paused:
+        return QObject::tr("paused");
+    case PathLifecycleState::Skipped:
+        return QObject::tr("skipped");
+    case PathLifecycleState::Completed:
+        return QObject::tr("completed");
+    case PathLifecycleState::Failed:
+        return QObject::tr("failed");
+    }
+    return QObject::tr("unknown");
+}
+
+QString segmentLifecycleLabel(
+    Backend::Scenario::SegmentLifecycleState lifecycle)
+{
+    using Backend::Scenario::SegmentLifecycleState;
+    switch (lifecycle)
+    {
+    case SegmentLifecycleState::Pending:
+        return QObject::tr("pending");
+    case SegmentLifecycleState::Dispatched:
+        return QObject::tr("dispatched");
+    case SegmentLifecycleState::VehicleRunning:
+        return QObject::tr("running");
+    case SegmentLifecycleState::VehicleArrived:
+        return QObject::tr("arrived");
+    case SegmentLifecycleState::UnloadCompleted:
+        return QObject::tr("unloaded");
+    case SegmentLifecycleState::TerminalHandoffCompleted:
+        return QObject::tr("handoff complete");
+    case SegmentLifecycleState::TerminalProcessing:
+        return QObject::tr("terminal processing");
+    case SegmentLifecycleState::ReadyForPickup:
+        return QObject::tr("ready");
+    case SegmentLifecycleState::Skipped:
+        return QObject::tr("skipped");
+    case SegmentLifecycleState::Completed:
+        return QObject::tr("completed");
+    case SegmentLifecycleState::Failed:
+        return QObject::tr("failed");
+    }
+    return QObject::tr("unknown");
+}
+
+QString modeLabel(
+    Backend::TransportationTypes::TransportationMode mode)
+{
+    if (mode == Backend::TransportationTypes::TransportationMode::Any)
+        return QObject::tr("No mode");
+    return Backend::TransportationTypes::toString(mode);
+}
+
+const Backend::Scenario::SegmentProgressSnapshot *
+activeSegmentFor(
+    const Backend::Scenario::PathProgressSnapshot &progress)
+{
+    for (const auto &segment : progress.segments)
+    {
+        if (segment.segmentIndex == progress.activeSegmentIndex)
+            return &segment;
+    }
+    return nullptr;
 }
 
 QString statusMessage(
@@ -412,18 +494,19 @@ void ShortestPathsTable::createTableWidget()
     m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
         tr("Select"),                tr("Path ID"),
-        tr("Status"),                tr("Terminal Path"),
+        tr("Status"),                tr("Progress"),
+        tr("Terminal Path"),
         tr("Predicted Cost"),        tr("Actual Cost"),
-        // Predicted per-vehicle (cols 6-11)
+        // Predicted per-vehicle.
         tr("P. Distance (km)"),      tr("P. Time (h)"),
         tr("P. Fuel/Veh"),           tr("P. Energy/Veh (kWh)"),
         tr("P. CO₂/Veh (t)"),        tr("P. Risk/Veh"),
-        // Actual per-vehicle (cols 12-16 — no fuel key from
+        // Actual per-vehicle; no fuel key from
         // SegmentCostMath)
         tr("A. Distance (km)"),      tr("A. Time (h)"),
         tr("A. Energy/Veh (kWh)"),   tr("A. CO₂/Veh (t)"),
         tr("A. Risk/Veh"),
-        // Preview-demand counts and per-container metrics (cols 17-23)
+        // Preview-demand counts and per-container metrics.
         tr("OD Containers"),         tr("Preview Vehicle Plan"),
         tr("P. Fuel/Cont"),          tr("P. Energy/Cont (kWh)"),
         tr("P. CO₂/Cont (t)"),
@@ -452,6 +535,9 @@ void ShortestPathsTable::createTableWidget()
         ColumnPathId, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(
         ColumnStatus, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(
+        ColumnExecutionProgress, QHeaderView::Interactive);
+    m_table->setColumnWidth(ColumnExecutionProgress, 260);
     header->setSectionResizeMode(
         ColumnTerminalPath, QHeaderView::Interactive);
     // The terminal sequence is the most scan-heavy field in the table.
@@ -1430,6 +1516,7 @@ void ShortestPathsTable::clear()
     m_exportButton->setEnabled(false);
     m_predicted.clear();
     m_actual.clear();
+    m_progressByPathKey.clear();
     m_rowByPathKey.clear();
     updateAvailabilityBanner();
 }
@@ -1877,6 +1964,50 @@ void ShortestPathsTable::setExecutionResults(
     }
 }
 
+void ShortestPathsTable::setExecutionProgress(
+    const Backend::Scenario::ExecutionProgressSnapshot &snapshot)
+{
+    m_progressByPathKey.clear();
+
+    for (const auto &progress : snapshot.paths)
+    {
+        PathIdentity pathKey;
+        if (m_pathData.contains(progress.pathIdentity))
+        {
+            pathKey = progress.pathIdentity;
+        }
+        else if (!progress.canonicalPathKey.isEmpty()
+                 && m_pathData.contains(progress.canonicalPathKey))
+        {
+            pathKey = progress.canonicalPathKey;
+        }
+
+        if (pathKey.isEmpty())
+        {
+            qCDebug(lcGuiPathTable)
+                << "Ignoring execution progress for unknown path"
+                << progress.pathIdentity
+                << "canonicalPathKey=" << progress.canonicalPathKey;
+            continue;
+        }
+
+        m_progressByPathKey.insert(pathKey, progress);
+    }
+
+    for (const auto &pathKey : std::as_const(m_displayOrder))
+        refreshProgressCell(pathKey);
+}
+
+void ShortestPathsTable::clearExecutionProgress()
+{
+    if (m_progressByPathKey.isEmpty())
+        return;
+
+    m_progressByPathKey.clear();
+    for (const auto &pathKey : std::as_const(m_displayOrder))
+        refreshProgressCell(pathKey);
+}
+
 ShortestPathsTable::PathIdentity
 ShortestPathsTable::appendPathRecord(PathData record)
 {
@@ -1918,6 +2049,100 @@ ShortestPathsTable::appendPathRecord(PathData record)
     return resolvedKey;
 }
 
+void ShortestPathsTable::refreshProgressCell(
+    const PathIdentity &pathKey)
+{
+    const int row = m_rowByPathKey.value(pathKey, -1);
+    if (row < 0)
+        return;
+
+    auto *progressBar = qobject_cast<QProgressBar *>(
+        m_table->cellWidget(row, ColumnExecutionProgress));
+    if (!progressBar)
+    {
+        progressBar = new QProgressBar(m_table);
+        progressBar->setRange(0, 100);
+        progressBar->setTextVisible(true);
+        progressBar->setAlignment(Qt::AlignCenter);
+        m_table->setCellWidget(row, ColumnExecutionProgress,
+                               progressBar);
+    }
+
+    const auto it = m_progressByPathKey.constFind(pathKey);
+    if (it == m_progressByPathKey.constEnd())
+    {
+        progressBar->setValue(0);
+        progressBar->setFormat(tr("Waiting simulation"));
+        progressBar->setToolTip(
+            tr("No execution progress has been reported for this path yet."));
+        progressBar->setEnabled(false);
+        return;
+    }
+
+    const auto &progress = it.value();
+    progressBar->setEnabled(progress.executable);
+    progressBar->setValue(qBound(0, qRound(progress.percent), 100));
+
+    QString phase = pathLifecycleLabel(progress.lifecycle);
+    if (const auto *activeSegment = activeSegmentFor(progress))
+    {
+        phase = segmentLifecycleLabel(activeSegment->lifecycle);
+    }
+
+    QString summary = phase;
+    if (progress.activeSegmentIndex >= 0
+        && progress.totalSegments > 0)
+    {
+        summary = tr("%1 seg %2/%3 %4")
+                      .arg(modeLabel(progress.activeMode))
+                      .arg(progress.activeSegmentIndex + 1)
+                      .arg(progress.totalSegments)
+                      .arg(phase);
+    }
+    else if (!progress.message.isEmpty())
+    {
+        summary = progress.message;
+    }
+
+    progressBar->setFormat(QStringLiteral("%p%  %1").arg(summary));
+
+    QStringList tooltip;
+    tooltip << tr("Path progress: %1%")
+                   .arg(progress.percent, 0, 'f', 1)
+            << tr("Path state: %1")
+                   .arg(pathLifecycleLabel(progress.lifecycle));
+    if (progress.activeSegmentIndex >= 0)
+    {
+        tooltip << tr("Active segment: %1 of %2")
+                       .arg(progress.activeSegmentIndex + 1)
+                       .arg(progress.totalSegments)
+                << tr("Mode: %1").arg(modeLabel(progress.activeMode))
+                << tr("Network: %1").arg(progress.activeNetworkName)
+                << tr("From: %1").arg(progress.activeStartTerminalId)
+                << tr("To: %1").arg(progress.activeEndTerminalId);
+    }
+    if (!progress.message.isEmpty())
+        tooltip << tr("Message: %1").arg(progress.message);
+
+    if (!progress.segments.isEmpty())
+    {
+        tooltip << tr("Segments:");
+        for (const auto &segment : progress.segments)
+        {
+            tooltip << tr("%1. %2 %3 -> %4: %5 (%6%)")
+                           .arg(segment.segmentIndex + 1)
+                           .arg(modeLabel(segment.mode))
+                           .arg(segment.startTerminalId,
+                                segment.endTerminalId,
+                                segmentLifecycleLabel(
+                                    segment.lifecycle))
+                           .arg(segment.percent, 0, 'f', 1);
+        }
+    }
+
+    progressBar->setToolTip(tooltip.join(QLatin1Char('\n')));
+}
+
 void ShortestPathsTable::refreshRow(
     const PathIdentity &pathKey)
 {
@@ -1936,7 +2161,9 @@ void ShortestPathsTable::refreshRow(
     const auto &p = m_predicted.value(pathKey);
     const auto &a = m_actual.value(pathKey);
 
-    // Predicted per-vehicle (cols 6..11)
+    refreshProgressCell(pathKey);
+
+    // Predicted per-vehicle.
     m_table->setItem(row, ColumnPredictedDistance,
                      cell(p.valid, p.distanceKm));
     m_table->setItem(row, ColumnPredictedTime,
@@ -1950,8 +2177,7 @@ void ShortestPathsTable::refreshRow(
     m_table->setItem(row, ColumnPredictedRiskPerVehicle,
                      cell(p.valid, p.riskPerVehicle));
 
-    // Actual per-vehicle (cols 12..16; no fuel column — see
-    // createTableWidget note).
+    // Actual per-vehicle; no fuel column, see createTableWidget note.
     m_table->setItem(row, ColumnActualDistance,
                      cell(a.valid, a.distanceKm));
     m_table->setItem(row, ColumnActualTime,
@@ -1963,7 +2189,7 @@ void ShortestPathsTable::refreshRow(
     m_table->setItem(row, ColumnActualRiskPerVehicle,
                      cell(a.valid, a.riskPerVehicle));
 
-    // Preview-demand counts and per-container metrics (cols 17..23)
+    // Preview-demand counts and per-container metrics.
     m_table->setItem(row, ColumnContainers, new QTableWidgetItem(
         p.valid ? QString::number(p.containerCount) : dash));
     auto *vehicleItem = new QTableWidgetItem(

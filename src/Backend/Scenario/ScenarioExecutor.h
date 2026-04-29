@@ -4,9 +4,11 @@
 #include <QObject>
 #include <QVector>
 #include <QString>
+#include <atomic>
 
 #include "ScenarioExecutionResult.h"
 #include "PathSimulationResult.h"
+#include "ExecutionPlanTypes.h"
 
 namespace CargoNetSim
 {
@@ -19,16 +21,19 @@ class ScenarioDocument;
 class ScenarioRegistry;
 
 /**
- * @brief End-to-end backend-pure simulation driver.
+ * @brief End-to-end backend-pure multimodal execution driver.
  *
- * Wires SimulationRequestBuilder → SimulationOrchestrator →
- * ResultsExtractor in sequence. Replaces SVW::process() (SVW:28-81).
+ * Builds an execution plan, coordinates per-path segment activation,
+ * dispatches execution waves through persistent simulator sessions,
+ * and extracts typed execution results. This is the production
+ * execution entry point replacing the older mode-batched orchestration
+ * pipeline.
  *
  * Decoupling: this class does NOT depend on ScenarioRuntime. Inputs are
  * injected via setters so the executor stays independently testable and
- * the runtime (Plan 3 Task 24) can simply construct + inject + invoke
- * without circular dependencies. Both the GUI (Plan 4) and the CLI
- * (Plan 5) end up driving through the runtime, never directly.
+ * the runtime can simply construct + inject + invoke without circular
+ * dependencies. Both the GUI and the CLI end up driving through the
+ * runtime, never directly.
  *
  * Ownership: pointers passed via setters are non-owning. Caller (the
  * runtime, or test fixtures) keeps document/registry/paths alive for
@@ -54,6 +59,15 @@ public:
     /** @brief Set the stable prepared-path identities aligned to setPaths(). */
     void setPathIdentities(const QVector<QString> &pathIdentities);
 
+    /** @brief Set how selected path demand is assigned for this run. */
+    void setDemandPolicy(ExecutionDemandPolicy demandPolicy);
+
+    /**
+     * @brief Set whether selected paths share simulator state or run as
+     *        isolated what-if alternatives.
+     */
+    void setIsolationPolicy(ExecutionIsolationPolicy isolationPolicy);
+
     /**
      * @brief Lifecycle entry point. Validates inputs, runs the
      *        builder/orchestrator/extractor pipeline, emits status,
@@ -75,9 +89,32 @@ public:
         return m_executionResults;
     }
 
+    const ScenarioExecutionPlan &executionPlan() const
+    {
+        return m_executionPlan;
+    }
+
+    const ExecutionLedger &executionLedger() const
+    {
+        return m_executionLedger;
+    }
+
+    const QVector<DispatchableSegmentRef> &dispatchableSegments() const
+    {
+        return m_dispatchableSegments;
+    }
+
+    void requestStop();
+    void requestPause();
+    void requestResume();
+
 signals:
     void statusMessage(const QString &msg);
     void errorMessage(const QString &msg);
+    void progressChanged(double currentTime, double percent);
+    void progressSnapshotChanged(
+        double currentTime,
+        const ExecutionProgressSnapshot &snapshot);
     void succeeded();
     void failed(const QString &message);
     void finished();
@@ -89,12 +126,22 @@ private:
      *        @p err and returns false.
      */
     bool validateInputs(QString *err);
+    bool runIsolatedAlternativeExecutions();
 
     const ScenarioDocument             *m_document = nullptr;
     const ScenarioRegistry             *m_registry = nullptr;
     QList<CargoNetSim::Backend::Path *> m_paths;
     QVector<QString>                    m_pathIdentities;
+    ExecutionDemandPolicy               m_demandPolicy =
+        ExecutionDemandPolicy::AllocatedOnly;
+    ExecutionIsolationPolicy            m_isolationPolicy =
+        ExecutionIsolationPolicy::SharedSimulatorState;
     ScenarioExecutionResultSet          m_executionResults;
+    ScenarioExecutionPlan               m_executionPlan;
+    ExecutionLedger                     m_executionLedger;
+    QVector<DispatchableSegmentRef>     m_dispatchableSegments;
+    std::atomic_bool                    m_stopRequested{false};
+    std::atomic_bool                    m_pauseRequested{false};
 };
 
 } // namespace Scenario

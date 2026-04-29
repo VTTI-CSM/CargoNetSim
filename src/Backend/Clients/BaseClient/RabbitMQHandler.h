@@ -150,6 +150,18 @@ public:
         return m_commandQueue;
     }
 
+    QString getResponseQueueName() const
+    {
+        return m_responseQueue;
+    }
+
+    QString getPrimaryReceivingRoutingKey() const
+    {
+        return m_receivingRoutingKeys.isEmpty()
+                   ? QString()
+                   : m_receivingRoutingKeys.constFirst();
+    }
+
 signals:
     /**
      * @brief Emitted when a message is received

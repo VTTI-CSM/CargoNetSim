@@ -118,6 +118,19 @@ ScenarioRegistry::previewTruckNetwork(const QString &name) const
     return cfg ? cfg->getNetwork() : nullptr;
 }
 
+TruckClient::IntegrationSimulationConfig *
+ScenarioRegistry::previewTruckConfig(const QString &name) const
+{
+    auto *cfg = m_previewTruckCfg.value(name, nullptr);
+    if (!cfg)
+    {
+        qCWarning(lcScenario)
+            << "ScenarioRegistry::previewTruckConfig: not found:"
+            << name;
+    }
+    return cfg;
+}
+
 QStringList ScenarioRegistry::previewRailNetworkNames() const
 {
     return m_previewRail.keys();

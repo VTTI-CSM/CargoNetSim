@@ -236,6 +236,11 @@ bool TruckSimulationManager::createClient(
         new TruckSimulationClient(config.exePath, nullptr,
                                   config.host, config.port);
 
+    connect(client, &TruckSimulationClient::tripEnded,
+            this, &TruckSimulationManager::tripEnded);
+    connect(client, &TruckSimulationClient::tripEndedWithData,
+            this, &TruckSimulationManager::tripEndedWithData);
+
     // Store client and configuration
     {
         Commons::ScopedWriteLock locker(m_mutex);

@@ -4,8 +4,10 @@
 #include <QObject>
 #include <QString>
 #include <memory>
+#include <optional>
 
 #include "PreparedPathStatus.h"
+#include "ExecutionPlanTypes.h"
 #include "PathPreparationService.h"
 #include "ScenarioExecutionResult.h"
 #include "ScenarioRegistry.h"
@@ -39,7 +41,7 @@ class ScenarioExecutor;
  *      stable prepared identity
  *   5. startSimulation()                  — spawn executor on worker
  *      thread, return immediately; result arrives via `completed`/`failed`
- *   6. stop()/pause()/resume()            — forward to CargoNetSimController
+ *   6. stop()/pause()/resume()            — signal the active executor
  *
  * CLI blocking-wait idiom:
  *     QEventLoop loop;
@@ -77,6 +79,13 @@ public:
     bool setSelectedPathKeys(const QVector<QString> &pathKeys,
                              QString               *err = nullptr);
 
+    /** @brief Configure how selected path demand is assigned at execution. */
+    void setDemandPolicy(ExecutionDemandPolicy demandPolicy);
+    ExecutionDemandPolicy demandPolicy() const
+    {
+        return m_demandPolicy;
+    }
+
     /** @brief Spawn the executor on the worker thread. Returns immediately;
      *         progress via signals. Fails if load() hasn't run, or if a
      *         prior simulation is still active. */
@@ -88,6 +97,7 @@ public:
 
     double currentTime() const;
     double progress() const;
+    ExecutionProgressSnapshot progressSnapshot() const;
     bool   isRunning() const;
 
     const ScenarioDocument &document() const;
@@ -130,6 +140,9 @@ public:
 
 signals:
     void progressChanged(double currentTime, double percent);
+    void progressSnapshotChanged(
+        double currentTime,
+        const ExecutionProgressSnapshot &snapshot);
     void completed();
     void failed(const QString &message);
     void statusMessage(const QString &msg);
@@ -137,6 +150,9 @@ signals:
 
 private slots:
     void onStepCompleted(double currentTime, double progress);
+    void onProgressSnapshotChanged(
+        double currentTime,
+        const ExecutionProgressSnapshot &snapshot);
     void onExecutorSucceeded();
     void onExecutorFailed(const QString &message);
     void onExecutorFinished();
@@ -159,14 +175,17 @@ private:
     ScenarioExecutor                   *m_executor     = nullptr;
     QList<CargoNetSim::Backend::Path *> m_paths;
     QVector<QString>                    m_selectedPathKeys;
+    ExecutionDemandPolicy               m_demandPolicy =
+        ExecutionDemandPolicy::AllocatedOnly;
     ScenarioExecutionResultSet          m_lastExecutionResults;
     bool                                m_loaded       = false;
     bool                                m_terminalSignaled = false;
     TerminalOutcome                     m_terminalOutcome = TerminalOutcome::None;
     QString                             m_failureMessage;
-    double                              m_endTime      = 0.0;
+    std::optional<double>               m_endTime;
     double                              m_lastTime     = 0.0;
     double                              m_lastProgress = 0.0;
+    ExecutionProgressSnapshot           m_lastProgressSnapshot;
 };
 
 } // namespace Scenario

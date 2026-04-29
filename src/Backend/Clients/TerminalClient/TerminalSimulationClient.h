@@ -36,6 +36,8 @@ namespace CargoNetSim
 namespace Backend
 {
 
+class SimulatorHealthProbeTransport;
+
 /**
  * @class TerminalSimulationClient
  * @brief Client for interacting with TerminalSim server
@@ -352,62 +354,60 @@ public:
                           const QString &arrivalMode = "");
 
     /**
-     * @brief Gets containers by departing time
+     * @brief Gets containers matching generic TerminalSim criteria
      * @param terminalId Terminal identifier
-     * @param time Departing time threshold
-     * @param condition Comparison operator
-     * @return List of container pointers
-     * @note Server-owned; do not delete
+     * @param criteria TerminalSim container selection criteria
+     * @return Client-owned cached container pointers, valid until the next
+     *         fetch/dequeue for the same terminal or client reset.
      *
-     * Fetches containers based on departure time.
+     * Uses TerminalSim's SQL-backed generic criteria API. Prefer this over
+     * destination-only retrieval for execution-scoped or path-scoped
+     * container selection.
      */
     Q_INVOKABLE QList<ContainerCore::Container *>
-    getContainersByDepartingTime(const QString &terminalId,
-                                 double         time,
-                                 const QString &condition);
+    getContainers(const QString     &terminalId,
+                  const QJsonObject &criteria);
 
     /**
-     * @brief Gets containers by added time
+     * @brief Dequeues containers matching generic TerminalSim criteria
      * @param terminalId Terminal identifier
-     * @param time Added time threshold
-     * @param condition Comparison operator
-     * @return List of container pointers
-     * @note Server-owned; do not delete
+     * @param criteria TerminalSim container selection criteria
+     * @return Client-owned cached container pointers, valid until the next
+     *         fetch/dequeue for the same terminal or client reset.
      *
-     * Fetches containers based on addition time.
+     * This is a state-changing TerminalSim operation. CargoNetSim execution
+     * should prefer reservation/commit once TerminalSim exposes that contract.
      */
     Q_INVOKABLE QList<ContainerCore::Container *>
-    getContainersByAddedTime(const QString &terminalId,
-                             double         time,
-                             const QString &condition);
+    dequeueContainers(const QString     &terminalId,
+                      const QJsonObject &criteria);
 
     /**
-     * @brief Gets containers by next destination
-     * @param terminalId Terminal identifier
-     * @param destination Next destination ID
-     * @return List of container pointers
-     * @note Server-owned; do not delete
+     * @brief Reserves containers matching generic criteria for later pickup
+     * commit or release.
      *
-     * Fetches containers headed to a destination.
+     * Reservation keeps containers in TerminalSim inventory while excluding
+     * them from other pickup operations. This is the safe execution boundary
+     * CargoNetSim should use before simulator dispatch.
      */
-    Q_INVOKABLE QList<ContainerCore::Container *>
-                getContainersByNextDestination(
-                    const QString &terminalId,
-                    const QString &destination);
+    Q_INVOKABLE QJsonObject
+    reserveContainers(const QString     &terminalId,
+                      const QString     &reservationId,
+                      const QJsonObject &criteria);
 
     /**
-     * @brief Dequeues containers by destination
-     * @param terminalId Terminal identifier
-     * @param destination Next destination ID
-     * @return List of container pointers
-     * @note Caller must delete each pointer
-     *
-     * Removes and returns containers for a destination.
+     * @brief Commits a prior TerminalSim reservation as a pickup departure.
      */
-    Q_INVOKABLE QList<ContainerCore::Container *>
-                dequeueContainersByNextDestination(
-                    const QString &terminalId,
-                    const QString &destination);
+    Q_INVOKABLE QJsonObject
+    commitContainerReservation(const QString &terminalId,
+                               const QString &reservationId);
+
+    /**
+     * @brief Releases a prior TerminalSim reservation without pickup effects.
+     */
+    Q_INVOKABLE QJsonObject
+    releaseContainerReservation(const QString &terminalId,
+                                const QString &reservationId);
 
     /**
      * @brief Gets container count for a terminal
@@ -545,6 +545,14 @@ public:
      * Tests server responsiveness with an optional echo.
      */
     Q_INVOKABLE QJsonObject ping(const QString &echo = "");
+
+    /**
+     * @brief Application-level command readiness probe
+     *
+     * TerminalSim exposes `ping` rather than `checkConnection`, so the
+     * terminal client overrides the base readiness probe accordingly.
+     */
+    bool probeCommandAvailability(int timeoutMs = 500) override;
 
 protected:
     /**
@@ -708,6 +716,17 @@ private:
      * @brief ping Response
      */
     QJsonObject m_pingResponse;
+
+    /**
+     * @brief Dedicated low-level probe transport
+     *
+     * Keeps readiness probing off the main terminal event
+     * lane so command-availability waits do not depend on
+     * the terminal client thread servicing queued
+     * responses.
+     */
+    SimulatorHealthProbeTransport *m_probeTransport =
+        nullptr;
 
     /**
      * @brief Current count of terminals

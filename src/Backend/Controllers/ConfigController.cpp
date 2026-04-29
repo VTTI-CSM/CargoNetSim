@@ -3,6 +3,7 @@
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Commons/Units.h"
 #include "Backend/Scenario/PropertyKeys.h"
+#include "Backend/Scenario/SimulationSettings.h"
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
@@ -223,7 +224,8 @@ void ConfigController::createDefaultConfig()
     // Create a default configuration with the values from
     // the XML example
     QVariantMap simulation;
-    simulation["time_step"]           = 15;
+    simulation["time_step"] =
+        Scenario::kDefaultOrchestrationTimeStepSeconds;
     simulation[PK::Simulation::TimeValueOfMoney] = kDefaultAvgTVM;
     simulation[PK::Simulation::UseModeSpecific]  = false;
     simulation["shortest_paths"]      = 10;

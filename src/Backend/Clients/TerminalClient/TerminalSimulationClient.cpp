@@ -4,6 +4,7 @@
 #include <QThread>
 #include <stdexcept>
 
+#include "Backend/Clients/BaseClient/SimulatorHealthProbeTransport.h"
 #include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
@@ -107,6 +108,9 @@ TerminalSimulationClient::TerminalSimulationClient(
 // Destructor implementation
 TerminalSimulationClient::~TerminalSimulationClient()
 {
+    delete m_probeTransport;
+    m_probeTransport = nullptr;
+
     // Lock mutex to ensure thread-safe cleanup
     Commons::ScopedWriteLock locker(m_dataMutex);
 
@@ -199,6 +203,22 @@ void TerminalSimulationClient::initializeClient(
 
     // Configure heartbeat for connection health
     m_rabbitMQHandler->setupHeartbeat(5);
+
+    if (m_probeTransport == nullptr)
+    {
+        m_probeTransport = new SimulatorHealthProbeTransport(
+            this, m_host, m_port, m_username, m_password,
+            m_exchange,
+            QStringLiteral(
+                "CargoNetSim.CommandQueue.TerminalSim.Health"),
+            QStringLiteral(
+                "CargoNetSim.ResponseQueue.TerminalSim.Health"),
+            QStringLiteral("CargoNetSim.Command.Health.TerminalSim"),
+            QStringList{
+                QStringLiteral(
+                    "CargoNetSim.Response.Health.TerminalSim")},
+            ClientType::TerminalClient);
+    }
 
     // Log initialization details for audit
     qCInfo(lcClientTerminal) << "Client initialized in thread:"
@@ -798,97 +818,110 @@ bool TerminalSimulationClient::addContainersFromJson(
     });
 }
 
-// Get containers by departing time
-QList<ContainerCore::Container *>
-TerminalSimulationClient::getContainersByDepartingTime(
-    const QString &terminalId, double time,
-    const QString &condition)
-{
-    // Execute fetch by departing time serially
-    executeSerializedCommand([&]() {
-        // Prepare parameters for fetch
-        QJsonObject params;
-        params["terminal_id"]    = terminalId;
-        params["departing_time"] = time;
-        params["condition"]      = condition;
-        // Send fetch command
-        return sendCommandAndWait(
-            "get_containers_by_departing_time", params,
-            {"containersFetched"});
-    });
-    // Access containers thread-safely
-    Commons::ScopedReadLock locker(m_dataMutex);
-    return m_containers.value(
-        terminalId, QList<ContainerCore::Container *>());
-}
-
-// Get containers by added time
-QList<ContainerCore::Container *>
-TerminalSimulationClient::getContainersByAddedTime(
-    const QString &terminalId, double time,
-    const QString &condition)
-{
-    // Execute fetch by added time serially
-    executeSerializedCommand([&]() {
-        // Prepare parameters for fetch
-        QJsonObject params;
-        params["terminal_id"] = terminalId;
-        params["added_time"]  = time;
-        params["condition"]   = condition;
-        // Send fetch command
-        return sendCommandAndWait(
-            "get_containers_by_added_time", params,
-            {"containersFetched"});
-    });
-    // Access containers thread-safely
-    Commons::ScopedReadLock locker(m_dataMutex);
-    return m_containers.value(
-        terminalId, QList<ContainerCore::Container *>());
-}
-
-// Get containers by next destination
-QList<ContainerCore::Container *>
-TerminalSimulationClient::getContainersByNextDestination(
-    const QString &terminalId, const QString &destination)
-{
-    // Execute fetch by destination serially
-    executeSerializedCommand([&]() {
-        // Prepare parameters for fetch
-        QJsonObject params;
-        params["terminal_id"] = terminalId;
-        params["destination"] = destination;
-        // Send fetch command
-        return sendCommandAndWait(
-            "get_containers_by_next_destination", params,
-            {"containersFetched"});
-    });
-    // Access containers thread-safely
-    Commons::ScopedReadLock locker(m_dataMutex);
-    return m_containers.value(
-        terminalId, QList<ContainerCore::Container *>());
-}
-
-// Dequeue containers by next destination
 QList<ContainerCore::Container *> TerminalSimulationClient::
-    dequeueContainersByNextDestination(
-        const QString &terminalId,
-        const QString &destination)
+    getContainers(const QString &terminalId,
+                  const QJsonObject &criteria)
 {
-    // Execute dequeue serially
-    executeSerializedCommand([&]() {
-        // Prepare parameters for dequeue
+    const bool success = executeSerializedCommand([&]() {
         QJsonObject params;
         params["terminal_id"] = terminalId;
-        params["destination"] = destination;
-        // Send dequeue command
+        params["criteria"] = criteria;
         return sendCommandAndWait(
-            "dequeue_containers_by_next_destination",
-            params, {"containersFetched"});
+            "get_containers", params, {"containersFetched"});
     });
-    // Access dequeued containers thread-safely
+    if (!success)
+        return {};
+
     Commons::ScopedReadLock locker(m_dataMutex);
     return m_containers.value(
         terminalId, QList<ContainerCore::Container *>());
+}
+
+QList<ContainerCore::Container *> TerminalSimulationClient::
+    dequeueContainers(const QString &terminalId,
+                      const QJsonObject &criteria)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["criteria"] = criteria;
+        params["dequeue"] = true;
+        return sendCommandAndWait(
+            "dequeue_containers", params, {"containersFetched"});
+    });
+    if (!success)
+        return {};
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    return m_containers.value(
+        terminalId, QList<ContainerCore::Container *>());
+}
+
+QJsonObject TerminalSimulationClient::reserveContainers(
+    const QString &terminalId,
+    const QString &reservationId,
+    const QJsonObject &criteria)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["reservation_id"] = reservationId;
+        params["criteria"] = criteria;
+        return sendCommandAndWait(
+            "reserve_containers", params, {"containersReserved"});
+    });
+    if (!success)
+        return {};
+
+    const QJsonObject eventData =
+        getEventData(QStringLiteral("containersReserved"));
+    if (!eventData.value(QStringLiteral("success")).toBool(false))
+        return {};
+    return eventData.value(QStringLiteral("result")).toObject();
+}
+
+QJsonObject TerminalSimulationClient::commitContainerReservation(
+    const QString &terminalId,
+    const QString &reservationId)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["reservation_id"] = reservationId;
+        return sendCommandAndWait(
+            "commit_container_reservation", params,
+            {"containerReservationCommitted"});
+    });
+    if (!success)
+        return {};
+
+    const QJsonObject eventData = getEventData(
+        QStringLiteral("containerReservationCommitted"));
+    if (!eventData.value(QStringLiteral("success")).toBool(false))
+        return {};
+    return eventData.value(QStringLiteral("result")).toObject();
+}
+
+QJsonObject TerminalSimulationClient::releaseContainerReservation(
+    const QString &terminalId,
+    const QString &reservationId)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["reservation_id"] = reservationId;
+        return sendCommandAndWait(
+            "release_container_reservation", params,
+            {"containerReservationReleased"});
+    });
+    if (!success)
+        return {};
+
+    const QJsonObject eventData = getEventData(
+        QStringLiteral("containerReservationReleased"));
+    if (!eventData.value(QStringLiteral("success")).toBool(false))
+        return {};
+    return eventData.value(QStringLiteral("result")).toObject();
 }
 
 // Get container count
@@ -1206,6 +1239,32 @@ TerminalSimulationClient::ping(const QString &echo)
     return m_pingResponse;
 }
 
+bool TerminalSimulationClient::probeCommandAvailability(
+    int timeoutMs)
+{
+    if (m_probeTransport == nullptr)
+    {
+        qCCritical(lcClientTerminal)
+            << "TerminalSimulationClient::probeCommandAvailability:"
+            << "probe transport unavailable after client startup";
+        return false;
+    }
+
+    try
+    {
+        return m_probeTransport->probe(
+            QStringLiteral("ping"),
+            {QStringLiteral("pingResponse")}, timeoutMs);
+    }
+    catch (const std::exception &e)
+    {
+        qCWarning(lcClientTerminal)
+            << "TerminalSimulationClient::probeCommandAvailability failed:"
+            << e.what();
+        return false;
+    }
+}
+
 // Populate terminal caches before waiters are woken.
 // Invoked by SimulationClientBase::processMessage.
 void TerminalSimulationClient::onEventReceived(
@@ -1256,6 +1315,13 @@ void TerminalSimulationClient::onEventReceived(
     else if (normEvent == "containersfetched")
     {
         onContainersFetched(message);
+    }
+    else if (normEvent == "containersreserved"
+             || normEvent == "containerreservationcommitted"
+             || normEvent == "containerreservationreleased")
+    {
+        // Reservation responses are returned through getEventData() by the
+        // synchronous caller; no additional typed cache is needed here.
     }
     else if (normEvent == "capacityfetched")
     {
@@ -1644,20 +1710,14 @@ void TerminalSimulationClient::onContainersFetched(
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
 
-    // Check if this is a dequeue operation
-    bool isDequeue = params.contains("destination")
-                     && params.contains("dequeue");
-
-    // Clean up old containers if dequeued
+    // The client owns the cached response objects for both read-only fetches
+    // and dequeue responses. Replacing the cache must release the old objects
+    // regardless of which TerminalSim command produced them.
     QList<ContainerCore::Container *> oldContainers =
         m_containers.value(terminalId);
-    if (isDequeue)
+    for (ContainerCore::Container *container : oldContainers)
     {
-        for (ContainerCore::Container *container :
-             oldContainers)
-        {
-            delete container; // Ownership transferred
-        }
+        delete container;
     }
 
     // Create new container list from response

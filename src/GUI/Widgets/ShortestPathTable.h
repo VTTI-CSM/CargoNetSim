@@ -14,6 +14,7 @@
  */
 #pragma once
 #include "Backend/Application/PathPresentationService.h"
+#include "Backend/Scenario/ExecutionPlanTypes.h"
 #include <QBrush>
 #include <QCheckBox>
 #include <QHBoxLayout>
@@ -177,6 +178,13 @@ public:
     /// Store the backend-owned typed execution results for comparison/export.
     void setExecutionResults(
         const Backend::Scenario::ScenarioExecutionResultSet &results);
+
+    /// Update per-path execution progress from the backend runtime snapshot.
+    void setExecutionProgress(
+        const Backend::Scenario::ExecutionProgressSnapshot &snapshot);
+
+    /// Clear stale per-path execution progress before a new run starts.
+    void clearExecutionProgress();
 
     /**
      * @brief Gets the size of the paths in the table
@@ -573,12 +581,15 @@ private:
     /// keyed by canonical backend path identity rather than local path_id.
     QHash<PathIdentity, Backend::Scenario::PathMetrics> m_predicted;
     QHash<PathIdentity, Backend::Scenario::PathMetrics> m_actual;
+    QHash<PathIdentity, Backend::Scenario::PathProgressSnapshot>
+        m_progressByPathKey;
     QHash<PathIdentity /*pathKey*/, int /*row*/>        m_rowByPathKey;
 
     PathIdentity appendPathRecord(PathData record);
 
     /// Plan 8.2/A2: rewrite metric columns for a given canonical path.
     void refreshRow(const PathIdentity &pathKey);
+    void refreshProgressCell(const PathIdentity &pathKey);
 };
 
 } // namespace GUI

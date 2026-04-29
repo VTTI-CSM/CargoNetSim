@@ -21,9 +21,7 @@ inline bool isCommandAvailable(
     if (!client)
         return false;
 
-    auto *handler = client->getRabbitMQHandler();
-    return handler && isCommandAvailable(handler->isConnected(),
-                                         handler->hasCommandQueueConsumers());
+    return client->probeCommandAvailability();
 }
 
 inline bool isCommandAvailable(

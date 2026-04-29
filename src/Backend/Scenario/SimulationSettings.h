@@ -15,6 +15,8 @@ namespace Backend
 namespace Scenario
 {
 
+inline constexpr int kDefaultOrchestrationTimeStepSeconds = 15 * 60;
+
 /// Scenario-wide simulation parameters. All fields are optional — a nullopt
 /// field means "not specified in YAML; inherit the config.xml default at apply
 /// time." See ScenarioApplier::applySettings() for the merge logic.

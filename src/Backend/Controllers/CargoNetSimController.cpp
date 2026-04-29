@@ -9,10 +9,107 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Utils/Utils.h"
 #include <QCoreApplication>
+#include <QEventLoop>
 #include <QThread>
+#include <QTimer>
 
 namespace CargoNetSim
 {
+
+namespace
+{
+constexpr int kControllerThreadStopTimeoutMs = 10000;
+
+template <typename Client>
+bool disconnectClientOnOwningThread(Client *client,
+                                    const char *clientName)
+{
+    if (client == nullptr)
+        return true;
+
+    auto disconnect = [client, clientName]() -> bool {
+        try
+        {
+            auto *handler = client->getRabbitMQHandler();
+            if (handler == nullptr || !handler->isConnected())
+                return true;
+
+            client->disconnectFromServer();
+            return true;
+        }
+        catch (const std::exception &e)
+        {
+            qCWarning(lcController)
+                << "CargoNetSimController::stopAll:"
+                << clientName
+                << "disconnect failed:" << e.what();
+        }
+        catch (...)
+        {
+            qCWarning(lcController)
+                << "CargoNetSimController::stopAll:"
+                << clientName
+                << "disconnect failed with unknown exception";
+        }
+        return false;
+    };
+
+    QThread *ownerThread = client->thread();
+    if (ownerThread && ownerThread->isRunning()
+        && ownerThread != QThread::currentThread())
+    {
+        bool result = false;
+        const bool invoked = QMetaObject::invokeMethod(
+            client, [&]() { result = disconnect(); },
+            Qt::BlockingQueuedConnection);
+        if (!invoked)
+        {
+            qCWarning(lcController)
+                << "CargoNetSimController::stopAll:"
+                << "failed to queue disconnect for" << clientName;
+            return false;
+        }
+        return result;
+    }
+
+    return disconnect();
+}
+
+bool stopControllerThread(QThread *thread, const char *threadName)
+{
+    if (thread == nullptr || !thread->isRunning())
+        return true;
+
+    thread->quit();
+    if (thread->wait(kControllerThreadStopTimeoutMs))
+        return true;
+
+    qCCritical(lcController)
+        << "CargoNetSimController::stopAll:"
+        << threadName
+        << "did not stop within"
+        << kControllerThreadStopTimeoutMs << "ms";
+    return false;
+}
+
+void deleteStoppedThread(QThread *&thread, const char *threadName)
+{
+    if (thread == nullptr)
+        return;
+
+    if (thread->isRunning())
+    {
+        qCCritical(lcController)
+            << "CargoNetSimController: refusing to delete running"
+            << threadName;
+        return;
+    }
+
+    delete thread;
+    thread = nullptr;
+}
+
+} // namespace
 
 // Initialize static members
 std::atomic<CargoNetSimController *>
@@ -30,6 +127,7 @@ CargoNetSimController::CargoNetSimController(
     , m_trainClient(nullptr)
     , m_terminalClient(nullptr)
     , m_initializedClientCount(0)
+    , m_completedStartupCount(0)
     , m_readyClientCount(0)
     , m_logger(logger)
 {
@@ -127,33 +225,10 @@ CargoNetSimController::~CargoNetSimController()
     stopAll();
 
     // Clean up threads
-    if (m_truckThread)
-    {
-        m_truckThread->quit();
-        m_truckThread->wait(3000);
-        delete m_truckThread;
-    }
-
-    if (m_shipThread)
-    {
-        m_shipThread->quit();
-        m_shipThread->wait(3000);
-        delete m_shipThread;
-    }
-
-    if (m_trainThread)
-    {
-        m_trainThread->quit();
-        m_trainThread->wait(3000);
-        delete m_trainThread;
-    }
-
-    if (m_terminalThread)
-    {
-        m_terminalThread->quit();
-        m_terminalThread->wait(3000);
-        delete m_terminalThread;
-    }
+    deleteStoppedThread(m_truckThread, "TruckSimulationThread");
+    deleteStoppedThread(m_shipThread, "ShipSimulationThread");
+    deleteStoppedThread(m_trainThread, "TrainSimulationThread");
+    deleteStoppedThread(m_terminalThread, "TerminalSimulationThread");
 
     // Clean up controllers
     // The Controllers will be deleted automatically
@@ -171,6 +246,8 @@ bool CargoNetSimController::initialize(
 {
     qCInfo(lcController) << "CargoNetSimController::initialize:"
                          << "truckExePath=" << truckExePath;
+
+    m_truckExecutablePath = truckExePath;
     // Create and start client threads
     bool success = true;
     m_simulationTime = new Backend::SimulationTime();
@@ -193,6 +270,10 @@ bool CargoNetSimController::initialize(
 bool CargoNetSimController::startAll()
 {
     qCInfo(lcController) << "CargoNetSimController::startAll";
+    m_completedStartupCount = 0;
+    m_readyClientCount      = 0;
+    m_clientReady.clear();
+    m_clientStartupErrors.clear();
     // Start all threads
     if (m_truckThread && !m_truckThread->isRunning())
     {
@@ -237,9 +318,77 @@ bool CargoNetSimController::startAll()
     return true;
 }
 
+bool CargoNetSimController::waitForAllClientsReady(
+    int timeoutMs, QString *errorMessage)
+{
+    static constexpr int kExpectedClients = 4;
+
+    const auto allReady = [&]() {
+        return m_readyClientCount == kExpectedClients;
+    };
+    const auto allCompleted = [&]() {
+        return m_completedStartupCount == kExpectedClients;
+    };
+
+    if (allReady())
+        return true;
+
+    QEventLoop loop;
+    QTimer timer;
+    timer.setSingleShot(true);
+
+    connect(this, &CargoNetSimController::allClientsReady, &loop,
+            &QEventLoop::quit);
+    connect(this, &CargoNetSimController::clientStartupFinished, &loop,
+            [&]() {
+                if (allCompleted())
+                    loop.quit();
+            });
+    connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+
+    timer.start(timeoutMs);
+    loop.exec();
+
+    if (allReady())
+        return true;
+
+    if (errorMessage != nullptr)
+    {
+        if (!allCompleted())
+        {
+            *errorMessage = QStringLiteral(
+                "Timed out waiting for queued client-thread startup to finish");
+        }
+        else
+        {
+            QStringList failures;
+            for (auto it = m_clientStartupErrors.cbegin();
+                 it != m_clientStartupErrors.cend(); ++it)
+            {
+                if (it.value().isEmpty())
+                    continue;
+
+                failures.append(QStringLiteral("%1: %2")
+                                    .arg(static_cast<int>(it.key()))
+                                    .arg(it.value()));
+            }
+
+            *errorMessage =
+                failures.isEmpty()
+                    ? QStringLiteral(
+                          "One or more clients failed to become ready")
+                    : failures.join(QStringLiteral("; "));
+        }
+    }
+
+    return false;
+}
+
 bool CargoNetSimController::stopAll()
 {
     qCInfo(lcController) << "CargoNetSimController::stopAll";
+    bool success = true;
+
     // Stop all simulation clients
     if (m_truckManager)
     {
@@ -249,19 +398,23 @@ bool CargoNetSimController::stopAll()
         // m_truckManager->terminateSimulators(networks);
     }
 
-    if (m_shipClient)
-    {
-        // TODO: Terminate simulations if running
-        // m_shipClient->terminateSimulations({"*"});
-    }
+    success &= disconnectClientOnOwningThread(
+        m_shipClient, "ShipClient");
+    success &= disconnectClientOnOwningThread(
+        m_trainClient, "TrainClient");
+    success &= disconnectClientOnOwningThread(
+        m_terminalClient, "TerminalClient");
 
-    if (m_trainClient)
-    {
-        // TODO: Terminate simulations if running
-        // m_trainClient->terminateSimulations({"*"});
-    }
+    success &= stopControllerThread(
+        m_truckThread, "TruckSimulationThread");
+    success &= stopControllerThread(
+        m_shipThread, "ShipSimulationThread");
+    success &= stopControllerThread(
+        m_trainThread, "TrainSimulationThread");
+    success &= stopControllerThread(
+        m_terminalThread, "TerminalSimulationThread");
 
-    return true;
+    return success;
 }
 
 Backend::RegionDataController *
@@ -286,6 +439,11 @@ Backend::TruckClient::TruckSimulationManager *
 CargoNetSimController::getTruckManager() const
 {
     return m_truckManager;
+}
+
+QString CargoNetSimController::truckExecutablePath() const
+{
+    return m_truckExecutablePath;
 }
 
 bool CargoNetSimController::loadConfig()
@@ -431,12 +589,36 @@ void CargoNetSimController::queueTruckManagerStartup()
     const bool invoked = QMetaObject::invokeMethod(
         m_truckManager,
         [this]() {
+            bool success        = false;
+            QString errorMessage;
             qCDebug(lcController)
                 << "CargoNetSimController::queueTruckManagerStartup:"
                 << "currentThread=" << QThread::currentThread()
                 << "managerThread=" << m_truckManager->thread();
-            m_truckManager->initializeManager(
-                m_simulationTime, m_terminalClient, m_logger);
+            try
+            {
+                m_truckManager->initializeManager(
+                    m_simulationTime, m_terminalClient, m_logger);
+                success = true;
+            }
+            catch (const std::exception &e)
+            {
+                errorMessage = QString::fromUtf8(e.what());
+            }
+            catch (...)
+            {
+                errorMessage = QStringLiteral(
+                    "Unknown truck manager startup failure");
+            }
+
+            QMetaObject::invokeMethod(
+                this,
+                [this, success, errorMessage]() {
+                    recordClientStartupResult(
+                        Backend::ClientType::TruckClient, success,
+                        errorMessage);
+                },
+                Qt::QueuedConnection);
         },
         Qt::QueuedConnection);
 
@@ -456,13 +638,41 @@ void CargoNetSimController::queueShipClientStartup()
     const bool invoked = QMetaObject::invokeMethod(
         m_shipClient,
         [this]() {
+            bool success        = false;
+            QString errorMessage;
             qCDebug(lcController)
                 << "CargoNetSimController::queueShipClientStartup:"
                 << "currentThread=" << QThread::currentThread()
                 << "clientThread=" << m_shipClient->thread();
-            m_shipClient->initializeClient(
-                m_simulationTime, m_terminalClient, m_logger);
-            m_shipClient->connectToServer();
+            try
+            {
+                m_shipClient->initializeClient(
+                    m_simulationTime, m_terminalClient, m_logger);
+                success = m_shipClient->connectToServer();
+                if (!success)
+                {
+                    errorMessage = QStringLiteral(
+                        "Ship client failed to connect to RabbitMQ");
+                }
+            }
+            catch (const std::exception &e)
+            {
+                errorMessage = QString::fromUtf8(e.what());
+            }
+            catch (...)
+            {
+                errorMessage = QStringLiteral(
+                    "Unknown ship client startup failure");
+            }
+
+            QMetaObject::invokeMethod(
+                this,
+                [this, success, errorMessage]() {
+                    recordClientStartupResult(
+                        Backend::ClientType::ShipClient, success,
+                        errorMessage);
+                },
+                Qt::QueuedConnection);
         },
         Qt::QueuedConnection);
 
@@ -482,13 +692,41 @@ void CargoNetSimController::queueTrainClientStartup()
     const bool invoked = QMetaObject::invokeMethod(
         m_trainClient,
         [this]() {
+            bool success        = false;
+            QString errorMessage;
             qCDebug(lcController)
                 << "CargoNetSimController::queueTrainClientStartup:"
                 << "currentThread=" << QThread::currentThread()
                 << "clientThread=" << m_trainClient->thread();
-            m_trainClient->initializeClient(
-                m_simulationTime, m_terminalClient, m_logger);
-            m_trainClient->connectToServer();
+            try
+            {
+                m_trainClient->initializeClient(
+                    m_simulationTime, m_terminalClient, m_logger);
+                success = m_trainClient->connectToServer();
+                if (!success)
+                {
+                    errorMessage = QStringLiteral(
+                        "Train client failed to connect to RabbitMQ");
+                }
+            }
+            catch (const std::exception &e)
+            {
+                errorMessage = QString::fromUtf8(e.what());
+            }
+            catch (...)
+            {
+                errorMessage = QStringLiteral(
+                    "Unknown train client startup failure");
+            }
+
+            QMetaObject::invokeMethod(
+                this,
+                [this, success, errorMessage]() {
+                    recordClientStartupResult(
+                        Backend::ClientType::TrainClient, success,
+                        errorMessage);
+                },
+                Qt::QueuedConnection);
         },
         Qt::QueuedConnection);
 
@@ -508,13 +746,41 @@ void CargoNetSimController::queueTerminalClientStartup()
     const bool invoked = QMetaObject::invokeMethod(
         m_terminalClient,
         [this]() {
+            bool success        = false;
+            QString errorMessage;
             qCDebug(lcController)
                 << "CargoNetSimController::queueTerminalClientStartup:"
                 << "currentThread=" << QThread::currentThread()
                 << "clientThread=" << m_terminalClient->thread();
-            m_terminalClient->initializeClient(
-                m_simulationTime, nullptr, m_logger);
-            m_terminalClient->connectToServer();
+            try
+            {
+                m_terminalClient->initializeClient(
+                    m_simulationTime, nullptr, m_logger);
+                success = m_terminalClient->connectToServer();
+                if (!success)
+                {
+                    errorMessage = QStringLiteral(
+                        "Terminal client failed to connect to RabbitMQ");
+                }
+            }
+            catch (const std::exception &e)
+            {
+                errorMessage = QString::fromUtf8(e.what());
+            }
+            catch (...)
+            {
+                errorMessage = QStringLiteral(
+                    "Unknown terminal client startup failure");
+            }
+
+            QMetaObject::invokeMethod(
+                this,
+                [this, success, errorMessage]() {
+                    recordClientStartupResult(
+                        Backend::ClientType::TerminalClient, success,
+                        errorMessage);
+                },
+                Qt::QueuedConnection);
         },
         Qt::QueuedConnection);
 
@@ -526,32 +792,42 @@ void CargoNetSimController::queueTerminalClientStartup()
     }
 }
 
+void CargoNetSimController::recordClientStartupResult(
+    Backend::ClientType clientType, bool success,
+    const QString &errorMessage)
+{
+    m_completedStartupCount++;
+    m_clientReady[clientType] = success;
+
+    if (success)
+    {
+        m_readyClientCount++;
+        emit clientReady(clientType);
+    }
+    else
+    {
+        m_clientStartupErrors[clientType] = errorMessage;
+        qCCritical(lcController)
+            << "CargoNetSimController: client startup failed"
+            << static_cast<int>(clientType) << errorMessage;
+    }
+
+    emit clientStartupFinished(clientType, success, errorMessage);
+
+    if (m_readyClientCount == 4)
+    {
+        emit allClientsReady();
+    }
+}
+
 void CargoNetSimController::onThreadFinished()
 {
     QThread *senderThread =
         qobject_cast<QThread *>(sender());
 
-    if (senderThread == m_shipThread)
-    {
-        if (m_shipClient)
-        {
-            m_shipClient->disconnectFromServer();
-        }
-    }
-    else if (senderThread == m_trainThread)
-    {
-        if (m_trainClient)
-        {
-            m_trainClient->disconnectFromServer();
-        }
-    }
-    else if (senderThread == m_terminalThread)
-    {
-        if (m_terminalClient)
-        {
-            m_terminalClient->disconnectFromServer();
-        }
-    }
+    qCDebug(lcController)
+        << "CargoNetSimController::onThreadFinished:"
+        << senderThread;
 }
 
 bool CargoNetSimController::initializeTruckClient(
@@ -710,181 +986,6 @@ bool CargoNetSimController::initializeTerminalClient()
     }
 
     return true;
-}
-
-// ==========================================
-// Simulation Orchestration Implementation
-// ==========================================
-
-bool CargoNetSimController::runSimulation()
-{
-    if (m_simulationRunning)
-    {
-        qCWarning(lcController) << "Simulation already running";
-        return false;
-    }
-
-    m_simulationRunning = true;
-    m_simulationPaused = false;
-
-    while (m_simulationRunning && !checkSimulationComplete())
-    {
-        // Handle pause
-        while (m_simulationPaused && m_simulationRunning)
-        {
-            QThread::msleep(100);
-            QCoreApplication::processEvents();
-        }
-
-        if (!m_simulationRunning)
-            break;
-
-        runSimulationStep();
-        QCoreApplication::processEvents();
-    }
-
-    m_simulationRunning = false;
-    emit simulationCompleted();
-    return true;
-}
-
-bool CargoNetSimController::runSimulationStep()
-{
-    if (!m_simulationTime)
-    {
-        qCCritical(lcController) << "SimulationTime not initialized";
-        return false;
-    }
-
-    double deltaT = m_simulationTime->getTimeStep();
-    double currentTime = m_simulationTime->getCurrentTime();
-
-    // Step 1: Advance all simulators by deltaT
-    advanceAllSimulators(deltaT);
-
-    // Step 2: Update System Dynamics for all terminals
-    updateAllTerminalsSD(currentTime + deltaT, deltaT);
-
-    // Step 3: Process any events (arrivals, departures)
-    processSimulatorEvents();
-
-    // Step 4: Advance simulation time
-    m_simulationTime->advanceByTimeStep();
-
-    // Calculate progress
-    double progress = 0.0;
-    if (m_simulationEndTime > 0.0)
-    {
-        progress = (m_simulationTime->getCurrentTime() / m_simulationEndTime) * 100.0;
-        progress = qMin(progress, 100.0);
-    }
-
-    emit simulationStepCompleted(m_simulationTime->getCurrentTime(), progress);
-
-    return !checkSimulationComplete();
-}
-
-void CargoNetSimController::pauseSimulation()
-{
-    if (m_simulationRunning && !m_simulationPaused)
-    {
-        m_simulationPaused = true;
-        emit simulationPaused();
-    }
-}
-
-void CargoNetSimController::resumeSimulation()
-{
-    if (m_simulationRunning && m_simulationPaused)
-    {
-        m_simulationPaused = false;
-        emit simulationResumed();
-    }
-}
-
-void CargoNetSimController::stopSimulation()
-{
-    m_simulationRunning = false;
-    m_simulationPaused = false;
-}
-
-bool CargoNetSimController::isSimulationRunning() const
-{
-    return m_simulationRunning;
-}
-
-bool CargoNetSimController::isSimulationPaused() const
-{
-    return m_simulationPaused;
-}
-
-double CargoNetSimController::getCurrentSimulationTime() const
-{
-    return m_simulationTime ? m_simulationTime->getCurrentTime() : 0.0;
-}
-
-void CargoNetSimController::setSimulationEndTime(double endTime)
-{
-    m_simulationEndTime = endTime;
-}
-
-void CargoNetSimController::advanceAllSimulators(double deltaT)
-{
-    // Advance Ship simulator
-    if (m_shipClient && m_shipClient->isConnected())
-    {
-        m_shipClient->advanceByTimeStep({"*"}, deltaT);
-    }
-
-    // Advance Train simulator
-    if (m_trainClient && m_trainClient->isConnected())
-    {
-        m_trainClient->advanceByTimeStep({"*"}, deltaT);
-    }
-
-    // Advance Truck simulators (via manager)
-    if (m_truckManager)
-    {
-        QStringList networks = m_truckManager->getAllClientNames();
-        for (const QString& network : networks)
-        {
-            auto* client = m_truckManager->getClient(network);
-            if (client && client->isConnected())
-            {
-                client->advanceByTimeStep({network}, deltaT);
-            }
-        }
-    }
-}
-
-void CargoNetSimController::updateAllTerminalsSD(double currentTime, double deltaT)
-{
-    if (!m_terminalClient || !m_terminalClient->isConnected())
-        return;
-
-    m_terminalClient->updateAllTerminalsSystemDynamics(currentTime, deltaT);
-}
-
-void CargoNetSimController::processSimulatorEvents()
-{
-    // This method processes arrivals and departures
-    // The actual container movements are handled by the simulators
-    // and terminal client through their event handlers
-
-    // Future enhancement: Add explicit event collection and processing here
-}
-
-bool CargoNetSimController::checkSimulationComplete()
-{
-    // Check if simulation has reached end time
-    if (m_simulationEndTime > 0.0 &&
-        m_simulationTime->getCurrentTime() >= m_simulationEndTime)
-    {
-        return true;
-    }
-
-    // Could also check if all vehicles reached destinations
-    return false;
 }
 
 // ==========================================

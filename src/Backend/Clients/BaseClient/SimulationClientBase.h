@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QWaitCondition>
 #include <atomic>
+#include <limits>
 
 // Forward declaration
 namespace CargoNetSim
@@ -133,6 +134,24 @@ public:
         LoggerInterface          *logger         = nullptr);
 
     /**
+     * @brief Override the execution time used by live runtime callbacks
+     *
+     * Thread-safe. Intended for the new executor-owned live execution loop.
+     * When set, derived clients should prefer this value over the legacy
+     * shared SimulationTime object for event timestamps and terminal handoff
+     * timestamps.
+     */
+    void setExecutionTimeOverride(double currentTimeSeconds);
+
+    /**
+     * @brief Clear the live execution time override
+     *
+     * Thread-safe. After clearing, derived clients fall back to the shared
+     * SimulationTime object when present.
+     */
+    void clearExecutionTimeOverride();
+
+    /**
      * @brief Sets the controller reference
      * @param controller Pointer to controller
      */
@@ -177,6 +196,20 @@ public:
         return m_rabbitMQHandler;
     }
 
+    /**
+     * @brief Probe whether the simulator can accept and answer commands
+     *
+     * This is an application-level readiness probe, distinct from the
+     * lower-level RabbitMQ connection and queue-consumer diagnostics.
+     * Derived classes may override it when the simulator exposes a
+     * different lightweight probe command than the default
+     * `checkConnection`.
+     *
+     * @param timeoutMs Maximum time to wait for the probe response
+     * @return True when the simulator answered the probe successfully
+     */
+    virtual bool probeCommandAvailability(int timeoutMs = 500);
+
 signals:
     /**
      * @brief Emitted when an event is received
@@ -217,6 +250,16 @@ signals:
     void connectionStatusChanged(bool connected);
 
 protected:
+    /**
+     * @brief Resolve the current execution time for runtime callbacks
+     *
+     * Resolution order:
+     * 1. executor-owned override when present
+     * 2. shared SimulationTime when present
+     * 3. `-1.0` when no time source is available
+     */
+    double currentExecutionTime() const;
+
     /**
      * @brief Send a command and wait for a specific
      * response event
@@ -445,6 +488,10 @@ private:
     // Currently processing flag for preventing concurrent
     // operations
     std::atomic<bool> m_processingCommand;
+
+    // Live executor time override. NaN means "no override".
+    std::atomic<double> m_executionTimeOverrideSeconds{
+        std::numeric_limits<double>::quiet_NaN()};
 };
 
 } // namespace Backend

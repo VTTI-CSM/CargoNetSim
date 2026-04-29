@@ -21,6 +21,9 @@ struct TerminalHandoffResolution
 
     Status    status = Status::NoOp;
     QString   scenarioTerminalId;
+    QString   canonicalPathKey;
+    QString   vehicleId;
+    int       segmentIndex = -1;
     QString   containersJson;
     QString   errorMessage;
     qsizetype containerCount = 0;

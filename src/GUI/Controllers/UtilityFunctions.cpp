@@ -965,7 +965,10 @@ void CargoNetSim::GUI::UtilitiesFunctions::
 
     Backend::Application::SimulationRunService runService;
     const auto selectionResult =
-        runService.selectAndValidate(*rt, selectedPathKeys);
+        runService.selectAndValidate(
+            *rt, selectedPathKeys,
+            Backend::Scenario::ExecutionDemandPolicy::
+                DuplicateDemandPerSelectedPath);
     mainWindow->shortestPathTable_->setPathEligibility(
         rt->preparedPathEligibility());
     if (!selectionResult.succeeded())
@@ -986,6 +989,7 @@ void CargoNetSim::GUI::UtilitiesFunctions::
     // (Task 21) use `doc` as sender, not `rt`, so they are not
     // affected by this disconnect.
     rt->disconnect(mainWindow);
+    mainWindow->shortestPathTable_->clearExecutionProgress();
 
     // Terminal UI state: re-enable the button + stop the progress
     // spinner. Shared by `completed` and `failed` paths.
@@ -1007,13 +1011,30 @@ void CargoNetSim::GUI::UtilitiesFunctions::
                      },
                      Qt::QueuedConnection);
     QObject::connect(rt, &RT::failed, mainWindow,
-                     [mainWindow, teardown](const QString &msg) {
+                     [mainWindow, rt, teardown](const QString &msg) {
+                         mainWindow->shortestPathTable_
+                             ->setExecutionProgress(
+                                 rt->progressSnapshot());
                          mainWindow->showStatusBarError(msg, 3000);
                          teardown();
                      },
                      Qt::QueuedConnection);
+    QObject::connect(
+        rt, &RT::progressSnapshotChanged, mainWindow,
+        [mainWindow](
+            double,
+            const Backend::Scenario::ExecutionProgressSnapshot &snapshot) {
+            if (mainWindow->shortestPathTable_)
+                mainWindow->shortestPathTable_->setExecutionProgress(
+                    snapshot);
+        },
+        Qt::QueuedConnection);
     QObject::connect(rt, &RT::completed, mainWindow,
                      [mainWindow, rt, teardown] {
+                         mainWindow->shortestPathTable_
+                             ->setExecutionProgress(
+                                 rt->progressSnapshot());
+
                          // Monetary costs — pre-existing behavior.
                          for (const auto &r : rt->results())
                              mainWindow->shortestPathTable_

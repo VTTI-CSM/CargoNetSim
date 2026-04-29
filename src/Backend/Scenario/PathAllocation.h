@@ -18,16 +18,15 @@ namespace Scenario {
 /// Result of ContainerAllocator::allocate. Non-owning: the
 /// Container* values are still owned by ScenarioDocument's per-
 /// terminal pools. The allocation is a view that says "these
-/// containers are assigned to this path for dispatch." The
-/// SimulationRequestBuilder consumes the view by deep-copying each
-/// assigned container per-segment (the segment builders copy +
-/// rewrite IDs internally).
+/// containers are assigned to this path for execution." Live execution
+/// creates path-scoped runtime copies before seeding TerminalSim and before
+/// dispatching active segments.
 ///
-/// Rank-0 only: paths with rank >= 1 will NOT appear in
-/// `byCanonicalPath` (they carry zero allocated containers). They DO
-/// appear in `keyByCanonicalPath` for display purposes. Preview-demand
-/// metrics for those alternatives are resolved elsewhere. See
-/// ContainerAllocator.h for the policy rationale.
+/// The demand policy is chosen by ContainerAllocator. In the default
+/// operational policy, rank >= 1 alternatives carry zero dispatch demand.
+/// In comparison policy, multiple selected alternatives for the same OD
+/// may each reference the same source-container view; downstream dispatch
+/// creates path-scoped runtime copies before submitting to simulators.
 struct PathAllocation
 {
     QHash<QString /*canonicalPathKey*/,
