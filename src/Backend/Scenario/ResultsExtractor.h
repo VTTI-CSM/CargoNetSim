@@ -125,7 +125,7 @@ private:
         const QVariantMap                 &transportModes,
         int                                containerCount);
 
-    // Segment attribute writeback (Task 21).
+    // Segment attribute writeback.
     void setSegmentActualDetails(
         CargoNetSim::Backend::PathSegment *segment,
         const QMap<QString, double>       &details,

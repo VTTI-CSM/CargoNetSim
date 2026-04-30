@@ -22,7 +22,6 @@
 #include "../Controllers/UtilityFunctions.h"
 #include "../Widgets/ShipManagerDialog.h"
 #include "../Widgets/TrainManagerDialog.h"
-#include "../Serializers/ProjectSerializer.h"
 #include "../Input/InteractionController.h"
 #include "../Input/Modes/ConnectMode.h"
 #include "../Input/Modes/GlobalPositionMode.h"
@@ -32,6 +31,7 @@
 #include "../Input/Modes/UnlinkTerminalMode.h"
 #include "Backend/Application/NetworkViewService.h"
 #include "Backend/Application/ScenarioEditService.h"
+#include "Backend/Application/ScenarioPersistenceService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Application/ScenarioLoadService.h"
 #include "Backend/Commons/LogCategories.h"
@@ -628,7 +628,8 @@ void BasicButtonController::openScenario(
     qCInfo(lcGuiButton) << "BasicButtonController::openScenario:"
                         << "path=" << filePath;
     QString err;
-    auto    doc = ProjectSerializer::loadProject(filePath, &err);
+    Backend::Application::ScenarioPersistenceService persistenceService;
+    auto doc = persistenceService.loadYaml(filePath, &err);
     if (!doc)
     {
         qCWarning(lcGuiButton)
@@ -706,8 +707,8 @@ void BasicButtonController::saveScenario(
     }
 
     QString err;
-    if (!ProjectSerializer::saveProject(
-            document, filePath, &err))
+    Backend::Application::ScenarioPersistenceService persistenceService;
+    if (!persistenceService.saveYaml(document, filePath, &err))
     {
         qCWarning(lcGuiButton) << "BasicButtonController::saveScenario:"
                                << "save failed:" << err;

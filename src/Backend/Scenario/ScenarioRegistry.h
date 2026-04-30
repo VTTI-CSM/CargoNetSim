@@ -20,8 +20,8 @@ namespace Scenario
 
 /// Owns the mutable backend objects the applier creates from a ScenarioDocument.
 ///
-/// Lifetime: normally owned by a ScenarioRuntime (Plan 3). In Plan 2 tests, a
-/// stack-allocated instance is sufficient. clear() frees everything.
+/// Lifetime: normally owned by a ScenarioRuntime. In tests, a stack-allocated
+/// instance is sufficient. clear() frees everything.
 class ScenarioRegistry : public QObject
 {
     Q_OBJECT
@@ -47,7 +47,7 @@ public:
     /// Free all owned terminals and reset truck fleet.
     void clear();
 
-    // Truck-fleet passthrough (plain value storage; Plan 3 consumes).
+    // Truck-fleet passthrough (plain value storage).
     void                    setTruckFleet(const TruckFleetSpec &spec);
     const TruckFleetSpec   &truckFleet() const;
 

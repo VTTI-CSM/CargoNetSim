@@ -477,11 +477,11 @@ void ScenarioValidator::checkOriginContainers(
 {
     qCDebug(lcScenario) << "ScenarioValidator::checkOriginContainers:"
                         << doc.terminals.size() << "terminals to scan";
-    // An origin terminal is defined by `properties.initial_container_count > 0`
-    // (Task 0 retrofit). Each origin MUST carry exactly one destination form:
+    // An origin terminal is defined by `properties.initial_container_count > 0`.
+    // Each origin MUST carry exactly one destination form:
     // either scalar `destination_terminal` or list `destinations:[{t,f}]`.
     //
-    // Rules enforced here (per Plan 5 Task 0 Step 3):
+    // Rules enforced here:
     //   1. mutual exclusion: scalar + list on the same origin → error
     //   2. count > 0 but neither form set → error
     //   3. destination terminal id must exist in doc.terminals

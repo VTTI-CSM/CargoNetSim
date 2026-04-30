@@ -17,9 +17,8 @@ namespace Scenario
 /// Translates between scenario-level interface strings ("Truck", "Rail",
 /// "Ship") and the backend enum map Backend::Terminal expects.
 ///
-/// Mirrors the algorithm currently duplicated in
-/// GUI/Utils/PathFindingWorker.cpp:382-452. Plan 4 will refactor that
-/// call site to delegate here.
+/// Centralizes the interface conversion used by GUI and backend authoring
+/// paths.
 namespace InterfaceConversion
 {
 

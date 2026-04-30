@@ -84,6 +84,7 @@ set(Backend_SOURCES
     Bootstrap/BackendBootstrapService.cpp
 
     # CLI API
+    CliApi/ProgressApi.h
     CliApi/ResultsApi.h
     CliApi/ScenarioDocumentApi.h
     CliApi/ValidationApi.h
@@ -277,9 +278,6 @@ set(Backend_SOURCES
     Scenario/TerminalTypeDefaults.cpp
     Scenario/TruckFleetSpec.h
     Scenario/ValidationIssue.h
-
-    # Initialization
-    BackendInit.h
 )
 
 # Create the GUI library

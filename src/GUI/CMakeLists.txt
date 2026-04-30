@@ -60,10 +60,6 @@ set(GUI_SOURCES
     Items/GraphicsObjectBase.cpp
     Items/AnimationObject.h
     
-    # Serializers
-    Serializers/ProjectSerializer.cpp
-    Serializers/ProjectSerializer.h
-    
     # Utils
     Utils/ApplicationLogger.cpp
     Utils/ApplicationLogger.h

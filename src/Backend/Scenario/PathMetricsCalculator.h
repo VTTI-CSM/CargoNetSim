@@ -46,10 +46,9 @@ namespace PathMetricsCalculator
                              int          containerCount,
                              int          capacity);
 
-    /// The one place that reaches into controllers. Callers:
-    /// GUI setConnectionProperties, Plan 8.2 populator, Plan 10
-    /// per-container calculator, Plan 11 reconciler. All call the
-    /// same adapter to build `PathMetricsInputs` — no duplication of
+    /// The one place that reaches into controllers. GUI authoring,
+    /// prediction, and reconciliation code all call the same adapter to
+    /// build `PathMetricsInputs` — no duplication of
     /// controller-access code.
     PathMetricsInputs gatherInputs(
         TransportationTypes::TransportationMode          mode,

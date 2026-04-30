@@ -310,10 +310,9 @@ ComputedSegmentData computeTruckSegmentData(
 namespace SegmentCostMath
 {
 
-// Per-mode aggregation is mode-specific (ShipState / TrainState APIs
-// differ); the post-aggregation math is shared via
-// applyVehicleMetricsAndWriteback. Null-client/path/segment guards added
-// to tolerate uninitialized extractors. Math VERBATIM from SVW.
+// Per-mode aggregation is mode-specific (ShipState / TrainState APIs differ);
+// the post-aggregation math is shared via applyVehicleMetricsAndWriteback.
+// Null-client/path/segment guards tolerate uninitialized extractors.
 double shipSegmentCost(
     CargoNetSim::Backend::ShipClient::ShipSimulationClient *shipClient,
     CargoNetSim::Backend::Path                             *path,
@@ -345,8 +344,7 @@ double shipSegmentCost(
 }
 
 // Structurally identical to shipSegmentCost but targets TrainState's
-// differently-named accessors and reads transportModes["rail"]. Math
-// VERBATIM from SVW's original train branch.
+// differently-named accessors and reads transportModes["rail"].
 double trainSegmentCost(
     CargoNetSim::Backend::TrainClient::TrainSimulationClient *trainClient,
     CargoNetSim::Backend::Path                               *path,
@@ -377,17 +375,11 @@ double trainSegmentCost(
     return cost;
 }
 
-// Heuristic truck cost. VERBATIM from the original SimulationValidationWorker
-// body. Truck does not loop over real per-trip state yet — the commented-out
-// block inside shows how aggregation WOULD work once TruckSimulationManager's
-// results API lands. For now, truckCount is a ceiling-divide of
-// containerCount by capacity, and all metrics except risk remain zero.
-//
-// Truck cost — now delegates to the same shared helper as ship/train using
-// the canonical seconds/metres/tonnes contract.
-// Heuristic-only: estimates truckCount from ceiling-divide of
-// containerCount by capacity. All metrics except risk remain zero until
-// TruckSimulationManager's results API lands and the aggregation loop
+// Heuristic truck cost. It delegates to the same shared helper as ship/train
+// using the canonical seconds/metres/tonnes contract. Truck count is estimated
+// from ceiling-divide of containerCount by capacity; all metrics except risk
+// remain zero until TruckSimulationManager exposes trip actuals and the
+// aggregation loop
 // below is uncommented.
 double truckSegmentCost(
     CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
@@ -421,12 +413,10 @@ double truckSegmentCost(
     return cost;
 }
 
-// VERBATIM dispatch from the original SVW::calculateEdgeCosts. Loops
-// segments, picks per-mode weights from costFunctionWeights (integer
-// mode key, "default" fallback), and delegates to the per-mode cost
-// function. Clients are forwarded through; null clients cause the
-// per-mode function to early-return 0 (ship/train) or harmlessly ignore
-// (truck heuristic).
+// Loops segments, picks per-mode weights from costFunctionWeights (integer
+// mode key, "default" fallback), and delegates to the per-mode cost function.
+// Clients are forwarded through; null clients cause the per-mode function to
+// early-return 0 (ship/train) or harmlessly ignore (truck heuristic).
 double edgeCosts(
     CargoNetSim::Backend::ShipClient::ShipSimulationClient    *shipClient,
     CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
@@ -500,8 +490,8 @@ double edgeCosts(
     return totalEdgeCosts;
 }
 
-// VERBATIM from SimulationValidationWorker — accumulates per-key values
-// under attributes[underlyingKey]; existing keys are summed.
+// Accumulates per-key values under attributes[underlyingKey]; existing keys
+// are summed.
 void setActualDetails(
     CargoNetSim::Backend::PathSegment *segment,
     const QMap<QString, double>       &details,
@@ -549,8 +539,7 @@ void setActualDetails(
     segment->setAttributes(currentAttributes);
 }
 
-// VERBATIM from SimulationValidationWorker — removes the underlyingKey
-// (and all nested values) from the segment's attributes.
+// Removes the underlyingKey and all nested values from the segment attributes.
 void deleteActualDetails(
     CargoNetSim::Backend::PathSegment *segment,
     const QString                     &underlyingKey)

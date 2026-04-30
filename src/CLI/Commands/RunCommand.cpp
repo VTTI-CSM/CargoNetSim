@@ -18,7 +18,6 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Models/Path.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
 #include "CLI/Commands/CommandOutput.h"
 #include "CLI/Commands/IssueFormatter.h"

@@ -21,7 +21,6 @@ class ConfigController;
 class NetworkController;
 class Path;
 class RegionDataController;
-class VehicleController;
 
 namespace Scenario
 {
@@ -77,8 +76,7 @@ public:
         const ScenarioDocument                    &doc,
         ConfigController                          *config,
         NetworkController                         *networks,
-        RegionDataController                      *regionData,
-        VehicleController                         *vehicles);
+        RegionDataController                      *regionData);
 
     static PreparedPathSet discoverAndPreparePaths(
         const ScenarioDocument                    &doc,
@@ -87,7 +85,6 @@ public:
         ConfigController                          *config,
         NetworkController                         *networks,
         RegionDataController                      *regionData,
-        VehicleController                         *vehicles,
         QString                                   *err = nullptr);
 };
 

@@ -5,7 +5,6 @@
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Controllers/NetworkController.h"
 #include "Backend/Controllers/RegionDataController.h"
-#include "Backend/Controllers/VehicleController.h"
 #include "Backend/Models/Path.h"
 #include "ContainerAllocator.h"
 #include "EstimatedPhysicsPopulator.h"
@@ -213,11 +212,9 @@ PreparedPathSet PathPreparationService::prepareDiscoveredPaths(
     const ScenarioDocument                    &doc,
     ConfigController                          *config,
     NetworkController                         *networks,
-    RegionDataController                      *regionData,
-    VehicleController                         *vehicles)
+    RegionDataController                      *regionData)
 {
     PreparedPathSet prepared;
-    Q_UNUSED(vehicles);
     prepared.m_records.reserve(
         static_cast<size_t>(discoveredPaths.size()));
 
@@ -342,13 +339,12 @@ PreparedPathSet PathPreparationService::discoverAndPreparePaths(
     ConfigController                          *config,
     NetworkController                         *networks,
     RegionDataController                      *regionData,
-    VehicleController                         *vehicles,
     QString                                   *err)
 {
     PathDiscovery discovery;
     auto paths = discovery.findTopPaths(doc, registry, topN, err);
     return prepareDiscoveredPaths(std::move(paths), doc, config,
-                                  networks, regionData, vehicles);
+                                  networks, regionData);
 }
 
 } // namespace Scenario

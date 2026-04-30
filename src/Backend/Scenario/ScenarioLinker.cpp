@@ -72,9 +72,7 @@ double sceneDistance(double ax, double ay, double bx, double by)
 }
 
 // Helper: given a terminal placement, return its (sceneX, sceneY). For
-// LatLon / NetworkNode placements, a best-effort conversion is applied;
-// callers that only produce Scene-mode placements in Plan 2 tests will
-// never trip the fallbacks.
+// LatLon / NetworkNode placements, a best-effort conversion is applied.
 QPair<double, double> terminalSceneCoords(const TerminalPlacement &t,
                                           const TrainClient::NeTrainSimNetwork *railForResolve)
 {
@@ -85,10 +83,9 @@ QPair<double, double> terminalSceneCoords(const TerminalPlacement &t,
     case TerminalPlacement::PositionMode::NetworkNode:
         if (railForResolve)
         {
-            // Best-effort: look up the referenced node in the rail network,
-            // if compatible. NetworkNode-mode terminals anchored to a truck
-            // network fall through to (0, 0) for rule purposes — Plan 3
-            // will revisit if a real use-case requires cross-network lookup.
+            // Best-effort: look up the referenced node in the rail network
+            // when compatible. NetworkNode-mode terminals anchored to a
+            // non-rail network fall through to (0, 0) for rule purposes.
             const auto nodes = railForResolve->getNodes();
             for (auto *n : nodes)
                 if (n && n->getUserId() == t.nodeId)
@@ -96,9 +93,8 @@ QPair<double, double> terminalSceneCoords(const TerminalPlacement &t,
         }
         return { 0.0, 0.0 };
     case TerminalPlacement::PositionMode::LatLon:
-        // Plan 2 does not port the Mercator conversion (GUI-side, Plan 4's
-        // territory). Fallback: use lat/lon as raw XY. Tests that exercise
-        // this rule use Scene-mode placements.
+        // Fallback: use lat/lon as raw XY when no projection resolver is
+        // available.
         return { t.latLon.longitude, t.latLon.latitude };
     }
     return { 0.0, 0.0 };
@@ -409,8 +405,8 @@ ConnectionRuleFn byInterfacesRule()
 
         auto backendForTerminal = [](const TerminalPlacement &t)
         {
-            // Plan 7: InterfaceSet is typed QSet<TransportationMode>; build
-            // the backend map directly, no string intermediate.
+            // InterfaceSet is typed, so build the backend map directly
+            // without a string intermediate.
             using Mode = TransportationTypes::TransportationMode;
             QSet<Mode> land, sea;
             if (t.interfaces.isSet) { land = t.interfaces.landSide; sea = t.interfaces.seaSide; }
@@ -686,8 +682,8 @@ ScenarioLinker::resolveGlobalLinks(const ScenarioDocument &doc,
     QList<GlobalLink> out;
 
     // Manual set = the document's globalLinks as-is. Endpoints may be bare
-    // ids or qualified "region/id" strings; the linker does not attempt
-    // cross-form normalization here (Plan 3's validator does).
+    // ids or qualified "region/id" strings; validation owns cross-form
+    // consistency checks.
     const QList<GlobalLink> &manual = doc.globalLinks;
 
     QList<GlobalLink> autoFromRules;

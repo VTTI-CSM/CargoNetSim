@@ -57,12 +57,11 @@ QList<CargoNetSim::Backend::Path *> PathDiscovery::findTopPaths(
     // headless unit contract is "empty document → empty result, no error
     // written". Any later failure IS an error and writes @p err.
     //
-    // Task 0 retrofit semantic: an origin is a terminal whose
-    // `properties.initial_container_count > 0`. Its destinations come
-    // from `destinationsFor()` — scalar `destination_terminal` resolves
-    // to a single-entry list, fractioned `destinations: [{t,f}]`
-    // resolves to the explicit list. Role-based `findByType("Origin")`
-    // is intentionally gone (see Plan 5 top-of-file Option X block).
+    // An origin is a terminal whose `initial_container_count` is positive.
+    // Its destinations come from `destinationsFor()`: scalar
+    // `destination_terminal` resolves to one route, while fractioned
+    // `destinations: [{t,f}]` resolves to the explicit split list.
+    // Terminal roles are presentation metadata and are not used for demand.
     const QStringList originIds = doc.originTerminalIds();
     qCInfo(lcScenario) << "PathDiscovery::findTopPaths:"
                        << "origin count =" << originIds.size();

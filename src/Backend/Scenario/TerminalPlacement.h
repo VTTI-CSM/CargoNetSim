@@ -43,9 +43,8 @@ struct TerminalPlacement
     /// type-based defaults"; `isSet == true` with empty sets means "this
     /// terminal explicitly has no interfaces on that side".
     ///
-    /// Plan 7 (2026-04-13): migrated from QList<QString> ("Truck"/"Rail"/
-    /// "Ship") to typed QSet<TransportationMode>. YAML schema string form is
-    /// handled only at the serialization boundary via
+    /// Typed interface set. YAML schema string form is handled only at the
+    /// serialization boundary via
     /// interfaceModeCanonicalString / interfaceModeFromCanonicalString.
     struct InterfaceSet
     {

@@ -25,8 +25,7 @@ class ScenarioRegistry;
  *
  * Inputs come from the document alone — no scene, no MainWindow, no
  * GUI types. That makes the same implementation usable from the CLI
- * (`cargonetsim-cli run`) and from the GUI (via `PathFindingWorker`,
- * which becomes a thin QObject wrapper in Plan 5 Task 5).
+ * (`cargonetsim-cli run`) and from the GUI through `PathFindingWorker`.
  *
  * Stateless: the class holds no members. All dependencies are either
  * injected via `findTopPaths` (document + registry) or obtained from
@@ -44,7 +43,7 @@ public:
      *
      * Origins are every terminal with at least one seeded container
      * (`ScenarioDocument::originTerminalIds()`); destinations come
-     * from each origin's `destinationsFor()` list (Task 0). An empty
+     * from each origin's `destinationsFor()` list. An empty
      * document yields an empty result with no error.
      *
      * @param doc       Source of terminals, connections, global links,

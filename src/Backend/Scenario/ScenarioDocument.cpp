@@ -212,9 +212,8 @@ QPointF ScenarioDocument::globalPositionOf(const QString &terminalId) const
     const auto rit = regions.constFind(t.region);
     if (rit == regions.constEnd()) return QPointF(qQNaN(), qQNaN());
 
-    // Only LatLon-mode placements have directly-usable lat/lon. Scene and
-    // NetworkNode modes require Mercator / node-lookup resolution that
-    // belongs in Plan 4 (GUI) — return NaN so callers branch.
+    // Only LatLon-mode placements have directly usable lat/lon. Scene and
+    // NetworkNode modes require an external coordinate resolver.
     if (t.mode != TerminalPlacement::PositionMode::LatLon)
         return QPointF(qQNaN(), qQNaN());
 
@@ -362,9 +361,8 @@ void ScenarioDocument::setOriginContainers(
         return;
     }
 
-    // Replace semantics: free any prior pool at this id, then install.
-    // Mirrors the single-pool setter that shipped in Plan 3 but scoped
-    // per-origin so multiple origins coexist without interference.
+    // Replace semantics: free any prior pool at this id, then install the
+    // new per-origin pool so multiple origins coexist without interference.
     auto it = m_containersByTerminal.find(terminalId);
     if (it != m_containersByTerminal.end())
     {

@@ -10,4 +10,5 @@
 #include "Backend/Scenario/NodeLinkage.h"
 #include "Backend/Scenario/RegionSpec.h"
 #include "Backend/Scenario/ScenarioDocument.h"
+#include "Backend/Scenario/ScenarioEndpointResolver.h"
 #include "Backend/Scenario/TerminalPlacement.h"

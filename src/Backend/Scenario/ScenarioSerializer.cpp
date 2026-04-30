@@ -509,9 +509,8 @@ QJsonObject regionSpecToJson(const RegionSpec &r)
         networks.append(networkSpecToJson(n));
     o["networks"] = networks;
 
-    // linkageStrategyToString / linkageStrategyFromString (not plain `toString` /
-    // `fromString`) — avoids QTest::toString ADL hijack; see LinkageStrategy.h
-    // rationale. Propagated from Task 3's discovered bug.
+    // linkageStrategyToString / linkageStrategyFromString avoid QTest::toString
+    // ADL hijacking; see LinkageStrategy.h for the rationale.
     QJsonObject linkagesObj;
     linkagesObj["strategy"]   = linkageStrategyToString(r.linkageStrategy);
     linkagesObj["auto_rules"] = stringListToArray(r.linkageAutoRules);
@@ -778,10 +777,8 @@ QJsonObject ScenarioSerializer::toJson(const ScenarioDocument &doc)
         comparisonSnapshots.append(snapshot);
     root["comparison_snapshots"] = comparisonSnapshots;
 
-    // Scenario-scope global-link metadata (Task 17). Emitted as sibling keys
-    // so the `global_links` array shape stays compatible with existing
-    // fixtures. Defaults (Manual + empty) produce empty/omitted fields on the
-    // reader side.
+    // Scenario-scope global-link metadata is emitted beside `global_links`
+    // so the route array remains a pure list of links.
     root["global_link_strategy"]    = linkageStrategyToString(doc.globalLinkStrategy);
     root["global_link_auto_rules"]  = stringListToArray(doc.globalLinkAutoRules);
     root["global_link_auto_rule_params"] = QJsonObject::fromVariantMap(doc.globalLinkAutoRuleParams);
@@ -884,8 +881,7 @@ ScenarioSerializer::fromJson(const QJsonObject &j)
         doc->comparisonSnapshots.append(snapshotValue.toObject());
     }
 
-    // Scenario-scope global-link metadata (Task 17). Absent keys → defaults
-    // (Manual + empty), preserving backward compat with pre-Task-17 fixtures.
+    // Absent scenario-scope global-link metadata defaults to Manual + empty.
     if (j.contains("global_link_strategy"))
     {
         bool glOk = false;

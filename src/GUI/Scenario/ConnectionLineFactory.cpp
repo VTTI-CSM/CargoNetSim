@@ -2,7 +2,6 @@
 
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/GuiApi/ScenarioDocumentApi.h"
-#include "Backend/Scenario/ScenarioEndpointResolver.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/GlobalTerminalItem.h"
 #include "GUI/Items/TerminalItem.h"

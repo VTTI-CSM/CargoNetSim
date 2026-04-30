@@ -15,9 +15,9 @@ namespace Scenario
 
 /// Materializes a validated ScenarioDocument into the backend controllers
 /// and populates a ScenarioRegistry with the constructed Backend::Terminal
-/// objects and the truck-fleet spec. After 2026-04-14 (Task 0 retrofit),
-/// `apply` also constructs each origin terminal's `ContainerCore::Container`
-/// pool and installs it onto the document via
+/// objects and the truck-fleet spec. `apply` also constructs each origin
+/// terminal's `ContainerCore::Container` pool and installs it onto the
+/// document via
 /// `ScenarioDocument::setOriginContainers(id, …)` — hence the non-const
 /// `ScenarioDocument &` parameter.
 ///

@@ -73,7 +73,6 @@
 #include "Controllers/TerminalController.h"
 #include "Controllers/ToolbarController.h"
 #include "Controllers/UtilityFunctions.h"
-#include "Serializers/ProjectSerializer.h"
 
 namespace CargoNetSim
 {

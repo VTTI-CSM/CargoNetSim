@@ -109,8 +109,8 @@ public:
     /// MUST equal `name` (renames go through renameRegion which cascades).
     /// Returns false if the region does not exist or if the passed spec's
     /// name disagrees. Emits `regionChanged(name)` exactly once on success.
-    /// Canonical path for Plan 4's ScenarioEditService region-edit helpers so
-    /// they never write directly into `regions[name]`.
+    /// Canonical update path for ScenarioEditService region edits; callers
+    /// should not mutate `regions[name]` directly.
     bool updateRegion(const QString &name, const RegionSpec &spec);
 
     // Terminal CRUD.
@@ -179,7 +179,7 @@ public:
                        int nodeId,
                        const NodeLinkage &updated);
 
-    // ---- Read-only query accessors (consumed by Plan 3's executor) ----
+    // ---- Read-only query accessors ----
 
     /// Returns every linkage whose `terminalId` matches AND whose
     /// `networkName` resolves to a network of the requested type in the
@@ -193,12 +193,11 @@ public:
     ///              + (placement.latLon.latitude  - region.localOrigin.latitude)
     ///   global_lon = region.globalPosition.lon
     ///              + (placement.latLon.longitude - region.localOrigin.longitude)
-    /// Returns QPointF(lon, lat) — matches Qt scene conventions used by
-    /// Plan 3's ship-path builder. For placements in `PositionMode::Scene`
-    /// or `NetworkNode`, the Mercator/node→lat-lon conversion is a Plan 4
-    /// GUI concern; this accessor returns an invalid QPointF (NaN) in
-    /// those cases so the caller can branch. Terminal or region not found
-    /// → invalid QPointF.
+    /// Returns QPointF(lon, lat) to match Qt scene conventions. For
+    /// placements in `PositionMode::Scene` or `NetworkNode`, this accessor
+    /// returns an invalid QPointF (NaN) so callers can branch to an
+    /// appropriate coordinate resolver. Terminal or region not found
+    /// also returns an invalid QPointF.
     QPointF globalPositionOf(const QString &terminalId) const;
 
     /// Terminal IDs for all origins. Derived from `isOrigin(id)` —
@@ -258,13 +257,8 @@ public:
     /// Preserved for allocation and live execution planning paths that
     /// consume the per-origin pools without taking ownership.
     ///
-    /// RETURN VALUE CHANGE (2026-04-14 Task 0 retrofit): formerly
-    /// returned `const QList<Container*>&` (reference to member);
-    /// now returns by value — the list is composed on the fly from
-    /// `m_containersByTerminal`. Callers that bound the reference
-    /// (`const auto &pool = doc.originContainers();`) still work
-    /// because binding a const reference to an rvalue extends the
-    /// temporary's lifetime to the reference's scope.
+    /// Returned by value because the list is composed on the fly from
+    /// `m_containersByTerminal`.
     QList<ContainerCore::Container *> originContainers() const;
 
     /// Applier-side mutator (called by `ScenarioApplier::applyOriginContainers`).

@@ -5,7 +5,7 @@
 
 #include <memory>
 
-#include "Backend/Scenario/ExecutionPlanTypes.h"
+#include "Backend/CliApi/ProgressApi.h"
 
 class QIODevice;
 

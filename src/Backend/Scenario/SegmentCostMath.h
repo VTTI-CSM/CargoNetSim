@@ -102,13 +102,12 @@ double trainSegmentCost(
  *        applies the mode risk_factor.
  *
  * @p truckManager is accepted for signature symmetry with ship/train
- * but is NOT used by the current SVW body (the per-trip loop is
- * preserved as a commented-out TODO in the impl). All metrics except
- * risk remain zero.
+ * but is not used until the truck simulator exposes per-trip actuals.
+ * All metrics except risk remain zero in the current implementation.
  *
  * The weight application uses different unit conversions than ship/train
- * (travelTime divided by 3600, distance divided by 1000 — legacy SVW
- * quirk that matters only once the commented-out loop is wired up).
+ * (travelTime divided by 3600, distance divided by 1000) to match the
+ * existing truck-cost formula.
  */
 double truckSegmentCost(
     CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,

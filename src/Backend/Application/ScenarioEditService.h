@@ -1,9 +1,7 @@
 #pragma once
 
 #include "Backend/Commons/TransportationMode.h"
-#include "Backend/Scenario/Connection.h"
 #include "Backend/Scenario/FleetSpec.h"
-#include "Backend/Scenario/GlobalLink.h"
 #include "Backend/Scenario/LinkageSource.h"
 #include "Backend/Scenario/NetworkSpec.h"
 #include "Backend/Scenario/NodeLinkage.h"
@@ -98,54 +96,6 @@ public:
         const QString              &networkName,
         int                         nodeId);
 
-    static bool createConnection(
-        Scenario::ScenarioDocument              *doc,
-        const QString                           &fromTerminalId,
-        const QString                           &toTerminalId,
-        TransportationTypes::TransportationMode mode);
-
-    static bool createConnection(
-        Scenario::ScenarioDocument              *doc,
-        const QString                           &fromTerminalId,
-        const QString                           &toTerminalId,
-        TransportationTypes::TransportationMode mode,
-        const QVariantMap                       &properties,
-        Scenario::LinkageSource                  source);
-
-    static bool removeConnection(
-        Scenario::ScenarioDocument              *doc,
-        const QString                           &fromTerminalId,
-        const QString                           &toTerminalId,
-        TransportationTypes::TransportationMode mode);
-
-    static bool createGlobalLink(
-        Scenario::ScenarioDocument              *doc,
-        const QString                           &fromTerminalId,
-        const QString                           &toTerminalId,
-        TransportationTypes::TransportationMode mode);
-
-    static bool createGlobalLink(
-        Scenario::ScenarioDocument              *doc,
-        const QString                           &fromTerminalId,
-        const QString                           &toTerminalId,
-        TransportationTypes::TransportationMode mode,
-        const QVariantMap                       &properties,
-        Scenario::LinkageSource                  source);
-
-    static bool removeGlobalLink(
-        Scenario::ScenarioDocument              *doc,
-        const QString                           &fromTerminalId,
-        const QString                           &toTerminalId,
-        TransportationTypes::TransportationMode mode);
-
-    static bool setConnectionProperty(
-        Scenario::ScenarioDocument              *doc,
-        const QString                           &fromId,
-        const QString                           &toId,
-        TransportationTypes::TransportationMode mode,
-        const QString                           &key,
-        const QVariant                          &value);
-
     static bool updateRegionLocalOrigin(
         Scenario::ScenarioDocument *doc,
         const QString              &regionName,
@@ -201,14 +151,6 @@ public:
     static bool updateComparisonSnapshots(
         Scenario::ScenarioDocument *doc,
         const QList<QJsonObject>   &snapshots);
-
-    static bool restoreConnection(
-        Scenario::ScenarioDocument *doc,
-        const Scenario::Connection &snapshot);
-
-    static bool restoreGlobalLink(
-        Scenario::ScenarioDocument *doc,
-        const Scenario::GlobalLink &snapshot);
 
     static bool restoreLinkage(
         Scenario::ScenarioDocument *doc,

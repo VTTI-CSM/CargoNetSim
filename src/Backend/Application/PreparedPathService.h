@@ -13,7 +13,6 @@ namespace Backend
 class ConfigController;
 class NetworkController;
 class RegionDataController;
-class VehicleController;
 
 namespace Scenario
 {
@@ -55,8 +54,7 @@ public:
     explicit PreparedPathService(::CargoNetSim::CargoNetSimController *controller);
     PreparedPathService(ConfigController     *config,
                         NetworkController    *networks,
-                        RegionDataController *regionData,
-                        VehicleController    *vehicles);
+                        RegionDataController *regionData);
 
     PreparedPathServiceResult discoverAndPrepare(
         const Scenario::ScenarioDocument &document,
@@ -71,7 +69,6 @@ private:
     ConfigController     *m_config = nullptr;
     NetworkController    *m_networks = nullptr;
     RegionDataController *m_regionData = nullptr;
-    VehicleController    *m_vehicles = nullptr;
 };
 
 } // namespace Application

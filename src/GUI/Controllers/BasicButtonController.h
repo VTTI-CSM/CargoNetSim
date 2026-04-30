@@ -159,7 +159,7 @@ public:
     /**
      * @brief Opens an existing scenario (YAML) and installs it on the
      *        MainWindow's runtime. Delegates YAML → ScenarioDocument to
-     *        ProjectSerializer and hands the document off to
+     *        ScenarioPersistenceService and hands the document off to
      *        MainWindow::setRuntime, which wires observers (Task 21)
      *        that auto-populate the scene.
      * @param mainWindow Pointer to the main window
@@ -169,7 +169,7 @@ public:
     /**
      * @brief Saves the currently-loaded scenario back to YAML. If no
      *        path has been chosen yet, prompts the user. Delegates
-     *        ScenarioDocument → YAML to ProjectSerializer.
+     *        ScenarioDocument → YAML to ScenarioPersistenceService.
      * @param mainWindow Pointer to the main window
      */
     static void saveScenario(MainWindow *mainWindow);

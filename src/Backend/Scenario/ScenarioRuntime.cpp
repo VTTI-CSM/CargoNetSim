@@ -217,8 +217,7 @@ bool ScenarioRuntime::startSimulation()
     qRegisterMetaType<ExecutionProgressSnapshot>(
         "CargoNetSim::Backend::Scenario::ExecutionProgressSnapshot");
 
-    // Plan-deviation: Task 23 decoupled the executor from the runtime.
-    // Inject inputs directly instead of setContext(this).
+    // The executor receives explicit inputs; runtime owns orchestration state.
     m_executor->setDocument(m_document.get());
     m_executor->setRegistry(&m_registry);
     m_executor->setPaths(m_paths);

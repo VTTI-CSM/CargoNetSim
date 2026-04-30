@@ -114,10 +114,9 @@ bool ScenarioApplier::applyRegions(const ScenarioDocument &doc,
         center["longitude"]        = r.localOrigin.longitude;
         center["shared_latitude"]  = r.globalPosition.latitude;
         center["shared_longitude"] = r.globalPosition.longitude;
-        // Distinct from the GUI-owned "regionCenterPoint" pointer key
-        // (ViewController.cpp:3287). Plan 4's RegionCenterPointFactory
-        // reads this map and writes the resulting item pointer under
-        // the legacy key.
+        // Distinct from the GUI-owned "regionCenterPoint" pointer key.
+        // RegionCenterPointFactory consumes this serializable map and owns
+        // the scene item pointer separately.
         rd->setVariable("scenarioRegionCenter", center);
     }
     qCDebug(lcScenario) << "ScenarioApplier::applyRegions: success";
@@ -465,12 +464,10 @@ bool ScenarioApplier::applyOriginContainers(ScenarioDocument &doc,
                         << doc.terminals.size() << "terminals to scan";
     Q_UNUSED(error);
 
-    // Task 0 (Plan 5) shorthand form: every terminal whose properties
-    // include `initial_container_count > 0` is an origin, and the applier
-    // creates N bare containers for it. Per-container authoring metadata
-    // (ids beyond the index-based default, sizes, customVars) comes from
-    // the Task 0.1 explicit `containers:` list — handled in a separate
-    // applier extension layered on top of this one.
+    // Every terminal whose properties include `initial_container_count > 0`
+    // is an origin, and the applier creates N bare containers for it.
+    // Explicit per-container metadata can be layered on top of this pool
+    // creation path when scenario authoring supports it.
     //
     // Containers start with ONLY `containerCurrentLocation = terminalId`.
     // `containerNextDestinations` stays empty on purpose: live dispatch

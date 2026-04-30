@@ -186,12 +186,12 @@ int main(int argc, char *argv[])
     // stack unwinding destroys MainWindow first, then the controller,
     // then QApplication - the required teardown order.
     //
-    // It is also declared BEFORE initializeBackend because
-    // initializeBackend registers metatypes AND calls initialize() /
-    // startAll(), which spawn worker threads that will immediately
-    // begin reading those metatypes. The controller must exist before
-    // those reads happen - and its constructor must have finished
-    // setting s_instance so workers can find it via instance().
+    // It is also declared BEFORE backend bootstrap because bootstrap
+    // registers metatypes AND calls initialize() / startAll(), which
+    // spawn worker threads that will immediately begin reading those
+    // metatypes. The controller must exist before those reads happen -
+    // and its constructor must have finished setting s_instance so
+    // workers can find it via instance().
     CargoNetSim::CargoNetSimController controller(logger);
 
     // Initialize backend metatypes and bring the controller online

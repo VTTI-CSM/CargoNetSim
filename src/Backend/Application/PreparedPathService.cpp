@@ -44,20 +44,17 @@ PreparedPathService::PreparedPathService(
     : PreparedPathService(
           controller ? controller->getConfigController() : nullptr,
           controller ? controller->getNetworkController() : nullptr,
-          controller ? controller->getRegionDataController() : nullptr,
-          controller ? controller->getVehicleController() : nullptr)
+          controller ? controller->getRegionDataController() : nullptr)
 {
 }
 
 PreparedPathService::PreparedPathService(
     ConfigController     *config,
     NetworkController    *networks,
-    RegionDataController *regionData,
-    VehicleController    *vehicles)
+    RegionDataController *regionData)
     : m_config(config)
     , m_networks(networks)
     , m_regionData(regionData)
-    , m_vehicles(vehicles)
 {
 }
 
@@ -109,7 +106,7 @@ PreparedPathServiceResult PreparedPathService::discoverAndPrepare(
     QString err;
     auto prepared = Scenario::PathPreparationService::discoverAndPreparePaths(
         document, registry, topN, m_config, m_networks, m_regionData,
-        m_vehicles, &err);
+        &err);
 
     if (prepared.isEmpty())
     {

@@ -29,7 +29,7 @@ public:
     static QJsonObject                        toJson(const ScenarioDocument &doc);
     static std::unique_ptr<ScenarioDocument>  fromJson(const QJsonObject &j);
 
-    // YAML (Task 13).
+    // YAML.
     // Paths inside YAML are resolved relative to the file's directory after
     // QDir::fromNativeSeparators().
     static bool                               toYaml(const ScenarioDocument &doc,
