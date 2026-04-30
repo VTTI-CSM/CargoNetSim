@@ -30,7 +30,7 @@ class ScenarioRegistry;
 
 struct PreparedPathRecord
 {
-    QString                                     pathIdentity;
+    QString                                     executionPathKey;
     QString                                     canonicalPathKey;
     PreparedPathRequirements                    requirements;
     std::shared_ptr<CargoNetSim::Backend::Path> path;
@@ -44,16 +44,16 @@ public:
     bool isEmpty() const;
 
     const std::vector<PreparedPathRecord> &records() const;
-    QVector<QString>                       pathIdentities() const;
-    bool                                   containsPathIdentity(
-        const QString &pathIdentity) const;
+    QVector<QString>                       executionPathKeys() const;
+    bool                                   containsExecutionPathKey(
+        const QString &executionPathKey) const;
     QList<CargoNetSim::Backend::Path *>    rawPaths() const;
     QList<CargoNetSim::Backend::Path *>    rawPaths(
-           const QVector<QString> &pathIdentities) const;
+           const QVector<QString> &executionPathKeys) const;
 
-    const QHash<QString, PathMetrics> &predictedMetricsByPathIdentity() const;
+    const QHash<QString, PathMetrics> &predictedMetricsByExecutionPathKey() const;
     const QHash<QString, PathMetrics> &predictedMetricsByCanonicalPath() const;
-    const QHash<QString, PathKey>     &pathKeysByPathIdentity() const;
+    const QHash<QString, PathKey>     &pathKeysByExecutionPathKey() const;
     const QHash<QString, PathKey>     &pathKeysByCanonicalPath() const;
 
 private:
@@ -61,10 +61,10 @@ private:
 
     std::vector<PreparedPathRecord>             m_records;
     QHash<QString, std::shared_ptr<CargoNetSim::Backend::Path>>
-        m_pathsByPathIdentity;
-    QHash<QString, PathMetrics> m_predictedByPathIdentity;
+        m_pathsByExecutionPathKey;
+    QHash<QString, PathMetrics> m_predictedByExecutionPathKey;
     QHash<QString, PathMetrics> m_predictedByCanonicalPath;
-    QHash<QString, PathKey>     m_pathKeysByPathIdentity;
+    QHash<QString, PathKey>     m_pathKeysByExecutionPathKey;
     QHash<QString, PathKey>     m_pathKeysByCanonicalPath;
 };
 

@@ -1186,7 +1186,7 @@ QJsonArray TerminalSimulationClient::getTerminalsRuntimeProjections(
 QJsonArray TerminalSimulationClient::getTerminalExecutionResults(
     const QString     &executionId,
     const QStringList &terminalIds,
-    const QStringList &pathIdentities)
+    const QStringList &canonicalPathKeys)
 {
     const bool success = executeSerializedCommand([&]() {
         QJsonObject params;
@@ -1196,10 +1196,10 @@ QJsonArray TerminalSimulationClient::getTerminalExecutionResults(
             params["terminal_ids"] =
                 jsonArrayFromStringList(terminalIds);
         }
-        if (!pathIdentities.isEmpty())
+        if (!canonicalPathKeys.isEmpty())
         {
-            params["path_identities"] =
-                jsonArrayFromStringList(pathIdentities);
+            params["canonical_path_keys"] =
+                jsonArrayFromStringList(canonicalPathKeys);
         }
         return sendCommandAndWait(
             "get_terminal_execution_results",

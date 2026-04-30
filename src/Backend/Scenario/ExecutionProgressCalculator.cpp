@@ -100,11 +100,11 @@ bool isActiveSegmentLifecycle(SegmentLifecycleState lifecycle)
 
 const SegmentExecutionState *segmentStateAt(
     const ExecutionLedger &ledger,
-    const QString         &pathIdentity,
+    const QString         &executionPathKey,
     int                    segmentIndex)
 {
     const auto statesIt =
-        ledger.segmentStates.constFind(pathIdentity);
+        ledger.segmentStates.constFind(executionPathKey);
     if (statesIt == ledger.segmentStates.constEnd()
         || segmentIndex < 0
         || segmentIndex >= statesIt.value().size())
@@ -120,7 +120,7 @@ PathLifecycleState pathLifecycleFor(
     const ExecutionLedger   &ledger)
 {
     const auto it =
-        ledger.pathStates.constFind(pathPlan.pathIdentity);
+        ledger.pathStates.constFind(pathPlan.executionPathKey);
     if (it != ledger.pathStates.constEnd())
         return it.value().lifecycle;
 
@@ -133,7 +133,7 @@ int activeSegmentIndexFor(
     const ExecutionLedger   &ledger)
 {
     const auto pathStateIt =
-        ledger.pathStates.constFind(pathPlan.pathIdentity);
+        ledger.pathStates.constFind(pathPlan.executionPathKey);
     if (pathStateIt != ledger.pathStates.constEnd()
         && pathStateIt.value().activeSegmentIndex >= 0)
     {
@@ -141,7 +141,7 @@ int activeSegmentIndexFor(
     }
 
     const auto segmentStatesIt =
-        ledger.segmentStates.constFind(pathPlan.pathIdentity);
+        ledger.segmentStates.constFind(pathPlan.executionPathKey);
     if (segmentStatesIt != ledger.segmentStates.constEnd())
     {
         const auto &segmentStates = segmentStatesIt.value();
@@ -171,13 +171,25 @@ ExecutionProgressSnapshot calculateExecutionProgress(
     for (const auto &pathPlan : plan.paths)
     {
         PathProgressSnapshot pathSnapshot;
-        pathSnapshot.pathIdentity = pathPlan.pathIdentity;
+        pathSnapshot.executionPathKey = pathPlan.executionPathKey;
         pathSnapshot.canonicalPathKey = pathPlan.canonicalPathKey;
         pathSnapshot.pathId = pathPlan.pathId;
         pathSnapshot.rank = pathPlan.rank;
         pathSnapshot.originId = pathPlan.originId;
         pathSnapshot.destinationId = pathPlan.destinationId;
+        pathSnapshot.effectiveContainerCount =
+            pathPlan.effectiveContainerCount;
         pathSnapshot.disposition = pathPlan.disposition;
+        pathSnapshot.predictedTotalCostUsd =
+            pathPlan.predictedTotalCostUsd;
+        pathSnapshot.predictedEdgeCostUsd =
+            pathPlan.predictedEdgeCostUsd;
+        pathSnapshot.predictedTerminalCostUsd =
+            pathPlan.predictedTerminalCostUsd;
+        pathSnapshot.predictedDistanceKm =
+            pathPlan.predictedDistanceKm;
+        pathSnapshot.predictedTravelTimeHours =
+            pathPlan.predictedTravelTimeHours;
         pathSnapshot.lifecycle =
             pathLifecycleFor(pathPlan, ledger);
         pathSnapshot.executable = pathPlan.isExecutable();
@@ -191,7 +203,7 @@ ExecutionProgressSnapshot calculateExecutionProgress(
         for (const auto &segmentPlan : pathPlan.segments)
         {
             const SegmentExecutionState *segmentState =
-                segmentStateAt(ledger, pathPlan.pathIdentity,
+                segmentStateAt(ledger, pathPlan.executionPathKey,
                                segmentPlan.segmentIndex);
 
             SegmentProgressSnapshot segmentSnapshot;
@@ -296,4 +308,3 @@ ExecutionProgressSnapshot calculateExecutionProgress(
 } // namespace Scenario
 } // namespace Backend
 } // namespace CargoNetSim
-

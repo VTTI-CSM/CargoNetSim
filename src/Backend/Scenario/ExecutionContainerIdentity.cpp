@@ -42,7 +42,6 @@ namespace ExecutionContainerKeys
 {
 
 QString executionId() { return key("execution_id"); }
-QString pathIdentity() { return key("path_identity"); }
 QString canonicalPathKey() { return key("canonical_path_key"); }
 QString sourceContainerId() { return key("source_container_id"); }
 QString executionContainerId() { return key("execution_container_id"); }
@@ -61,11 +60,11 @@ namespace ExecutionContainers
 
 QString makeExecutionContainerId(
     const QString &executionId,
-    const QString &pathIdentity,
+    const QString &executionPathKey,
     const QString &sourceContainerId)
 {
     const QByteArray material =
-        executionId.toUtf8() + '\x1f' + pathIdentity.toUtf8()
+        executionId.toUtf8() + '\x1f' + executionPathKey.toUtf8()
         + '\x1f' + sourceContainerId.toUtf8();
     const QByteArray digest =
         QCryptographicHash::hash(material,
@@ -103,7 +102,7 @@ QString logicalContainerIdFor(
 
 ExecutionContainerMetadata makeIdentityMetadata(
     const QString                  &executionId,
-    const QString                  &pathIdentity,
+    const QString                  &executionPathKey,
     const QString                  &canonicalPathKey,
     const ContainerCore::Container &sourceContainer,
     int                             readySegmentIndex,
@@ -111,12 +110,12 @@ ExecutionContainerMetadata makeIdentityMetadata(
 {
     ExecutionContainerMetadata metadata;
     metadata.executionId = executionId;
-    metadata.pathIdentity = pathIdentity;
+    metadata.executionPathKey = executionPathKey;
     metadata.canonicalPathKey = canonicalPathKey;
     metadata.sourceContainerId =
         sourceContainerIdFor(sourceContainer);
     metadata.executionContainerId = makeExecutionContainerId(
-        executionId, pathIdentity, metadata.sourceContainerId);
+        executionId, executionPathKey, metadata.sourceContainerId);
     metadata.readySegmentIndex = readySegmentIndex;
     metadata.terminalSequenceIndex = terminalSequenceIndex;
     return metadata;
@@ -150,8 +149,6 @@ void applyIdentityMetadata(
 {
     addIfNotEmpty(container, ExecutionContainerKeys::executionId(),
                   metadata.executionId);
-    addIfNotEmpty(container, ExecutionContainerKeys::pathIdentity(),
-                  metadata.pathIdentity);
     addIfNotEmpty(container, ExecutionContainerKeys::canonicalPathKey(),
                   metadata.canonicalPathKey);
     addIfNotEmpty(container, ExecutionContainerKeys::sourceContainerId(),
@@ -207,25 +204,18 @@ QJsonObject customVariableFilter(
 
 QJsonObject terminalPickupCriteria(
     const QString &executionId,
-    const QString &pathIdentity,
-    int            readySegmentIndex,
     const QString &canonicalPathKey,
+    int            readySegmentIndex,
     int            limit)
 {
     QJsonArray filters;
     filters.append(customVariableFilter(
         ExecutionContainerKeys::executionId(), executionId));
     filters.append(customVariableFilter(
-        ExecutionContainerKeys::pathIdentity(), pathIdentity));
+        ExecutionContainerKeys::canonicalPathKey(), canonicalPathKey));
     filters.append(customVariableFilter(
         ExecutionContainerKeys::readySegmentIndex(),
         readySegmentIndex));
-    if (!canonicalPathKey.isEmpty())
-    {
-        filters.append(customVariableFilter(
-            ExecutionContainerKeys::canonicalPathKey(),
-            canonicalPathKey));
-    }
 
     QJsonObject criteria;
     criteria.insert(QStringLiteral("custom_variables"), filters);

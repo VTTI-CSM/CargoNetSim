@@ -113,7 +113,7 @@ private:
     struct ResolvedExecutionTarget
     {
         QString canonicalPathKey;
-        QString pathIdentity;
+        QString executionPathKey;
         QString networkName;
         QString startTerminalId;
         QString endTerminalId;
@@ -163,7 +163,7 @@ private:
     void clearConnections();
 
     QString m_executionId;
-    QHash<QString, QString> m_pathIdentityByCanonicalKey;
+    QHash<QString, QString> m_executionPathKeyByCanonicalKey;
     QHash<QString, SegmentExecutionPlan> m_segmentPlansByLookupKey;
     QVector<QMetaObject::Connection> m_connections;
 };

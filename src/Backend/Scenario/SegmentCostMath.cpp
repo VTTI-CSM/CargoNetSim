@@ -570,10 +570,11 @@ computePathExecutionResult(
     CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
     CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
     CargoNetSim::Backend::Path                                *path,
-    const QString                                             &pathIdentity,
+    const QString                                             &executionPathKey,
     const QVariantMap                                         &costFunctionWeights,
     const QVariantMap                                         &transportModes,
-    int                                                        containerCount)
+    int                                                        containerCount,
+    bool                                                       emitInfoLog)
 {
     CargoNetSim::Backend::Scenario::PathExecutionResult result;
     if (!path)
@@ -584,9 +585,9 @@ computePathExecutionResult(
                         << ", containerCount =" << containerCount;
 
     const auto segments = path->getSegments();
-    result.pathIdentity = pathIdentity.isEmpty()
+    result.executionPathKey = executionPathKey.isEmpty()
         ? path->canonicalPathKey()
-        : pathIdentity;
+        : executionPathKey;
     result.pathId = path->getPathId();
     result.canonicalPathKey = path->canonicalPathKey();
     result.pathUid = path->getPathUid();
@@ -656,12 +657,15 @@ computePathExecutionResult(
     result.terminalCosts = path->getTotalTerminalCosts();
     result.totalCost = result.edgeCosts + result.terminalCosts;
 
-    qCInfo(lcScenario)
-        << "SegmentCostMath::computePathExecutionResult:"
-        << "path" << result.pathId
-        << "-> edgeCosts =" << result.edgeCosts
-        << ", terminalCosts =" << result.terminalCosts
-        << ", totalCost =" << result.totalCost;
+    if (emitInfoLog)
+    {
+        qCInfo(lcScenario)
+            << "SegmentCostMath::computePathExecutionResult:"
+            << "path" << result.pathId
+            << "-> edgeCosts =" << result.edgeCosts
+            << ", terminalCosts =" << result.terminalCosts
+            << ", totalCost =" << result.totalCost;
+    }
 
     return result;
 }

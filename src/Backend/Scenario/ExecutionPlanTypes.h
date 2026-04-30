@@ -132,7 +132,7 @@ struct SegmentExecutionPlan
 {
     int    segmentIndex = -1;
     QString segmentId;
-    QString pathIdentity;
+    QString executionPathKey;
     QString startTerminalId;
     QString endTerminalId;
     QString regionName;
@@ -152,7 +152,7 @@ struct SegmentExecutionPlan
         const bool baseValid =
             segmentIndex >= 0
             && !segmentId.isEmpty()
-            && !pathIdentity.isEmpty()
+            && !executionPathKey.isEmpty()
             && !startTerminalId.isEmpty()
             && !endTerminalId.isEmpty()
             && !regionName.isEmpty()
@@ -203,7 +203,7 @@ struct ExecutionTransition
 
 struct PathExecutionPlan
 {
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     int     pathId = -1;
     int     rank = -1;
@@ -211,6 +211,11 @@ struct PathExecutionPlan
     QString originId;
     QString destinationId;
     int     effectiveContainerCount = 0;
+    double  predictedTotalCostUsd = 0.0;
+    double  predictedEdgeCostUsd = 0.0;
+    double  predictedTerminalCostUsd = 0.0;
+    double  predictedDistanceKm = 0.0;
+    double  predictedTravelTimeHours = 0.0;
     QString planningMessage;
     PlannedPathDisposition disposition =
         PlannedPathDisposition::SkipNoDemand;
@@ -262,11 +267,11 @@ struct ScenarioExecutionPlan
     }
 
     const PathExecutionPlan *findPath(
-        const QString &pathIdentity) const
+        const QString &executionPathKey) const
     {
         for (const auto &path : paths)
         {
-            if (path.pathIdentity == pathIdentity)
+            if (path.executionPathKey == executionPathKey)
                 return &path;
         }
         return nullptr;
@@ -293,7 +298,7 @@ struct ContainerExecutionState
 {
     QString containerId;
     QString sourceContainerId;
-    QString pathIdentity;
+    QString executionPathKey;
     int     segmentIndex = -1;
     QString currentTerminalId;
     QString currentVehicleId;
@@ -337,7 +342,7 @@ struct VehicleExecutionState
 
 struct SegmentExecutionState
 {
-    QString pathIdentity;
+    QString executionPathKey;
     int     segmentIndex = -1;
     SegmentLifecycleState lifecycle =
         SegmentLifecycleState::Pending;
@@ -386,7 +391,7 @@ struct SegmentExecutionState
 
 struct PathExecutionState
 {
-    QString pathIdentity;
+    QString executionPathKey;
     PathLifecycleState lifecycle =
         PathLifecycleState::Pending;
     int     activeSegmentIndex = -1;
@@ -415,12 +420,12 @@ struct PathExecutionState
 
 struct DispatchableSegmentRef
 {
-    QString pathIdentity;
+    QString executionPathKey;
     int     segmentIndex = -1;
 
     bool isValid() const
     {
-        return !pathIdentity.isEmpty() && segmentIndex >= 0;
+        return !executionPathKey.isEmpty() && segmentIndex >= 0;
     }
 };
 
@@ -437,7 +442,7 @@ struct ExecutionEvent
 {
     ExecutionEventType type =
         ExecutionEventType::SegmentExecutionFailed;
-    QString pathIdentity;
+    QString executionPathKey;
     int     segmentIndex = -1;
     QString vehicleId;
     QString networkName;
@@ -469,9 +474,9 @@ struct ExecutionTimeline
     QHash<QString, QVector<SegmentTimelineWindow>>
         segmentWindowsByPath;
 
-    bool hasPath(const QString &pathIdentity) const
+    bool hasPath(const QString &executionPathKey) const
     {
-        return segmentWindowsByPath.contains(pathIdentity);
+        return segmentWindowsByPath.contains(executionPathKey);
     }
 };
 
@@ -482,9 +487,9 @@ struct ExecutionLedger
     QHash<QString, QVector<ContainerExecutionState>> containerStates;
     ExecutionTimeline timeline;
 
-    bool containsPath(const QString &pathIdentity) const
+    bool containsPath(const QString &executionPathKey) const
     {
-        return pathStates.contains(pathIdentity);
+        return pathStates.contains(executionPathKey);
     }
 };
 
@@ -514,12 +519,13 @@ struct SegmentProgressSnapshot
 
 struct PathProgressSnapshot
 {
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     int     pathId = -1;
     int     rank = -1;
     QString originId;
     QString destinationId;
+    int     effectiveContainerCount = 0;
     PlannedPathDisposition disposition =
         PlannedPathDisposition::SkipNoDemand;
     PathLifecycleState lifecycle =
@@ -532,6 +538,18 @@ struct PathProgressSnapshot
     QString activeEndTerminalId;
     int     completedSegments = 0;
     int     totalSegments = 0;
+    double  predictedTotalCostUsd = 0.0;
+    double  predictedEdgeCostUsd = 0.0;
+    double  predictedTerminalCostUsd = 0.0;
+    double  predictedDistanceKm = 0.0;
+    double  predictedTravelTimeHours = 0.0;
+    bool    actualMetricsAvailable = false;
+    bool    actualCostsAvailable = false;
+    double  actualTotalCostUsd = 0.0;
+    double  actualEdgeCostUsd = 0.0;
+    double  actualTerminalCostUsd = 0.0;
+    double  actualDistanceKm = 0.0;
+    double  actualTravelTimeHours = 0.0;
     double  percent = 0.0;
     bool    executable = false;
     QString message;

@@ -28,7 +28,7 @@ namespace Application
 
 struct PathPresentationRecord
 {
-    QString                        pathIdentity;
+    QString                        executionPathKey;
     QString                        pathKey;
     std::shared_ptr<Backend::Path> path;
     Scenario::PreparedPathEligibility eligibility;

@@ -23,8 +23,8 @@ QString displayIdentity(const PreparedPathRecord &record)
 {
     if (record.path)
         return QStringLiteral("Path %1").arg(record.path->getPathId());
-    if (!record.pathIdentity.isEmpty())
-        return record.pathIdentity;
+    if (!record.executionPathKey.isEmpty())
+        return record.executionPathKey;
     return QStringLiteral("Selected path");
 }
 
@@ -139,10 +139,10 @@ PreparedPathEligibilityService::evaluateAll(
 
     for (const auto &record : preparedPaths.records())
     {
-        if (record.pathIdentity.isEmpty())
+        if (record.executionPathKey.isEmpty())
             continue;
         eligibilityByIdentity.insert(
-            record.pathIdentity, evaluate(record, availability));
+            record.executionPathKey, evaluate(record, availability));
     }
 
     return eligibilityByIdentity;
@@ -150,11 +150,11 @@ PreparedPathEligibilityService::evaluateAll(
 
 bool PreparedPathEligibilityService::validateSelection(
     const PreparedPathSet     &preparedPaths,
-    const QVector<QString>    &pathIdentities,
+    const QVector<QString>    &executionPathKeys,
     const SimulatorAvailability &availability,
     QString                  *err)
 {
-    if (pathIdentities.isEmpty())
+    if (executionPathKeys.isEmpty())
     {
         if (err)
         {
@@ -167,20 +167,20 @@ bool PreparedPathEligibilityService::validateSelection(
     QHash<QString, const PreparedPathRecord *> byIdentity;
     for (const auto &record : preparedPaths.records())
     {
-        if (!record.pathIdentity.isEmpty())
-            byIdentity.insert(record.pathIdentity, &record);
+        if (!record.executionPathKey.isEmpty())
+            byIdentity.insert(record.executionPathKey, &record);
     }
 
-    for (const auto &pathIdentity : pathIdentities)
+    for (const auto &executionPathKey : executionPathKeys)
     {
-        const auto it = byIdentity.constFind(pathIdentity);
+        const auto it = byIdentity.constFind(executionPathKey);
         if (it == byIdentity.constEnd())
         {
             if (err)
             {
                 *err = QStringLiteral(
-                           "Unknown prepared path identity: %1")
-                           .arg(pathIdentity);
+                           "Unknown execution path key: %1")
+                           .arg(executionPathKey);
             }
             return false;
         }

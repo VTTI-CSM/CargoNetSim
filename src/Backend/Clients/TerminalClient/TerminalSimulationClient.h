@@ -514,16 +514,16 @@ public:
         const QStringList &terminalIds);
 
     /**
-     * @brief Get terminal execution results filtered by execution id/path ids.
+     * @brief Get terminal execution results filtered by execution id/canonical paths.
      * @param executionId Execution id to query
      * @param terminalIds Optional runtime terminal ids to limit the search
-     * @param pathIdentities Optional prepared path identities to limit results
+     * @param canonicalPathKeys Optional canonical path keys to limit results
      * @return Matching terminal execution result objects
      */
     Q_INVOKABLE QJsonArray getTerminalExecutionResults(
         const QString     &executionId,
         const QStringList &terminalIds = {},
-        const QStringList &pathIdentities = {});
+        const QStringList &canonicalPathKeys = {});
 
     /**
      * @brief Clear terminal execution results for an execution id.

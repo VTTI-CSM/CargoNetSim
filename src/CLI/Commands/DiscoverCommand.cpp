@@ -368,8 +368,8 @@ QJsonObject pathRecordToJson(
     QJsonObject object;
     object[QStringLiteral("selection_index")] =
         selectionIndex;
-    object[QStringLiteral("path_identity")] =
-        record.pathIdentity;
+    object[QStringLiteral("execution_path_key")] =
+        record.executionPathKey;
     object[QStringLiteral("canonical_path_key")] =
         record.path ? record.path->canonicalPathKey()
                     : QString();

@@ -5,8 +5,10 @@
 #include <QIODevice>
 #include <QScopeGuard>
 #include <QSet>
+#include <QTimer>
 
 #include <cstdio>
+#include <cmath>
 #include <functional>
 
 #include "Backend/Application/PreparedPathService.h"
@@ -34,7 +36,7 @@ namespace {
 /// Argument shape for `run`. `--all` selects every prepared candidate
 /// path; `--paths` selects a comma-separated subset by the 1-based
 /// presentation index shown by the `discover` command. Selection is
-/// translated to stable prepared-path identities after discovery.
+/// translated to stable execution path keys after discovery.
 /// A bare scenario path remains a documented alias for `--all`.
 struct Options
 {
@@ -232,7 +234,7 @@ ExitCode exitCodeForRunServiceFailure(
     return ExitCode::RunFailed;
 }
 
-bool selectedPathIdentitiesForIndexes(
+bool selectedExecutionPathKeysForIndexes(
     const Backend::Scenario::PreparedPathSet &prepared,
     const QVector<int>                       &indexes,
     QVector<QString>                         *selected,
@@ -255,16 +257,16 @@ bool selectedPathIdentitiesForIndexes(
             return false;
         }
 
-        const QString &identity =
-            records.at(static_cast<size_t>(zeroBasedIndex)).pathIdentity;
-        if (identity.isEmpty())
+        const QString &executionPathKey =
+            records.at(static_cast<size_t>(zeroBasedIndex)).executionPathKey;
+        if (executionPathKey.isEmpty())
         {
             *err = QStringLiteral(
-                       "run: discovered path index %1 does not have a stable path identity\n")
+                       "run: discovered path index %1 does not have a stable execution path key\n")
                        .arg(presentationIndex);
             return false;
         }
-        selected->append(identity);
+        selected->append(executionPathKey);
     }
 
     return true;
@@ -326,11 +328,55 @@ QString money(double value)
     return QStringLiteral("$%1").arg(value, 0, 'f', 2);
 }
 
+QString compactScalar(double value, int decimals = 1)
+{
+    const double absValue = std::abs(value);
+    if (absValue >= 1.0e9)
+        return QStringLiteral("%1B").arg(value / 1.0e9, 0, 'f', decimals);
+    if (absValue >= 1.0e6)
+        return QStringLiteral("%1M").arg(value / 1.0e6, 0, 'f', decimals);
+    if (absValue >= 1.0e3)
+        return QStringLiteral("%1K").arg(value / 1.0e3, 0, 'f', decimals);
+    return QString::number(value, 'f', absValue < 10.0 ? 1 : 0);
+}
+
+QString compactHours(double value)
+{
+    if (value >= 72.0)
+    {
+        const int days = static_cast<int>(value / 24.0);
+        const int hours = static_cast<int>(value) % 24;
+        return QStringLiteral("%1d%2h").arg(days).arg(hours);
+    }
+    return QString::number(value, 'f', value < 10.0 ? 1 : 0);
+}
+
+QString fitSummaryCell(QString value, int width, bool rightAlign = true)
+{
+    if (value.size() > width)
+    {
+        value = width > 1
+            ? value.left(width - 1) + QLatin1Char('~')
+            : value.left(width);
+    }
+    return rightAlign ? value.rightJustified(width, QLatin1Char(' '))
+                      : value.leftJustified(width, QLatin1Char(' '));
+}
+
+QString summarySeparator()
+{
+    return QStringLiteral(
+        "---- -- --- -------- ---------- ---------- ------- ------- ------ ------ ---");
+}
+
 void emitResultsSummary(
     QIODevice *sink,
     const Backend::Scenario::ScenarioDocument &doc,
     const QList<Backend::Scenario::PathSimulationResult> &results,
-    const QList<Backend::Path *> &paths)
+    const Backend::Scenario::ScenarioExecutionResultSet &executionResults,
+    const QList<Backend::Path *> &paths,
+    const QHash<QString, Backend::Scenario::PathMetrics>
+        &predictedMetricsByCanonicalPath)
 {
     const QString outDir = doc.output.directory.isEmpty()
         ? QDir::currentPath()
@@ -360,25 +406,72 @@ void emitResultsSummary(
                    "run: summary: %1 path(s) simulated\n")
                    .arg(results.size()));
 
-    for (const auto &result : results)
+    streamToOr(
+        sink, stderr,
+        QStringLiteral(
+            "run: final comparison (P=predicted, A=simulated actual):\n"));
+    streamToOr(
+        sink, stderr,
+        QStringLiteral(
+            "run: %1 %2 %3 %4 %5 %6 %7 %8 %9 %10 %11\n")
+            .arg(fitSummaryCell(QStringLiteral("Path"), 4),
+                 fitSummaryCell(QStringLiteral("Rk"), 2),
+                 fitSummaryCell(QStringLiteral("Seg"), 3),
+                 fitSummaryCell(QStringLiteral("Modes"), 8, false),
+                 fitSummaryCell(QStringLiteral("P$"), 10),
+                 fitSummaryCell(QStringLiteral("A$"), 10),
+                 fitSummaryCell(QStringLiteral("Pkm"), 7),
+                 fitSummaryCell(QStringLiteral("Akm"), 7),
+                 fitSummaryCell(QStringLiteral("Ph"), 6),
+                 fitSummaryCell(QStringLiteral("Ah"), 6),
+                 fitSummaryCell(QStringLiteral("Cnt"), 3)));
+    streamToOr(sink, stderr,
+               QStringLiteral("run: %1\n").arg(summarySeparator()));
+
+    for (const auto &result : executionResults.pathResults())
     {
         const Backend::Path *path =
-            findPathForResult(paths, result);
+            findPathForResult(paths, result.toSimulationResult());
         const int segmentCount = segmentCountForPath(path);
         const QString modes = modeSequenceForPath(path);
+        const auto predictedMetrics =
+            predictedMetricsByCanonicalPath.value(
+                result.canonicalPathKey);
+        const auto actualMetrics = result.totalActualMetrics();
 
         streamToOr(
             sink, stderr,
-            QStringLiteral(
-                "run:   path_id=%1 rank=%2 containers=%3 segments=%4 [%5] total=%6 edges=%7 terminals=%8\n")
-                .arg(result.pathId)
-                .arg(result.rank)
-                .arg(result.effectiveContainerCount)
-                .arg(segmentCount)
-                .arg(modes)
-                .arg(money(result.totalCost),
-                     money(result.edgeCosts),
-                     money(result.terminalCosts)));
+            QStringLiteral("run: %1 %2 %3 %4 %5 %6 %7 %8 %9 %10 %11\n")
+                .arg(fitSummaryCell(QString::number(result.pathId), 4),
+                     fitSummaryCell(QString::number(result.rank), 2),
+                     fitSummaryCell(QString::number(segmentCount), 3),
+                     fitSummaryCell(modes, 8, false),
+                     fitSummaryCell(compactScalar(
+                                        path ? path->getTotalPathCost()
+                                             : 0.0),
+                                    10),
+                     fitSummaryCell(compactScalar(result.totalCost), 10),
+                     fitSummaryCell(compactScalar(
+                                        predictedMetrics.distanceKm),
+                                    7),
+                     fitSummaryCell(
+                         actualMetrics.available
+                             ? compactScalar(actualMetrics.distance
+                                             / 1000.0)
+                             : QStringLiteral("-"),
+                         7),
+                     fitSummaryCell(compactHours(
+                                        predictedMetrics.travelTimeHours),
+                                    6),
+                     fitSummaryCell(
+                         actualMetrics.available
+                             ? compactHours(actualMetrics.travelTime
+                                            / 3600.0)
+                             : QStringLiteral("-"),
+                         6),
+                     fitSummaryCell(QString::number(
+                                        result.effectiveContainerCount),
+                                    3)));
     }
 }
 
@@ -672,17 +765,17 @@ int RunCommand::execute(const QStringList &args)
 
     // ---- 6. Determine the selected simulation set ----------------------
     Backend::Application::SimulationRunService runService;
-    QVector<QString> selectedPathIdentities;
+    QVector<QString> selectedExecutionPathKeys;
     if (opt.selectAll)
     {
-        selectedPathIdentities = prepared.pathIdentities();
+        selectedExecutionPathKeys = prepared.executionPathKeys();
     }
     else
     {
         QString selectionError;
-        if (!selectedPathIdentitiesForIndexes(
+        if (!selectedExecutionPathKeysForIndexes(
                 prepared, opt.selectedPathIndexes,
-                &selectedPathIdentities, &selectionError))
+                &selectedExecutionPathKeys, &selectionError))
         {
             streamToOr(m_err, stderr, selectionError);
             return static_cast<int>(ExitCode::BadArgs);
@@ -691,7 +784,7 @@ int RunCommand::execute(const QStringList &args)
 
     const auto selectionResult =
         runService.selectAndValidate(
-            rt, selectedPathIdentities,
+            rt, selectedExecutionPathKeys,
             ExecutionDemandPolicy::DuplicateDemandPerSelectedPath);
     if (!selectionResult.succeeded())
     {
@@ -738,6 +831,13 @@ int RunCommand::execute(const QStringList &args)
                     const ExecutionProgressSnapshot &snapshot) {
             reporter.reportSnapshot(t, snapshot);
         });
+    QTimer progressRepaintTimer;
+    progressRepaintTimer.setInterval(500);
+    QObject::connect(&progressRepaintTimer, &QTimer::timeout,
+                     [&reporter]() {
+                         reporter.repaintLastSnapshot();
+                     });
+    progressRepaintTimer.start();
     if (m_verbose)
     {
         QObject::connect(&rt, &ScenarioRuntime::statusMessage,
@@ -795,7 +895,9 @@ int RunCommand::execute(const QStringList &args)
     if (writeCode != static_cast<int>(ExitCode::Success))
         return writeCode;
 
-    emitResultsSummary(m_err, rt.document(), results, rt.paths());
+    emitResultsSummary(m_err, rt.document(), results,
+                       rt.executionResults(), rt.paths(),
+                       predictedMetricsByCanonicalPath);
 
     qCInfo(lcCli) << "RunCommand::execute: finished — exit code = Success";
     return static_cast<int>(ExitCode::Success);

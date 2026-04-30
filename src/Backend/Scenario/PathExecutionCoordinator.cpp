@@ -96,7 +96,7 @@ int stageVehicleContainersAtTerminal(
     const QString &vehicleId,
     ContainerCustodyState custody)
 {
-    auto it = ledger.containerStates.find(pathPlan.pathIdentity);
+    auto it = ledger.containerStates.find(pathPlan.executionPathKey);
     if (it == ledger.containerStates.end() || vehicleId.isEmpty())
         return 0;
 
@@ -132,7 +132,7 @@ int completeTerminalProcessingForVehicle(
     const PathExecutionPlan &pathPlan, int segmentIndex,
     const QString &vehicleId)
 {
-    auto it = ledger.containerStates.find(pathPlan.pathIdentity);
+    auto it = ledger.containerStates.find(pathPlan.executionPathKey);
     if (it == ledger.containerStates.end() || vehicleId.isEmpty())
         return 0;
 
@@ -165,10 +165,10 @@ int completeTerminalProcessingForVehicle(
 }
 
 int failUndeliveredContainers(ExecutionLedger &ledger,
-                              const QString   &pathIdentity,
+                              const QString   &executionPathKey,
                               const QString   &terminalId)
 {
-    auto it = ledger.containerStates.find(pathIdentity);
+    auto it = ledger.containerStates.find(executionPathKey);
     if (it == ledger.containerStates.end())
         return 0;
 
@@ -215,7 +215,7 @@ bool PathExecutionCoordinator::initialize(
     for (const auto &pathPlan : m_plan.paths)
     {
         PathExecutionState pathState;
-        pathState.pathIdentity = pathPlan.pathIdentity;
+        pathState.executionPathKey = pathPlan.executionPathKey;
 
         QVector<SegmentExecutionState> segmentStates;
         segmentStates.reserve(pathPlan.segments.size());
@@ -231,7 +231,7 @@ bool PathExecutionCoordinator::initialize(
                 {
                     *err = QStringLiteral(
                         "Executable path %1 has no segments")
-                               .arg(pathPlan.pathIdentity);
+                               .arg(pathPlan.executionPathKey);
                 }
                 return false;
             }
@@ -256,7 +256,7 @@ bool PathExecutionCoordinator::initialize(
         for (const auto &segmentPlan : pathPlan.segments)
         {
             SegmentExecutionState segmentState;
-            segmentState.pathIdentity = pathPlan.pathIdentity;
+            segmentState.executionPathKey = pathPlan.executionPathKey;
             segmentState.segmentIndex = segmentPlan.segmentIndex;
             segmentState.networkName = segmentPlan.networkName;
             if (pathPlan.disposition != PlannedPathDisposition::Execute)
@@ -271,10 +271,10 @@ bool PathExecutionCoordinator::initialize(
             timelineWindows.append(timelineWindow);
         }
 
-        m_ledger.pathStates.insert(pathPlan.pathIdentity, pathState);
-        m_ledger.segmentStates.insert(pathPlan.pathIdentity, segmentStates);
+        m_ledger.pathStates.insert(pathPlan.executionPathKey, pathState);
+        m_ledger.segmentStates.insert(pathPlan.executionPathKey, segmentStates);
         m_ledger.timeline.segmentWindowsByPath.insert(
-            pathPlan.pathIdentity, timelineWindows);
+            pathPlan.executionPathKey, timelineWindows);
     }
 
     m_dispatchableSegments = recomputeDispatchableSegments();
@@ -309,7 +309,7 @@ bool PathExecutionCoordinator::seedContainers(
                 {
                     *err = QStringLiteral(
                         "Container seed count mismatch for %1: expected %2, got %3")
-                               .arg(pathPlan.pathIdentity)
+                               .arg(pathPlan.executionPathKey)
                                .arg(pathPlan.effectiveContainerCount)
                                .arg(allocatedContainers.size());
                 }
@@ -326,14 +326,14 @@ bool PathExecutionCoordinator::seedContainers(
                 const auto metadata =
                     ExecutionContainers::makeIdentityMetadata(
                         m_plan.executionId,
-                        pathPlan.pathIdentity,
+                        pathPlan.executionPathKey,
                         pathPlan.canonicalPathKey,
                         *container,
                         /*readySegmentIndex=*/0,
                         /*terminalSequenceIndex=*/0);
                 state.containerId = metadata.executionContainerId;
                 state.sourceContainerId = metadata.sourceContainerId;
-                state.pathIdentity = pathPlan.pathIdentity;
+                state.executionPathKey = pathPlan.executionPathKey;
                 state.segmentIndex = 0;
                 state.currentTerminalId = pathPlan.originId;
                 state.custody = ContainerCustodyState::AtOrigin;
@@ -341,7 +341,7 @@ bool PathExecutionCoordinator::seedContainers(
             }
         }
 
-        m_ledger.containerStates.insert(pathPlan.pathIdentity,
+        m_ledger.containerStates.insert(pathPlan.executionPathKey,
                                         states);
     }
 
@@ -357,14 +357,14 @@ bool PathExecutionCoordinator::registerDispatchAssignments(
     for (const auto &assignment : assignments)
     {
         const PathExecutionPlan *pathPlan =
-            findPathPlan(assignment.pathIdentity);
+            findPathPlan(assignment.executionPathKey);
         if (!pathPlan)
         {
             if (err)
             {
                 *err = QStringLiteral(
-                    "Unknown path identity in dispatch assignment: %1")
-                           .arg(assignment.pathIdentity);
+                    "Unknown execution path key in dispatch assignment: %1")
+                           .arg(assignment.executionPathKey);
             }
             return false;
         }
@@ -377,7 +377,7 @@ bool PathExecutionCoordinator::registerDispatchAssignments(
                 *err = QStringLiteral(
                     "Invalid segment index %1 in dispatch assignment for %2")
                            .arg(assignment.segmentIndex)
-                           .arg(assignment.pathIdentity);
+                           .arg(assignment.executionPathKey);
             }
             return false;
         }
@@ -385,14 +385,14 @@ bool PathExecutionCoordinator::registerDispatchAssignments(
         const auto &segmentPlan =
             pathPlan->segments[assignment.segmentIndex];
         auto containerStates =
-            m_ledger.containerStates.find(assignment.pathIdentity);
+            m_ledger.containerStates.find(assignment.executionPathKey);
         if (containerStates == m_ledger.containerStates.end())
         {
             if (err)
             {
                 *err = QStringLiteral(
                     "Container state ledger is missing path %1")
-                           .arg(assignment.pathIdentity);
+                           .arg(assignment.executionPathKey);
             }
             return false;
         }
@@ -401,7 +401,7 @@ bool PathExecutionCoordinator::registerDispatchAssignments(
              assignment.logicalContainerIds)
         {
             ContainerExecutionState *state =
-                findContainerState(assignment.pathIdentity,
+                findContainerState(assignment.executionPathKey,
                                    logicalContainerId);
             if (!state)
             {
@@ -410,7 +410,7 @@ bool PathExecutionCoordinator::registerDispatchAssignments(
                     *err = QStringLiteral(
                         "Dispatch assignment references unknown logical container %1 for %2")
                                .arg(logicalContainerId,
-                                    assignment.pathIdentity);
+                                    assignment.executionPathKey);
                 }
                 return false;
             }
@@ -471,7 +471,7 @@ ExecutionEventOutcome PathExecutionCoordinator::markSegmentDispatched(
 {
     ExecutionEvent event;
     event.type = ExecutionEventType::SegmentVehicleDispatched;
-    event.pathIdentity = segmentRef.pathIdentity;
+    event.executionPathKey = segmentRef.executionPathKey;
     event.segmentIndex = segmentRef.segmentIndex;
     event.vehicleId = vehicleId;
     event.networkName = networkName;
@@ -485,13 +485,13 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
     ExecutionEventOutcome outcome;
 
     const PathExecutionPlan *pathPlan =
-        findPathPlan(event.pathIdentity);
+        findPathPlan(event.executionPathKey);
     PathExecutionState *pathState =
-        findPathState(event.pathIdentity);
+        findPathState(event.executionPathKey);
     SegmentExecutionState *segmentState =
-        findSegmentState(event.pathIdentity, event.segmentIndex);
+        findSegmentState(event.executionPathKey, event.segmentIndex);
     SegmentTimelineWindow *timeline =
-        findTimelineWindow(event.pathIdentity, event.segmentIndex);
+        findTimelineWindow(event.executionPathKey, event.segmentIndex);
 
     if (!pathPlan || !pathState || !segmentState || !timeline)
     {
@@ -592,7 +592,7 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
             return outcome;
 
         VehicleExecutionState *vehicleState =
-            findVehicleState(event.pathIdentity, event.segmentIndex,
+            findVehicleState(event.executionPathKey, event.segmentIndex,
                              event.vehicleId);
         if (!vehicleState)
         {
@@ -629,7 +629,7 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
             return outcome;
 
         VehicleExecutionState *vehicleState =
-            findVehicleState(event.pathIdentity, event.segmentIndex,
+            findVehicleState(event.executionPathKey, event.segmentIndex,
                              event.vehicleId);
         if (!vehicleState)
         {
@@ -693,7 +693,7 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
         refreshSegmentState(*pathPlan, *segmentState, *pathState);
         if (segmentReadyForCompletion(*segmentState))
         {
-            outcome = completeSegment(event.pathIdentity,
+            outcome = completeSegment(event.executionPathKey,
                                       event.segmentIndex,
                                       event.eventTimeSeconds);
             if (outcome.accepted)
@@ -712,7 +712,7 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
             return outcome;
 
         VehicleExecutionState *vehicleState =
-            findVehicleState(event.pathIdentity, event.segmentIndex,
+            findVehicleState(event.executionPathKey, event.segmentIndex,
                              event.vehicleId);
         if (!vehicleState)
         {
@@ -774,7 +774,7 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
         refreshSegmentState(*pathPlan, *segmentState, *pathState);
         if (segmentReadyForCompletion(*segmentState))
         {
-            outcome = completeSegment(event.pathIdentity,
+            outcome = completeSegment(event.executionPathKey,
                                       event.segmentIndex,
                                       event.eventTimeSeconds);
             if (outcome.accepted)
@@ -793,7 +793,7 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
             return outcome;
 
         VehicleExecutionState *vehicleState =
-            findVehicleState(event.pathIdentity, event.segmentIndex,
+            findVehicleState(event.executionPathKey, event.segmentIndex,
                              event.vehicleId);
         if (!vehicleState)
         {
@@ -835,7 +835,7 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
         refreshSegmentState(*pathPlan, *segmentState, *pathState);
         if (segmentReadyForCompletion(*segmentState))
         {
-            outcome = completeSegment(event.pathIdentity,
+            outcome = completeSegment(event.executionPathKey,
                                       event.segmentIndex,
                                       event.eventTimeSeconds);
             if (outcome.accepted)
@@ -865,22 +865,22 @@ ExecutionEventOutcome PathExecutionCoordinator::applyEvent(
 }
 
 const PathExecutionPlan *PathExecutionCoordinator::findPathPlan(
-    const QString &pathIdentity) const
+    const QString &executionPathKey) const
 {
-    return m_plan.findPath(pathIdentity);
+    return m_plan.findPath(executionPathKey);
 }
 
 PathExecutionState *PathExecutionCoordinator::findPathState(
-    const QString &pathIdentity)
+    const QString &executionPathKey)
 {
-    auto it = m_ledger.pathStates.find(pathIdentity);
+    auto it = m_ledger.pathStates.find(executionPathKey);
     return it == m_ledger.pathStates.end() ? nullptr : &it.value();
 }
 
 SegmentExecutionState *PathExecutionCoordinator::findSegmentState(
-    const QString &pathIdentity, int segmentIndex)
+    const QString &executionPathKey, int segmentIndex)
 {
-    auto it = m_ledger.segmentStates.find(pathIdentity);
+    auto it = m_ledger.segmentStates.find(executionPathKey);
     if (it == m_ledger.segmentStates.end()
         || segmentIndex < 0
         || segmentIndex >= it.value().size())
@@ -891,11 +891,11 @@ SegmentExecutionState *PathExecutionCoordinator::findSegmentState(
 }
 
 VehicleExecutionState *PathExecutionCoordinator::findVehicleState(
-    const QString &pathIdentity, int segmentIndex,
+    const QString &executionPathKey, int segmentIndex,
     const QString &vehicleId)
 {
     SegmentExecutionState *segmentState =
-        findSegmentState(pathIdentity, segmentIndex);
+        findSegmentState(executionPathKey, segmentIndex);
     if (!segmentState || vehicleId.isEmpty())
         return nullptr;
 
@@ -906,9 +906,9 @@ VehicleExecutionState *PathExecutionCoordinator::findVehicleState(
 }
 
 SegmentTimelineWindow *PathExecutionCoordinator::findTimelineWindow(
-    const QString &pathIdentity, int segmentIndex)
+    const QString &executionPathKey, int segmentIndex)
 {
-    auto it = m_ledger.timeline.segmentWindowsByPath.find(pathIdentity);
+    auto it = m_ledger.timeline.segmentWindowsByPath.find(executionPathKey);
     if (it == m_ledger.timeline.segmentWindowsByPath.end()
         || segmentIndex < 0
         || segmentIndex >= it.value().size())
@@ -919,10 +919,10 @@ SegmentTimelineWindow *PathExecutionCoordinator::findTimelineWindow(
 }
 
 ContainerExecutionState *PathExecutionCoordinator::findContainerState(
-    const QString &pathIdentity,
+    const QString &executionPathKey,
     const QString &logicalContainerId)
 {
-    auto it = m_ledger.containerStates.find(pathIdentity);
+    auto it = m_ledger.containerStates.find(executionPathKey);
     if (it == m_ledger.containerStates.end()
         || logicalContainerId.isEmpty())
     {
@@ -1023,9 +1023,9 @@ PathExecutionCoordinator::recomputeDispatchableSegments() const
 
     auto appendIfReady = [&](const PathExecutionPlan &pathPlan) -> bool {
         const auto pathStateIt =
-            m_ledger.pathStates.constFind(pathPlan.pathIdentity);
+            m_ledger.pathStates.constFind(pathPlan.executionPathKey);
         const auto segmentStatesIt =
-            m_ledger.segmentStates.constFind(pathPlan.pathIdentity);
+            m_ledger.segmentStates.constFind(pathPlan.executionPathKey);
         if (pathStateIt == m_ledger.pathStates.constEnd()
             || segmentStatesIt == m_ledger.segmentStates.constEnd())
         {
@@ -1054,7 +1054,7 @@ PathExecutionCoordinator::recomputeDispatchableSegments() const
         }
 
         dispatchable.append(
-            { pathPlan.pathIdentity, segmentIndex });
+            { pathPlan.executionPathKey, segmentIndex });
         return true;
     };
 
@@ -1071,7 +1071,7 @@ PathExecutionCoordinator::recomputeDispatchableSegments() const
 
             const auto pathStateIt =
                 m_ledger.pathStates.constFind(
-                    pathPlan.pathIdentity);
+                    pathPlan.executionPathKey);
             if (pathStateIt == m_ledger.pathStates.constEnd())
                 continue;
 
@@ -1112,7 +1112,7 @@ QString PathExecutionCoordinator::eventKey(
 
     return QStringLiteral("%1|%2|%3|%4|%5|%6|%7")
         .arg(QString::number(static_cast<int>(event.type)),
-             event.pathIdentity,
+             event.executionPathKey,
              QString::number(event.segmentIndex),
              event.vehicleId,
              event.networkName,
@@ -1125,9 +1125,9 @@ ExecutionEventOutcome PathExecutionCoordinator::failPath(
 {
     ExecutionEventOutcome outcome;
 
-    PathExecutionState *pathState = findPathState(event.pathIdentity);
+    PathExecutionState *pathState = findPathState(event.executionPathKey);
     SegmentExecutionState *segmentState =
-        findSegmentState(event.pathIdentity, event.segmentIndex);
+        findSegmentState(event.executionPathKey, event.segmentIndex);
     if (!pathState || !segmentState)
     {
         outcome.errorMessage = QStringLiteral(
@@ -1149,7 +1149,7 @@ ExecutionEventOutcome PathExecutionCoordinator::failPath(
         vehicleState.lifecycle = VehicleLifecycleState::Failed;
         segmentState->vehicleStates.insert(event.vehicleId, vehicleState);
     }
-    failUndeliveredContainers(m_ledger, event.pathIdentity,
+    failUndeliveredContainers(m_ledger, event.executionPathKey,
                               event.terminalId);
 
     m_dispatchableSegments = recomputeDispatchableSegments();
@@ -1160,17 +1160,17 @@ ExecutionEventOutcome PathExecutionCoordinator::failPath(
 }
 
 ExecutionEventOutcome PathExecutionCoordinator::completeSegment(
-    const QString &pathIdentity, int segmentIndex,
+    const QString &executionPathKey, int segmentIndex,
     double eventTimeSeconds)
 {
     ExecutionEventOutcome outcome;
 
-    PathExecutionState *pathState = findPathState(pathIdentity);
+    PathExecutionState *pathState = findPathState(executionPathKey);
     SegmentExecutionState *segmentState =
-        findSegmentState(pathIdentity, segmentIndex);
+        findSegmentState(executionPathKey, segmentIndex);
     SegmentTimelineWindow *timeline =
-        findTimelineWindow(pathIdentity, segmentIndex);
-    const PathExecutionPlan *pathPlan = findPathPlan(pathIdentity);
+        findTimelineWindow(executionPathKey, segmentIndex);
+    const PathExecutionPlan *pathPlan = findPathPlan(executionPathKey);
     if (!pathState || !segmentState || !timeline || !pathPlan)
     {
         outcome.errorMessage = QStringLiteral(

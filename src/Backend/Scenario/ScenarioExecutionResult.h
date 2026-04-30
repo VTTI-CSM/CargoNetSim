@@ -38,7 +38,7 @@ struct SegmentExecutionResult
 struct TerminalExecutionResult
 {
     QString executionId;
-    QString pathIdentity;
+    QString canonicalPathKey;
     QString scenarioTerminalId;
     QString runtimeTerminalId;
     TransportationTypes::TransportationMode arrivalMode =
@@ -69,7 +69,7 @@ struct TerminalExecutionResult
 struct PathExecutionResult
 {
     QString executionId;
-    QString pathIdentity;
+    QString executionPathKey;
     int     pathId = -1;
     QString canonicalPathKey;
     QString pathUid;
@@ -101,11 +101,11 @@ public:
 
     const QList<PathExecutionResult> &pathResults() const;
     void addPathResult(const PathExecutionResult &result);
-    const PathExecutionResult *findByPathIdentity(
-        const QString &pathIdentity) const;
+    const PathExecutionResult *findByExecutionPathKey(
+        const QString &executionPathKey) const;
 
     QList<PathSimulationResult> summaryResults() const;
-    QHash<QString, PathMetrics> actualMetricsByPathIdentity(
+    QHash<QString, PathMetrics> actualMetricsByExecutionPathKey(
         ConfigController *config) const;
 
     QJsonArray toJson() const;

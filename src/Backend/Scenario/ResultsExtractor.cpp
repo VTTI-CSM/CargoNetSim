@@ -81,29 +81,29 @@ loadTerminalExecutionResults(
     CargoNetSim::Backend::TerminalSimulationClient *terminalClient,
     const QVariantMap                              &costWeights,
     const QString                                  &executionId,
-    const QStringList                              &pathIdentities)
+    const QStringList                              &canonicalPathKeys)
 {
-    QHash<QString, QList<TerminalExecutionResult>> byPathIdentity;
+    QHash<QString, QList<TerminalExecutionResult>> byCanonicalPathKey;
     if (!terminalClient || executionId.isEmpty()
-        || pathIdentities.isEmpty())
+        || canonicalPathKeys.isEmpty())
     {
         qCDebug(lcScenario)
             << "ResultsExtractor::loadTerminalExecutionResults:"
             << "skipping fetch"
             << "terminalClient?" << (terminalClient != nullptr)
             << "executionId=" << executionId
-            << "pathIdentityCount=" << pathIdentities.size();
-        return byPathIdentity;
+            << "canonicalPathKeyCount=" << canonicalPathKeys.size();
+        return byCanonicalPathKey;
     }
 
     qCInfo(lcScenario)
         << "ResultsExtractor::loadTerminalExecutionResults:"
         << "fetching terminal execution records"
         << "executionId=" << executionId
-        << "pathIdentityCount=" << pathIdentities.size();
+        << "canonicalPathKeyCount=" << canonicalPathKeys.size();
     const QJsonArray rawResults =
         terminalClient->getTerminalExecutionResults(
-            executionId, {}, pathIdentities);
+            executionId, {}, canonicalPathKeys);
     qCInfo(lcScenario)
         << "ResultsExtractor::loadTerminalExecutionResults:"
         << "received raw terminal execution records="
@@ -122,8 +122,8 @@ loadTerminalExecutionResults(
         qCDebug(lcScenario)
             << "ResultsExtractor::loadTerminalExecutionResults:"
             << "raw terminal execution record"
-            << "path_identity="
-            << rawObject.value(QStringLiteral("path_identity")).toString()
+            << "canonical_path_key="
+            << rawObject.value(QStringLiteral("canonical_path_key")).toString()
             << "scenario_terminal_id="
             << rawObject.value(QStringLiteral("scenario_terminal_id")).toString()
             << "runtime_terminal_id="
@@ -139,6 +139,15 @@ loadTerminalExecutionResults(
 
         auto terminalResult =
             TerminalExecutionResult::fromJson(rawObject);
+        if (terminalResult.canonicalPathKey.isEmpty())
+        {
+            qCWarning(lcScenario)
+                << "ResultsExtractor::loadTerminalExecutionResults:"
+                << "ignoring terminal execution record without canonical_path_key"
+                << "scenario_terminal_id="
+                << terminalResult.scenarioTerminalId;
+            continue;
+        }
         terminalResult.arrivalMode =
             terminalArrivalModeFromJson(
                 terminalResult.rawBatchRecords);
@@ -158,7 +167,7 @@ loadTerminalExecutionResults(
         qCDebug(lcScenario)
             << "ResultsExtractor::loadTerminalExecutionResults:"
             << "decoded terminal execution record"
-            << "path_identity=" << terminalResult.pathIdentity
+            << "canonical_path_key=" << terminalResult.canonicalPathKey
             << "scenario_terminal_id="
             << terminalResult.scenarioTerminalId
             << "runtime_terminal_id="
@@ -173,12 +182,12 @@ loadTerminalExecutionResults(
             << terminalResult.actualTotalHandlingSeconds
             << "directCost="
             << terminalResult.actualDirectCostUsd;
-        byPathIdentity[terminalResult.pathIdentity].append(
+        byCanonicalPathKey[terminalResult.canonicalPathKey].append(
             terminalResult);
     }
 
-    for (auto it = byPathIdentity.begin();
-         it != byPathIdentity.end(); ++it)
+    for (auto it = byCanonicalPathKey.begin();
+         it != byCanonicalPathKey.end(); ++it)
     {
         auto &terminalResults = it.value();
         std::sort(
@@ -196,12 +205,12 @@ loadTerminalExecutionResults(
             });
         qCDebug(lcScenario)
             << "ResultsExtractor::loadTerminalExecutionResults:"
-            << "path_identity=" << it.key()
+            << "canonical_path_key=" << it.key()
             << "sorted_terminal_records="
             << terminalResults.size();
     }
 
-    return byPathIdentity;
+    return byCanonicalPathKey;
 }
 
 } // namespace
@@ -230,7 +239,7 @@ QList<PathSimulationResult> ResultsExtractor::extract(
 
 ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
     const QList<CargoNetSim::Backend::Path *> &paths,
-    const QVector<QString>                    &pathIdentities,
+    const QVector<QString>                    &executionPathKeys,
     const PathAllocation                      *allocation,
     const QString                            &executionId)
 {
@@ -247,27 +256,25 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
         m_config->getCostFunctionWeights();
     const QVariantMap transportModes =
         m_config->getTransportModes();
-    QStringList resolvedPathIdentities;
-    resolvedPathIdentities.reserve(paths.size());
+    QStringList canonicalPathKeys;
+    canonicalPathKeys.reserve(paths.size());
     for (int index = 0; index < paths.size(); ++index)
     {
         auto *path = paths[index];
         if (!path)
             continue;
-        resolvedPathIdentities.append(
-            (index < pathIdentities.size()
-             && !pathIdentities[index].isEmpty())
-            ? pathIdentities[index]
-            : path->canonicalPathKey());
+        const QString canonicalPathKey = path->canonicalPathKey();
+        if (!canonicalPathKey.isEmpty())
+            canonicalPathKeys.append(canonicalPathKey);
     }
-    const auto terminalResultsByPathIdentity =
+    const auto terminalResultsByCanonicalPath =
         loadTerminalExecutionResults(
             m_terminalClient, costWeights, executionId,
-            resolvedPathIdentities);
+            canonicalPathKeys);
     qCInfo(lcScenario)
         << "ResultsExtractor::extractExecutionResults:"
         << "loaded terminal execution buckets="
-        << terminalResultsByPathIdentity.size()
+        << terminalResultsByCanonicalPath.size()
         << "executionId=" << executionId;
 
     emit statusMessage(
@@ -289,28 +296,30 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
             continue;
         }
 
-        const QString pathIdentity =
-            (index < pathIdentities.size()
-             && !pathIdentities[index].isEmpty())
-            ? pathIdentities[index]
+        const QString executionPathKey =
+            (index < executionPathKeys.size()
+             && !executionPathKeys[index].isEmpty())
+            ? executionPathKeys[index]
             : path->canonicalPathKey();
+        const QString canonicalPathKey = path->canonicalPathKey();
         qCInfo(lcScenario)
             << "ResultsExtractor::extractExecutionResults:"
             << "processing path"
             << "pathId=" << path->getPathId()
-            << "pathKey=" << pathIdentity
+            << "executionPathKey=" << executionPathKey
+            << "canonicalPathKey=" << canonicalPathKey
             << "rank=" << path->getRank()
             << "effectiveContainerCount=" << containerCount
             << "segmentCount=" << path->getSegments().size()
             << "terminalResultCount="
-            << terminalResultsByPathIdentity.value(pathIdentity).size();
+            << terminalResultsByCanonicalPath.value(canonicalPathKey).size();
 
         auto result = SegmentCostMath::computePathExecutionResult(
             m_shipClient, m_trainClient, m_truckManager, path,
-            pathIdentity, costWeights, transportModes, containerCount);
+            executionPathKey, costWeights, transportModes, containerCount);
         result.executionId = executionId;
         result.terminalResults =
-            terminalResultsByPathIdentity.value(pathIdentity);
+            terminalResultsByCanonicalPath.value(canonicalPathKey);
         for (const auto &terminalResult : result.terminalResults)
         {
             result.modeledActualTerminalCosts +=

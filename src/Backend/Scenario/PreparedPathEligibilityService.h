@@ -38,7 +38,7 @@ public:
 
     static bool validateSelection(
         const PreparedPathSet     &preparedPaths,
-        const QVector<QString>    &pathIdentities,
+        const QVector<QString>    &executionPathKeys,
         const SimulatorAvailability &availability,
         QString                  *err = nullptr);
 };

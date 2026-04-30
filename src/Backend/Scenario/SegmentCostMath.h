@@ -167,10 +167,11 @@ computePathExecutionResult(
     CargoNetSim::Backend::TrainClient::TrainSimulationClient  *trainClient,
     CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
     CargoNetSim::Backend::Path                                *path,
-    const QString                                             &pathIdentity,
+    const QString                                             &executionPathKey,
     const QVariantMap                                         &costFunctionWeights,
     const QVariantMap                                         &transportModes,
-    int                                                        containerCount);
+    int                                                        containerCount,
+    bool                                                       emitInfoLog = true);
 
 } // namespace SegmentCostMath
 } // namespace Scenario

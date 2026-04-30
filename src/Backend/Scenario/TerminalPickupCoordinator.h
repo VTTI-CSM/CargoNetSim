@@ -24,7 +24,7 @@ class TerminalInventoryGateway;
 struct TerminalPickupRequest
 {
     QString executionId;
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     QString terminalId;
     int     segmentIndex = -1;
@@ -35,7 +35,7 @@ struct TerminalPickupReservationHandle
 {
     QString terminalId;
     QString reservationId;
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     int     segmentIndex = -1;
     int     containerCount = 0;

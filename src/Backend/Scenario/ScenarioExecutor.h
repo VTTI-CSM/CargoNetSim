@@ -56,8 +56,8 @@ public:
     /** @brief Set the per-path Path objects to simulate. Caller-owned. */
     void setPaths(const QList<CargoNetSim::Backend::Path *> &paths);
 
-    /** @brief Set the stable prepared-path identities aligned to setPaths(). */
-    void setPathIdentities(const QVector<QString> &pathIdentities);
+    /** @brief Set the stable execution path keys aligned to setPaths(). */
+    void setExecutionPathKeys(const QVector<QString> &executionPathKeys);
 
     /** @brief Set how selected path demand is assigned for this run. */
     void setDemandPolicy(ExecutionDemandPolicy demandPolicy);
@@ -131,7 +131,7 @@ private:
     const ScenarioDocument             *m_document = nullptr;
     const ScenarioRegistry             *m_registry = nullptr;
     QList<CargoNetSim::Backend::Path *> m_paths;
-    QVector<QString>                    m_pathIdentities;
+    QVector<QString>                    m_executionPathKeys;
     ExecutionDemandPolicy               m_demandPolicy =
         ExecutionDemandPolicy::AllocatedOnly;
     ExecutionIsolationPolicy            m_isolationPolicy =

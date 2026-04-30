@@ -1,6 +1,7 @@
 #include "ExecutionPlanBuilder.h"
 
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Models/Path.h"
 #include "Backend/Models/PathSegment.h"
 #include "NetworkSpec.h"
@@ -237,7 +238,7 @@ ExecutionPlanBuilder::ExecutionPlanBuilder(
 
 ExecutionPlanBuildResult ExecutionPlanBuilder::build(
     const QList<CargoNetSim::Backend::Path *> &paths,
-    const QVector<QString>                    &pathIdentities,
+    const QVector<QString>                    &executionPathKeys,
     const PathAllocation                      &allocation,
     const QString                             &executionId,
     ExecutionDemandPolicy                      demandPolicy) const
@@ -258,24 +259,25 @@ ExecutionPlanBuildResult ExecutionPlanBuilder::build(
         return result;
     }
 
-    if (paths.size() != pathIdentities.size())
+    if (paths.size() != executionPathKeys.size())
     {
         result.errorMessage = QStringLiteral(
-            "Selected path count must match selected path identity count");
+            "Selected path count must match selected execution path key count");
         return result;
     }
 
     QSet<QString> seenIdentities;
+    QSet<QString> seenCanonicalPathKeys;
     ScenarioExecutionPlan plan;
     plan.executionId  = executionId;
     plan.demandPolicy = demandPolicy;
     plan.schedulingPolicy = defaultSchedulingPolicy(demandPolicy);
-    plan.paths.reserve(pathIdentities.size());
+    plan.paths.reserve(executionPathKeys.size());
 
     for (int i = 0; i < paths.size(); ++i)
     {
         auto *path = paths[i];
-        const QString pathIdentity = pathIdentities[i];
+        const QString executionPathKey = executionPathKeys[i];
 
         if (!path)
         {
@@ -283,24 +285,39 @@ ExecutionPlanBuildResult ExecutionPlanBuilder::build(
                 "Selected path at index %1 is null").arg(i);
             return result;
         }
-        if (pathIdentity.isEmpty())
+        if (executionPathKey.isEmpty())
         {
             result.errorMessage = QStringLiteral(
-                "Selected path identity at index %1 is empty").arg(i);
+                "Selected execution path key at index %1 is empty").arg(i);
             return result;
         }
-        if (seenIdentities.contains(pathIdentity))
+        if (seenIdentities.contains(executionPathKey))
         {
             result.errorMessage = QStringLiteral(
-                "Selected path identity %1 appears more than once")
-                                      .arg(pathIdentity);
+                "Selected execution path key %1 appears more than once")
+                                      .arg(executionPathKey);
             return result;
         }
-        seenIdentities.insert(pathIdentity);
+        seenIdentities.insert(executionPathKey);
 
         PathExecutionPlan pathPlan;
-        pathPlan.pathIdentity = pathIdentity;
+        pathPlan.executionPathKey = executionPathKey;
         pathPlan.canonicalPathKey = path->canonicalPathKey();
+        if (pathPlan.canonicalPathKey.isEmpty())
+        {
+            result.errorMessage = QStringLiteral(
+                "Selected path %1 does not have a canonical path key")
+                                      .arg(executionPathKey);
+            return result;
+        }
+        if (seenCanonicalPathKeys.contains(pathPlan.canonicalPathKey))
+        {
+            result.errorMessage = QStringLiteral(
+                "Canonical path key %1 appears more than once in the selected execution set")
+                                      .arg(pathPlan.canonicalPathKey);
+            return result;
+        }
+        seenCanonicalPathKeys.insert(pathPlan.canonicalPathKey);
         pathPlan.pathId = path->getPathId();
         pathPlan.rank = path->getRank();
         pathPlan.pathUid = path->getPathUid();
@@ -308,6 +325,18 @@ ExecutionPlanBuildResult ExecutionPlanBuilder::build(
         pathPlan.destinationId = pathDestinationId(*path);
         pathPlan.effectiveContainerCount =
             allocation.effectiveContainerCountForPath(path);
+        pathPlan.predictedTotalCostUsd = path->getTotalPathCost();
+        pathPlan.predictedEdgeCostUsd = path->getTotalEdgeCosts();
+        pathPlan.predictedTerminalCostUsd =
+            path->getTotalTerminalCosts();
+        pathPlan.predictedDistanceKm =
+            Units::toKilometers(
+                Units::meters(path->totalEstimatedLength()))
+                .value();
+        pathPlan.predictedTravelTimeHours =
+            Units::toHours(
+                Units::seconds(path->totalEstimatedTravelTime()))
+                .value();
 
         const auto segments = path->getSegments();
         if (segments.isEmpty())
@@ -315,7 +344,7 @@ ExecutionPlanBuildResult ExecutionPlanBuilder::build(
             markPlanningFailure(
                 pathPlan,
                 QStringLiteral("Path %1 has no segments")
-                    .arg(pathIdentity));
+                    .arg(executionPathKey));
             plan.paths.append(pathPlan);
             continue;
         }
@@ -330,7 +359,7 @@ ExecutionPlanBuildResult ExecutionPlanBuilder::build(
                 markPlanningFailure(
                     pathPlan,
                     QStringLiteral("Path %1 contains a null segment at index %2")
-                        .arg(pathIdentity)
+                        .arg(executionPathKey)
                         .arg(segmentIndex));
                 pathFailed = true;
                 break;
@@ -346,7 +375,7 @@ ExecutionPlanBuildResult ExecutionPlanBuilder::build(
                         pathPlan,
                         QStringLiteral(
                             "Path %1 segment %2 does not continue from the previous segment")
-                            .arg(pathIdentity)
+                            .arg(executionPathKey)
                             .arg(segmentIndex));
                     pathFailed = true;
                     break;
@@ -367,7 +396,7 @@ ExecutionPlanBuildResult ExecutionPlanBuilder::build(
             SegmentExecutionPlan segmentPlan;
             segmentPlan.segmentIndex = segmentIndex;
             segmentPlan.segmentId = segment->getPathSegmentId();
-            segmentPlan.pathIdentity = pathIdentity;
+            segmentPlan.executionPathKey = executionPathKey;
             segmentPlan.startTerminalId = segment->getStart();
             segmentPlan.endTerminalId = segment->getEnd();
             segmentPlan.regionName =

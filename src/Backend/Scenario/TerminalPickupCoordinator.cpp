@@ -24,7 +24,7 @@ QString reservationIdFor(const TerminalPickupRequest &request)
 {
     const QByteArray material =
         request.executionId.toUtf8() + '\x1f'
-        + request.pathIdentity.toUtf8() + '\x1f'
+        + request.executionPathKey.toUtf8() + '\x1f'
         + request.canonicalPathKey.toUtf8() + '\x1f'
         + request.terminalId.toUtf8() + '\x1f'
         + QByteArray::number(request.segmentIndex);
@@ -113,7 +113,7 @@ bool TerminalPickupCoordinator::seedExecutionInventory(
             {
                 *err = QStringLiteral(
                     "Terminal inventory seed count mismatch for %1: expected %2, got %3")
-                           .arg(pathPlan.pathIdentity)
+                           .arg(pathPlan.executionPathKey)
                            .arg(pathPlan.effectiveContainerCount)
                            .arg(allocatedContainers.size());
             }
@@ -128,7 +128,7 @@ bool TerminalPickupCoordinator::seedExecutionInventory(
             const auto metadata =
                 ExecutionContainers::makeIdentityMetadata(
                     plan.executionId,
-                    pathPlan.pathIdentity,
+                    pathPlan.executionPathKey,
                     pathPlan.canonicalPathKey,
                     *container,
                     /*readySegmentIndex=*/0,
@@ -183,7 +183,8 @@ TerminalPickupBatch TerminalPickupCoordinator::reserveForDispatch(
         return batch;
     }
     if (request.executionId.isEmpty()
-        || request.pathIdentity.isEmpty()
+        || request.executionPathKey.isEmpty()
+        || request.canonicalPathKey.isEmpty()
         || request.terminalId.isEmpty()
         || request.segmentIndex < 0
         || request.containerCount <= 0)
@@ -197,9 +198,8 @@ TerminalPickupBatch TerminalPickupCoordinator::reserveForDispatch(
     const QJsonObject criteria =
         ExecutionContainers::terminalPickupCriteria(
             request.executionId,
-            request.pathIdentity,
-            request.segmentIndex,
             request.canonicalPathKey,
+            request.segmentIndex,
             request.containerCount);
 
     const QJsonObject response = m_gateway->reserveContainers(
@@ -224,7 +224,7 @@ TerminalPickupBatch TerminalPickupCoordinator::reserveForDispatch(
         batch.errorMessage = QStringLiteral(
             "Terminal reservation %1 for %2 segment %3 is not active (state=%4)")
                                  .arg(batch.handle.reservationId,
-                                      request.pathIdentity)
+                                      request.executionPathKey)
                                  .arg(request.segmentIndex)
                                  .arg(response.value(
                                           QStringLiteral("state"))
@@ -297,7 +297,7 @@ bool TerminalPickupCoordinator::commitReservations(
                 *err = QStringLiteral(
                     "Failed to commit terminal pickup reservation %1 for %2 segment %3")
                            .arg(handle.reservationId,
-                                handle.pathIdentity)
+                                handle.executionPathKey)
                            .arg(handle.segmentIndex);
             }
             return false;
@@ -347,7 +347,7 @@ bool TerminalPickupCoordinator::releaseReservations(
                 *err = QStringLiteral(
                     "Failed to release terminal pickup reservation %1 for %2 segment %3")
                            .arg(handle.reservationId,
-                                handle.pathIdentity)
+                                handle.executionPathKey)
                            .arg(handle.segmentIndex);
             }
             return false;
@@ -365,7 +365,7 @@ TerminalPickupReservationHandle TerminalPickupCoordinator::makeHandle(
     TerminalPickupReservationHandle handle;
     handle.terminalId = request.terminalId;
     handle.reservationId = reservationIdFor(request);
-    handle.pathIdentity = request.pathIdentity;
+    handle.executionPathKey = request.executionPathKey;
     handle.canonicalPathKey = request.canonicalPathKey;
     handle.segmentIndex = request.segmentIndex;
     handle.containerCount = request.containerCount;

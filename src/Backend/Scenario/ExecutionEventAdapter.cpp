@@ -47,7 +47,7 @@ bool ExecutionEventAdapter::initialize(
     const ScenarioExecutionPlan &plan, QString *err)
 {
     m_executionId.clear();
-    m_pathIdentityByCanonicalKey.clear();
+    m_executionPathKeyByCanonicalKey.clear();
     m_segmentPlansByLookupKey.clear();
 
     if (plan.executionId.isEmpty())
@@ -62,12 +62,12 @@ bool ExecutionEventAdapter::initialize(
 
     for (const auto &pathPlan : plan.paths)
     {
-        if (pathPlan.pathIdentity.isEmpty())
+        if (pathPlan.executionPathKey.isEmpty())
         {
             if (err)
             {
                 *err = QStringLiteral(
-                    "ExecutionEventAdapter plan contains an empty path identity");
+                    "ExecutionEventAdapter plan contains an empty execution path key");
             }
             return false;
         }
@@ -77,38 +77,38 @@ bool ExecutionEventAdapter::initialize(
             {
                 *err = QStringLiteral(
                     "ExecutionEventAdapter plan contains an empty canonical path key for %1")
-                           .arg(pathPlan.pathIdentity);
+                           .arg(pathPlan.executionPathKey);
             }
             return false;
         }
 
         const auto existingIdentity =
-            m_pathIdentityByCanonicalKey.constFind(
+            m_executionPathKeyByCanonicalKey.constFind(
                 pathPlan.canonicalPathKey);
-        if (existingIdentity != m_pathIdentityByCanonicalKey.constEnd()
-            && existingIdentity.value() != pathPlan.pathIdentity)
+        if (existingIdentity != m_executionPathKeyByCanonicalKey.constEnd()
+            && existingIdentity.value() != pathPlan.executionPathKey)
         {
             if (err)
             {
                 *err = QStringLiteral(
-                    "Canonical path key %1 maps to multiple prepared path identities")
+                    "Canonical path key %1 maps to multiple execution path keys")
                            .arg(pathPlan.canonicalPathKey);
             }
             return false;
         }
-        m_pathIdentityByCanonicalKey.insert(
-            pathPlan.canonicalPathKey, pathPlan.pathIdentity);
+        m_executionPathKeyByCanonicalKey.insert(
+            pathPlan.canonicalPathKey, pathPlan.executionPathKey);
 
         for (const auto &segmentPlan : pathPlan.segments)
         {
-            if (segmentPlan.pathIdentity != pathPlan.pathIdentity)
+            if (segmentPlan.executionPathKey != pathPlan.executionPathKey)
             {
                 if (err)
                 {
                     *err = QStringLiteral(
-                        "Segment plan %1 does not match parent path identity %2")
+                        "Segment plan %1 does not match parent execution path key %2")
                                .arg(segmentPlan.segmentId,
-                                    pathPlan.pathIdentity);
+                                    pathPlan.executionPathKey);
                 }
                 return false;
             }
@@ -239,7 +239,7 @@ bool ExecutionEventAdapter::buildDispatchEvent(
     ExecutionEvent dispatchEvent;
     dispatchEvent.type =
         ExecutionEventType::SegmentVehicleDispatched;
-    dispatchEvent.pathIdentity = target.pathIdentity;
+    dispatchEvent.executionPathKey = target.executionPathKey;
     dispatchEvent.segmentIndex = target.segmentIndex;
     dispatchEvent.vehicleId    = vehicleId;
     dispatchEvent.networkName =
@@ -506,9 +506,9 @@ bool ExecutionEventAdapter::resolveCanonicalSegmentTarget(
         return false;
     }
 
-    const auto pathIdentityIt =
-        m_pathIdentityByCanonicalKey.constFind(canonicalPathKey);
-    if (pathIdentityIt == m_pathIdentityByCanonicalKey.constEnd())
+    const auto executionPathKeyIt =
+        m_executionPathKeyByCanonicalKey.constFind(canonicalPathKey);
+    if (executionPathKeyIt == m_executionPathKeyByCanonicalKey.constEnd())
     {
         if (err)
         {
@@ -534,7 +534,7 @@ bool ExecutionEventAdapter::resolveCanonicalSegmentTarget(
     }
 
     target->canonicalPathKey = canonicalPathKey;
-    target->pathIdentity     = pathIdentityIt.value();
+    target->executionPathKey     = executionPathKeyIt.value();
     target->networkName      = segmentIt.value().networkName;
     target->startTerminalId  = segmentIt.value().startTerminalId;
     target->endTerminalId    = segmentIt.value().endTerminalId;
@@ -553,7 +553,7 @@ void ExecutionEventAdapter::emitArrivalEvent(
 {
     ExecutionEvent event;
     event.type = ExecutionEventType::SegmentVehicleArrived;
-    event.pathIdentity = target.pathIdentity;
+    event.executionPathKey = target.executionPathKey;
     event.segmentIndex = target.segmentIndex;
     event.vehicleId    = vehicleId;
     event.networkName =
@@ -573,7 +573,7 @@ void ExecutionEventAdapter::emitUnloadEvent(
     ExecutionEvent unloadEvent;
     unloadEvent.type =
         ExecutionEventType::SegmentUnloadSucceeded;
-    unloadEvent.pathIdentity = target.pathIdentity;
+    unloadEvent.executionPathKey = target.executionPathKey;
     unloadEvent.segmentIndex = target.segmentIndex;
     unloadEvent.vehicleId    = vehicleId;
     unloadEvent.networkName =
@@ -597,7 +597,7 @@ void ExecutionEventAdapter::emitUnloadFailedEvent(
     ExecutionEvent unloadEvent;
     unloadEvent.type =
         ExecutionEventType::SegmentUnloadFailed;
-    unloadEvent.pathIdentity = target.pathIdentity;
+    unloadEvent.executionPathKey = target.executionPathKey;
     unloadEvent.segmentIndex = target.segmentIndex;
     unloadEvent.vehicleId    = vehicleId;
     unloadEvent.networkName =
@@ -623,7 +623,7 @@ void ExecutionEventAdapter::emitTerminalEvent(
     handoffEvent.type = handoffSucceeded
         ? ExecutionEventType::TerminalHandoffSucceeded
         : ExecutionEventType::TerminalHandoffFailed;
-    handoffEvent.pathIdentity = target.pathIdentity;
+    handoffEvent.executionPathKey = target.executionPathKey;
     handoffEvent.segmentIndex = target.segmentIndex;
     handoffEvent.vehicleId    = vehicleId;
     handoffEvent.networkName =

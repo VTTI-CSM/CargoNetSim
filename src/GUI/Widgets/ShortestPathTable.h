@@ -117,7 +117,7 @@ class ShortestPathsTable : public QWidget
 {
     Q_OBJECT
 public:
-    using PathIdentity = QString;
+    using ExecutionPathKey = QString;
     using PathData = Backend::Application::PathPresentationRecord;
 
     /**
@@ -152,28 +152,28 @@ public:
     /// Plan 8.2: additive signature extension. Existing callers that
     /// pass only the path list continue to work (maps default to empty).
     /// When non-empty, predicted/actual metric columns populate per
-    /// canonical path identity.
+    /// execution path key.
     void addPaths(
         const QList<Backend::Path *> &paths,
-        const QHash<PathIdentity, Backend::Scenario::PathMetrics> &predicted = {},
-        const QHash<PathIdentity, Backend::Scenario::PathMetrics> &actual    = {});
+        const QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> &predicted = {},
+        const QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> &actual    = {});
 
     /// A2: consume backend-owned prepared paths directly without
     /// transferring raw-path ownership into the GUI layer.
     void setPreparedPaths(
         const Backend::Scenario::PreparedPathSet                  &prepared,
-        const QHash<PathIdentity, Backend::Scenario::PathMetrics> &actual = {},
-        const QHash<PathIdentity, Backend::Scenario::PreparedPathEligibility>
+        const QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> &actual = {},
+        const QHash<ExecutionPathKey, Backend::Scenario::PreparedPathEligibility>
             &eligibility = {});
 
     /// Update backend-produced per-path eligibility for existing rows.
     void setPathEligibility(
-        const QHash<PathIdentity, Backend::Scenario::PreparedPathEligibility>
+        const QHash<ExecutionPathKey, Backend::Scenario::PreparedPathEligibility>
             &eligibility);
 
-    /// Post-run update. Calls refreshRow for each path identity present.
+    /// Post-run update. Calls refreshRow for each execution path key present.
     void setActualMetrics(
-        const QHash<PathIdentity, Backend::Scenario::PathMetrics> &actual);
+        const QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> &actual);
 
     /// Store the backend-owned typed execution results for comparison/export.
     void setExecutionResults(
@@ -195,7 +195,7 @@ public:
     /**
      * @brief Updates the prediction costs for an existing
      * path
-     * @param pathKey Stable backend-derived path identity
+     * @param pathKey Stable backend-derived execution path key
      * @param totalCost New predicted total cost (default:
      * -1.0 to not update)
      * @param edgeCost New predicted edge cost (default:
@@ -208,7 +208,7 @@ public:
      * set to -1.0 indicate that the corresponding cost
      * should not be updated.
      */
-    void updatePredictionCosts(const PathIdentity &pathKey,
+    void updatePredictionCosts(const ExecutionPathKey &pathKey,
                                double totalCost    = -1.0,
                                double edgeCost     = -1.0,
                                double terminalCost = -1.0);
@@ -216,7 +216,7 @@ public:
     /**
      * @brief Updates the simulation costs for an existing
      * path
-     * @param pathKey Stable backend-derived path identity
+     * @param pathKey Stable backend-derived execution path key
      * @param simulationTotalCost New simulation total cost
      * (default: -1.0 to not update)
      * @param simulationEdgeCost New simulation edge cost
@@ -230,23 +230,23 @@ public:
      * be updated.
      */
     void updateSimulationCosts(
-        const PathIdentity &pathKey,
+        const ExecutionPathKey &pathKey,
         double simulationTotalCost = -1.0,
         double simulationEdgeCost     = -1.0,
         double simulationTerminalCost = -1.0);
 
     /**
-     * @brief Retrieves path data for a specific path identity
-     * @param pathKey Stable backend-derived path identity
+     * @brief Retrieves path data for a specific execution path key
+     * @param pathKey Stable backend-derived execution path key
      * @return Pointer to the path data or nullptr if not
      * found
      *
      * Provides access to the PathData object for a specific
-     * path identity, allowing inspection of both prediction and
+     * execution path key, allowing inspection of both prediction and
      * simulation costs.
      */
     const PathData *getDataByPathKey(
-        const PathIdentity &pathKey) const;
+        const ExecutionPathKey &pathKey) const;
 
     /**
      * @brief Gets all checked path entries
@@ -257,23 +257,23 @@ public:
     getCheckedPathData() const;
 
     /**
-     * @brief Gets the currently selected path identity
-     * @return The selected path identity or an empty string if none selected
+     * @brief Gets the currently selected execution path key
+     * @return The selected execution path key or an empty string if none selected
      *
      * Returns the stable identity of the path that is
      * currently selected in the table, or an empty string
      * if no path is selected.
      */
-    PathIdentity getSelectedPathKey() const;
+    ExecutionPathKey getSelectedPathKey() const;
 
     /**
-     * @brief Gets all path identities that are currently checked
-     * @return Vector of checked path identities
+     * @brief Gets all execution path keys that are currently checked
+     * @return Vector of checked execution path keys
      *
      * Returns a vector containing the identities of all paths that
      * have their checkbox checked in the table.
      */
-    QVector<PathIdentity> getCheckedPathKeys() const;
+    QVector<ExecutionPathKey> getCheckedPathKeys() const;
 
     /**
      * @brief Clears all data from the table
@@ -292,56 +292,56 @@ signals:
     /**
      * @brief Signal emitted when a path is selected in the
      * table
-     * @param pathKey Stable backend-derived path identity
+     * @param pathKey Stable backend-derived execution path key
      *
      * Notifies listeners that the user has selected a
      * different path in the table.
      */
-    void pathSelected(const PathIdentity &pathKey);
+    void pathSelected(const ExecutionPathKey &pathKey);
 
     /**
      * @brief Signal emitted when the show path button is
      * clicked
-     * @param pathKey Stable backend-derived path identity
+     * @param pathKey Stable backend-derived execution path key
      *
      * Notifies listeners that the user has requested to
      * visualize a specific path on the map or in another
      * view.
      */
-    void showPathSignal(const PathIdentity &pathKey);
+    void showPathSignal(const ExecutionPathKey &pathKey);
 
     /**
      * @brief Signal emitted when a path checkbox state
      * changes
-     * @param pathKey Stable backend-derived path identity
+     * @param pathKey Stable backend-derived execution path key
      * @param checked New checkbox state (true = checked,
      * false = unchecked)
      *
      * Notifies listeners that the user has changed the
      * checked state of a path in the table.
      */
-    void checkboxChanged(const PathIdentity &pathKey,
+    void checkboxChanged(const ExecutionPathKey &pathKey,
                          bool                checked);
 
     /**
      * @brief Signal emitted when path comparison is
      * requested
-     * @param pathKeys Vector of path identities to compare
+     * @param pathKeys Vector of execution path keys to compare
      *
      * Notifies listeners that the user has requested a
      * comparison of the specified paths.
      */
     void pathComparisonRequested(
-        const QVector<PathIdentity> &pathKeys);
+        const QVector<ExecutionPathKey> &pathKeys);
 
     /**
      * @brief Signal emitted when path export is requested
-     * @param pathKey Stable backend-derived path identity
+     * @param pathKey Stable backend-derived execution path key
      *
      * Notifies listeners that the user has requested to
      * export data for a specific path.
      */
-    void pathExportRequested(const PathIdentity &pathKey);
+    void pathExportRequested(const ExecutionPathKey &pathKey);
 
     /**
      * @brief Signal emitted when export of all paths is
@@ -409,7 +409,7 @@ private slots:
      * @param pathKeys Identities of the paths to export
      */
     void exportPathsToPdf(
-        const QVector<PathIdentity> &pathKeys);
+        const QVector<ExecutionPathKey> &pathKeys);
 
 private:
     class PathScrollEventFilter : public QObject
@@ -495,7 +495,7 @@ private:
     /**
      * @brief Creates a widget containing the terminal path
      * visualization
-     * @param pathKey Stable backend-derived path identity
+     * @param pathKey Stable backend-derived execution path key
      * @param pathData The PathData object containing path
      * details
      * @return A widget representing the path with terminals
@@ -505,7 +505,7 @@ private:
      * including terminals, transportation modes, and a
      * button to show the path on a map.
      */
-    QWidget *createPathRow(const PathIdentity &pathKey,
+    QWidget *createPathRow(const ExecutionPathKey &pathKey,
                            const PathData     *pathData);
 
     /**
@@ -523,7 +523,7 @@ private:
 
     // Function to handle the showPath signal and flash path
     // map lines
-    void flashPathMapLines(const PathIdentity &pathKey);
+    void flashPathMapLines(const ExecutionPathKey &pathKey);
 
     void createSelectionPanel();
 
@@ -538,14 +538,14 @@ private:
     QLabel       *m_availabilityBanner = nullptr;
 
     /**
-     * @brief Storage for path data indexed by stable path identity
+     * @brief Storage for path data indexed by stable execution path key
      *
-     * Maps path identities to their corresponding PathData
+     * Maps execution path keys to their corresponding PathData
      * objects, allowing efficient lookup and update
      * operations.
      */
-    QMap<PathIdentity, PathData *> m_pathData;
-    QVector<PathIdentity>          m_displayOrder;
+    QMap<ExecutionPathKey, PathData *> m_pathData;
+    QVector<ExecutionPathKey>          m_displayOrder;
 
     /**
      * @brief Button to compare selected paths
@@ -578,18 +578,18 @@ private:
     PathScrollEventFilter *m_scrollEventFilter;
 
     /// Plan 8.2/A2: per-path predicted/actual metrics and row mapping
-    /// keyed by canonical backend path identity rather than local path_id.
-    QHash<PathIdentity, Backend::Scenario::PathMetrics> m_predicted;
-    QHash<PathIdentity, Backend::Scenario::PathMetrics> m_actual;
-    QHash<PathIdentity, Backend::Scenario::PathProgressSnapshot>
+    /// keyed by backend execution path key rather than local path_id.
+    QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> m_predicted;
+    QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> m_actual;
+    QHash<ExecutionPathKey, Backend::Scenario::PathProgressSnapshot>
         m_progressByPathKey;
-    QHash<PathIdentity /*pathKey*/, int /*row*/>        m_rowByPathKey;
+    QHash<ExecutionPathKey /*pathKey*/, int /*row*/>        m_rowByPathKey;
 
-    PathIdentity appendPathRecord(PathData record);
+    ExecutionPathKey appendPathRecord(PathData record);
 
     /// Plan 8.2/A2: rewrite metric columns for a given canonical path.
-    void refreshRow(const PathIdentity &pathKey);
-    void refreshProgressCell(const PathIdentity &pathKey);
+    void refreshRow(const ExecutionPathKey &pathKey);
+    void refreshProgressCell(const ExecutionPathKey &pathKey);
 };
 
 } // namespace GUI

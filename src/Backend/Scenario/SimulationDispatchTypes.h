@@ -48,7 +48,7 @@ struct VehicleLoadManifest
 
 struct VehicleDispatchAssignment
 {
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     int     pathId = -1;
     int     segmentIndex = -1;

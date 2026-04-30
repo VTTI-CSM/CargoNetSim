@@ -16,7 +16,7 @@ namespace Scenario
 struct ExecutionContainerMetadata
 {
     QString executionId;
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     QString sourceContainerId;
     QString executionContainerId;
@@ -33,7 +33,6 @@ namespace ExecutionContainerKeys
 {
 
 QString executionId();
-QString pathIdentity();
 QString canonicalPathKey();
 QString sourceContainerId();
 QString executionContainerId();
@@ -52,7 +51,7 @@ namespace ExecutionContainers
 
 QString makeExecutionContainerId(
     const QString &executionId,
-    const QString &pathIdentity,
+    const QString &executionPathKey,
     const QString &sourceContainerId);
 
 QString customVariableString(
@@ -67,7 +66,7 @@ QString logicalContainerIdFor(
 
 ExecutionContainerMetadata makeIdentityMetadata(
     const QString                  &executionId,
-    const QString                  &pathIdentity,
+    const QString                  &executionPathKey,
     const QString                  &canonicalPathKey,
     const ContainerCore::Container &sourceContainer,
     int                             readySegmentIndex,
@@ -101,9 +100,8 @@ QJsonObject customVariableFilter(
 
 QJsonObject terminalPickupCriteria(
     const QString &executionId,
-    const QString &pathIdentity,
+    const QString &canonicalPathKey,
     int            readySegmentIndex,
-    const QString &canonicalPathKey = QString(),
     int            limit = -1);
 
 } // namespace ExecutionContainers

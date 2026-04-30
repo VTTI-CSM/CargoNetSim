@@ -302,14 +302,14 @@ QJsonObject buildPathSnapshotJson(const Backend::Path &path)
     return pathJson;
 }
 
-QString snapshotPathIdentity(const QJsonObject &snapshot,
+QString snapshotExecutionPathKey(const QJsonObject &snapshot,
                              const Backend::Path &path)
 {
-    const QString pathIdentity =
-        snapshot.value(QStringLiteral("path_identity"))
+    const QString executionPathKey =
+        snapshot.value(QStringLiteral("execution_path_key"))
             .toString();
-    if (!pathIdentity.isEmpty())
-        return pathIdentity;
+    if (!executionPathKey.isEmpty())
+        return executionPathKey;
 
     const QString topLevelKey =
         snapshot.value(QStringLiteral("canonical_path_key"))
@@ -330,7 +330,7 @@ QString snapshotPathIdentity(const QJsonObject &snapshot,
         .arg(path.getPathId());
 }
 
-QString basePathIdentity(const Backend::Path &path)
+QString baseExecutionPathKey(const Backend::Path &path)
 {
     const QString canonicalKey = path.canonicalPathKey();
     if (!canonicalKey.isEmpty())
@@ -533,12 +533,12 @@ PathPresentationService::recordsFromRawPaths(
 
         PathPresentationRecord record;
         record.path = std::shared_ptr<Backend::Path>(path);
-        record.pathIdentity = basePathIdentity(*path);
-        record.pathKey = record.pathIdentity;
+        record.executionPathKey = baseExecutionPathKey(*path);
+        record.pathKey = record.executionPathKey;
         record.predictedMetrics =
-            predicted.value(record.pathIdentity);
+            predicted.value(record.executionPathKey);
         record.actualMetrics =
-            actual.value(record.pathIdentity);
+            actual.value(record.executionPathKey);
         records.append(std::move(record));
     }
 
@@ -562,17 +562,17 @@ PathPresentationService::recordsFromPreparedPaths(
 
         PathPresentationRecord record;
         record.path = preparedRecord.path;
-        record.pathIdentity =
-            preparedRecord.pathIdentity.isEmpty()
-                ? basePathIdentity(*preparedRecord.path)
-                : preparedRecord.pathIdentity;
-        record.pathKey = record.pathIdentity;
+        record.executionPathKey =
+            preparedRecord.executionPathKey.isEmpty()
+                ? baseExecutionPathKey(*preparedRecord.path)
+                : preparedRecord.executionPathKey;
+        record.pathKey = record.executionPathKey;
         record.eligibility =
-            eligibility.value(preparedRecord.pathIdentity,
+            eligibility.value(preparedRecord.executionPathKey,
                               Scenario::PreparedPathEligibility{});
         record.predictedMetrics = preparedRecord.predictedMetrics;
         record.actualMetrics =
-            actual.value(preparedRecord.pathIdentity);
+            actual.value(preparedRecord.executionPathKey);
         records.append(std::move(record));
     }
 
@@ -616,9 +616,9 @@ QList<QJsonObject> PathPresentationService::buildComparisonSnapshots(
             continue;
 
         QJsonObject snapshot;
-        snapshot[QStringLiteral("schema_version")] = 2;
-        snapshot[QStringLiteral("path_identity")] =
-            record.pathIdentity;
+        snapshot[QStringLiteral("schema_version")] = 3;
+        snapshot[QStringLiteral("execution_path_key")] =
+            record.executionPathKey;
         snapshot[QStringLiteral("canonical_path_key")] =
             record.path->canonicalPathKey();
         snapshot[QStringLiteral("path_uid")] =
@@ -720,9 +720,9 @@ PathPresentationService::loadComparisonSnapshots(
         PathPresentationRecord record;
         record.path =
             std::shared_ptr<Backend::Path>(path);
-        record.pathIdentity =
-            snapshotPathIdentity(snapshot, *path);
-        record.pathKey = record.pathIdentity;
+        record.executionPathKey =
+            snapshotExecutionPathKey(snapshot, *path);
+        record.pathKey = record.executionPathKey;
         record.predictedMetrics = metricsFromJson(
             snapshot.value(QStringLiteral("predicted_metrics"))
                 .toObject());

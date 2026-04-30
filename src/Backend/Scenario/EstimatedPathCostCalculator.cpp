@@ -39,6 +39,39 @@ int capacityForMode(const QVariantMap &transportModes, Mode mode)
                     .toInt());
 }
 
+QVariantMap propertiesForMode(const QVariantMap &transportModes, Mode mode)
+{
+    return transportModes.value(transportationModeToString(mode))
+        .toMap();
+}
+
+double fuelRateForMode(const QVariantMap &transportModes, Mode mode)
+{
+    return propertiesForMode(transportModes, mode)
+        .value(PK::Mode::AverageFuelConsumption, 0.0)
+        .toDouble();
+}
+
+QString fuelTypeForMode(const QVariantMap &transportModes, Mode mode)
+{
+    return propertiesForMode(transportModes, mode)
+        .value(PK::Mode::FuelType)
+        .toString();
+}
+
+void mergeFuelType(PathMetrics &metrics, const QString &fuelType)
+{
+    if (fuelType.isEmpty())
+        return;
+    if (metrics.fuelType.isEmpty())
+    {
+        metrics.fuelType = fuelType;
+        return;
+    }
+    if (metrics.fuelType != fuelType)
+        metrics.fuelType = QStringLiteral("mixed");
+}
+
 int vehiclesNeeded(int containerCount, int capacity)
 {
     if (containerCount <= 0)
@@ -142,9 +175,10 @@ EstimatedPathCost compute(const Path &path,
         if (metrics.available)
         {
             out.metrics.valid = true;
-            out.metrics.distanceKm +=
+            const double distanceKm =
                 Units::toKilometers(
                     Units::meters(metrics.distance)).value();
+            out.metrics.distanceKm += distanceKm;
             out.metrics.travelTimeHours +=
                 Units::toHours(
                     Units::seconds(metrics.travelTime)).value();
@@ -160,6 +194,16 @@ EstimatedPathCost compute(const Path &path,
                 vehiclesNeeded(containerCount, capacity);
             const double share =
                 loadShare(containerCount, vehicleCount, capacity);
+            const double segmentFuelPerVehicle =
+                fuelRateForMode(transportModes, segment->getMode())
+                * distanceKm;
+            const double segmentFuelTotal =
+                segmentFuelPerVehicle * vehicleCount;
+            out.metrics.fuelPerVehicle += segmentFuelPerVehicle;
+            out.metrics.fuelPerContainer += segmentFuelTotal;
+            mergeFuelType(out.metrics,
+                          fuelTypeForMode(transportModes,
+                                          segment->getMode()));
             out.metrics.energyPerContainer +=
                 metrics.energyConsumption * share;
             out.metrics.carbonPerContainer +=
@@ -202,6 +246,8 @@ EstimatedPathCost compute(const Path &path,
     out.metrics.containerCount = qMax(0, containerCount);
     if (out.metrics.containerCount > 0)
     {
+        out.metrics.fuelPerContainer /=
+            out.metrics.containerCount;
         out.metrics.energyPerContainer /=
             out.metrics.containerCount;
         out.metrics.carbonPerContainer /=

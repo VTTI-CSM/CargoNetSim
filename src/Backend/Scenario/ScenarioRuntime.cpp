@@ -149,7 +149,7 @@ bool ScenarioRuntime::setSelectedPathKeys(
     {
         if (pathKey.isEmpty() || seen.contains(pathKey))
             continue;
-        if (!m_preparedPaths.containsPathIdentity(pathKey))
+        if (!m_preparedPaths.containsExecutionPathKey(pathKey))
         {
             missing.append(pathKey);
             continue;
@@ -163,7 +163,7 @@ bool ScenarioRuntime::setSelectedPathKeys(
         if (err)
         {
             *err = QStringLiteral(
-                       "Unknown prepared path identity: %1")
+                      "Unknown execution path key: %1")
                        .arg(missing.join(QStringLiteral(", ")));
         }
         return false;
@@ -221,7 +221,7 @@ bool ScenarioRuntime::startSimulation()
     m_executor->setDocument(m_document.get());
     m_executor->setRegistry(&m_registry);
     m_executor->setPaths(m_paths);
-    m_executor->setPathIdentities(m_selectedPathKeys);
+    m_executor->setExecutionPathKeys(m_selectedPathKeys);
     m_executor->setDemandPolicy(m_demandPolicy);
     m_executor->setIsolationPolicy(
         m_demandPolicy
@@ -394,7 +394,7 @@ QHash<QString, PathMetrics> ScenarioRuntime::actualPathMetrics() const
 {
     auto &controller =
         CargoNetSim::CargoNetSimController::getInstance();
-    return m_lastExecutionResults.actualMetricsByPathIdentity(
+    return m_lastExecutionResults.actualMetricsByExecutionPathKey(
         controller.getConfigController());
 }
 

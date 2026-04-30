@@ -41,7 +41,7 @@ QList<CargoNetSim::Backend::Path *> rawPreparedRecordPaths(
     return paths;
 }
 
-QString basePreparedPathIdentity(
+QString basePreparedExecutionPathKey(
     const CargoNetSim::Backend::Path &path)
 {
     const QString canonicalPathKey = path.canonicalPathKey();
@@ -52,7 +52,7 @@ QString basePreparedPathIdentity(
         .arg(path.getPathId());
 }
 
-QString makeUniquePreparedPathIdentity(
+QString makeUniquePreparedExecutionPathKey(
     const QString &baseIdentity,
     const QHash<QString, std::shared_ptr<CargoNetSim::Backend::Path>>
         &existing)
@@ -146,22 +146,22 @@ const std::vector<PreparedPathRecord> &PreparedPathSet::records() const
     return m_records;
 }
 
-QVector<QString> PreparedPathSet::pathIdentities() const
+QVector<QString> PreparedPathSet::executionPathKeys() const
 {
     QVector<QString> identities;
     identities.reserve(static_cast<qsizetype>(m_records.size()));
     for (const auto &record : m_records)
     {
-        if (!record.pathIdentity.isEmpty())
-            identities.append(record.pathIdentity);
+        if (!record.executionPathKey.isEmpty())
+            identities.append(record.executionPathKey);
     }
     return identities;
 }
 
-bool PreparedPathSet::containsPathIdentity(
-    const QString &pathIdentity) const
+bool PreparedPathSet::containsExecutionPathKey(
+    const QString &executionPathKey) const
 {
-    return m_pathsByPathIdentity.contains(pathIdentity);
+    return m_pathsByExecutionPathKey.contains(executionPathKey);
 }
 
 QList<CargoNetSim::Backend::Path *> PreparedPathSet::rawPaths() const
@@ -170,13 +170,13 @@ QList<CargoNetSim::Backend::Path *> PreparedPathSet::rawPaths() const
 }
 
 QList<CargoNetSim::Backend::Path *> PreparedPathSet::rawPaths(
-    const QVector<QString> &pathIdentities) const
+    const QVector<QString> &executionPathKeys) const
 {
     QList<CargoNetSim::Backend::Path *> selected;
-    selected.reserve(pathIdentities.size());
-    for (const auto &pathIdentity : pathIdentities)
+    selected.reserve(executionPathKeys.size());
+    for (const auto &executionPathKey : executionPathKeys)
     {
-        const auto path = m_pathsByPathIdentity.value(pathIdentity);
+        const auto path = m_pathsByExecutionPathKey.value(executionPathKey);
         if (path)
             selected.append(path.get());
     }
@@ -184,9 +184,9 @@ QList<CargoNetSim::Backend::Path *> PreparedPathSet::rawPaths(
 }
 
 const QHash<QString, PathMetrics> &
-PreparedPathSet::predictedMetricsByPathIdentity() const
+PreparedPathSet::predictedMetricsByExecutionPathKey() const
 {
-    return m_predictedByPathIdentity;
+    return m_predictedByExecutionPathKey;
 }
 
 const QHash<QString, PathMetrics> &
@@ -196,9 +196,9 @@ PreparedPathSet::predictedMetricsByCanonicalPath() const
 }
 
 const QHash<QString, PathKey> &
-PreparedPathSet::pathKeysByPathIdentity() const
+PreparedPathSet::pathKeysByExecutionPathKey() const
 {
-    return m_pathKeysByPathIdentity;
+    return m_pathKeysByExecutionPathKey;
 }
 
 const QHash<QString, PathKey> &
@@ -227,10 +227,10 @@ PreparedPathSet PathPreparationService::prepareDiscoveredPaths(
         record.canonicalPathKey = path->canonicalPathKey();
         record.requirements =
             PreparedPathEligibilityService::requirementsFor(*path);
-        record.pathIdentity = makeUniquePreparedPathIdentity(
-            basePreparedPathIdentity(*path),
-            prepared.m_pathsByPathIdentity);
-        prepared.m_pathsByPathIdentity.insert(record.pathIdentity,
+        record.executionPathKey = makeUniquePreparedExecutionPathKey(
+            basePreparedExecutionPathKey(*path),
+            prepared.m_pathsByExecutionPathKey);
+        prepared.m_pathsByExecutionPathKey.insert(record.executionPathKey,
                                               record.path);
         prepared.m_records.push_back(std::move(record));
     }
@@ -257,8 +257,8 @@ PreparedPathSet PathPreparationService::prepareDiscoveredPaths(
             allocation.effectiveContainerCountForPath(path));
 
         const auto key = pathKeyFor(*path);
-        prepared.m_pathKeysByPathIdentity.insert(
-            record.pathIdentity, key);
+        prepared.m_pathKeysByExecutionPathKey.insert(
+            record.executionPathKey, key);
         if (!record.canonicalPathKey.isEmpty())
         {
             if (prepared.m_pathKeysByCanonicalPath.contains(
@@ -304,8 +304,8 @@ PreparedPathSet PathPreparationService::prepareDiscoveredPaths(
                 previewVehicleBreakdownForPath(
                     *path, *config, previewContainerCount);
         }
-        prepared.m_predictedByPathIdentity.insert(
-            record.pathIdentity, record.predictedMetrics);
+        prepared.m_predictedByExecutionPathKey.insert(
+            record.executionPathKey, record.predictedMetrics);
         if (!record.canonicalPathKey.isEmpty())
         {
             if (prepared.m_predictedByCanonicalPath.contains(

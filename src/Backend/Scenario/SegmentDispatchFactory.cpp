@@ -35,7 +35,7 @@ QString summarizeContainerIds(
 struct TerminalHandlingMetadata
 {
     QString executionId;
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     QString scenarioTerminalId;
     QString runtimeTerminalId;
@@ -88,10 +88,7 @@ VehicleContainerSelection takeContainersForVehicle(
                 orig->getContainerID()));
         ExecutionContainerMetadata executionMetadata;
         executionMetadata.executionId = metadata.executionId;
-        executionMetadata.pathIdentity =
-            metadata.pathIdentity.isEmpty()
-                ? metadata.canonicalPathKey
-                : metadata.pathIdentity;
+        executionMetadata.executionPathKey = metadata.executionPathKey;
         executionMetadata.canonicalPathKey = metadata.canonicalPathKey;
         executionMetadata.sourceContainerId =
             ExecutionContainers::sourceContainerIdFor(*orig);
@@ -142,6 +139,11 @@ bool SegmentDispatchFactory::appendTrainSegment(
     if (request.canonicalPathKey.isEmpty())
     {
         if (err) *err = QStringLiteral("Train segment dispatch requires a canonical path key");
+        return false;
+    }
+    if (request.executionPathKey.isEmpty())
+    {
+        if (err) *err = QStringLiteral("Train segment dispatch requires an execution path key");
         return false;
     }
     if (!request.network)
@@ -206,7 +208,7 @@ bool SegmentDispatchFactory::appendTrainSegment(
         td.train = train;
         const TerminalHandlingMetadata metadata{
             m_executionId,
-            request.pathIdentity,
+            request.executionPathKey,
             request.canonicalPathKey,
             request.endTerminalId,
             QString(),
@@ -266,6 +268,11 @@ bool SegmentDispatchFactory::appendTruckSegment(
         if (err) *err = QStringLiteral("Truck segment dispatch requires a canonical path key");
         return false;
     }
+    if (request.executionPathKey.isEmpty())
+    {
+        if (err) *err = QStringLiteral("Truck segment dispatch requires an execution path key");
+        return false;
+    }
     if (!request.network)
     {
         if (err) *err = QStringLiteral("Truck segment dispatch requires a resolved truck network");
@@ -306,7 +313,7 @@ bool SegmentDispatchFactory::appendTruckSegment(
         td.destinationNode = request.runtimeEndNodeId;
         const TerminalHandlingMetadata metadata{
             m_executionId,
-            request.pathIdentity,
+            request.executionPathKey,
             request.canonicalPathKey,
             request.endTerminalId,
             QString(),
@@ -369,6 +376,11 @@ bool SegmentDispatchFactory::appendShipSegment(
         if (err) *err = QStringLiteral("Ship segment dispatch requires a canonical path key");
         return false;
     }
+    if (request.executionPathKey.isEmpty())
+    {
+        if (err) *err = QStringLiteral("Ship segment dispatch requires an execution path key");
+        return false;
+    }
     if (!m_vehicles)
     {
         if (err) *err = QStringLiteral("Ship segment dispatch requires a vehicle controller");
@@ -424,7 +436,7 @@ bool SegmentDispatchFactory::appendShipSegment(
         sd.destinationTerminal = request.endTerminalId;
         const TerminalHandlingMetadata metadata{
             m_executionId,
-            request.pathIdentity,
+            request.executionPathKey,
             request.canonicalPathKey,
             request.endTerminalId,
             QString(),

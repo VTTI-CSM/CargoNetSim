@@ -181,7 +181,7 @@ QJsonObject TerminalExecutionResult::toJson() const
 {
     QJsonObject json;
     json[QStringLiteral("execution_id")] = executionId;
-    json[QStringLiteral("path_identity")] = pathIdentity;
+    json[QStringLiteral("canonical_path_key")] = canonicalPathKey;
     json[QStringLiteral("scenario_terminal_id")] =
         scenarioTerminalId;
     json[QStringLiteral("runtime_terminal_id")] =
@@ -227,8 +227,8 @@ TerminalExecutionResult TerminalExecutionResult::fromJson(
 {
     qCDebug(lcScenario)
         << "TerminalExecutionResult::fromJson:"
-        << "path_identity="
-        << json.value(QStringLiteral("path_identity")).toString()
+        << "canonical_path_key="
+        << json.value(QStringLiteral("canonical_path_key")).toString()
         << "scenario_terminal_id="
         << json.value(QStringLiteral("scenario_terminal_id")).toString()
         << "arrival_mode{"
@@ -242,8 +242,8 @@ TerminalExecutionResult TerminalExecutionResult::fromJson(
     TerminalExecutionResult result;
     result.executionId =
         json.value(QStringLiteral("execution_id")).toString();
-    result.pathIdentity =
-        json.value(QStringLiteral("path_identity")).toString();
+    result.canonicalPathKey =
+        json.value(QStringLiteral("canonical_path_key")).toString();
     result.scenarioTerminalId =
         json.value(QStringLiteral("scenario_terminal_id"))
             .toString();
@@ -302,7 +302,7 @@ TerminalExecutionResult TerminalExecutionResult::fromJson(
         json.value(QStringLiteral("raw_batch_records")).toArray();
     qCDebug(lcScenario)
         << "TerminalExecutionResult::fromJson: decoded"
-        << "path_identity=" << result.pathIdentity
+        << "canonical_path_key=" << result.canonicalPathKey
         << "scenario_terminal_id="
         << result.scenarioTerminalId
         << "runtime_terminal_id="
@@ -410,7 +410,7 @@ QJsonObject PathExecutionResult::toJson() const
 {
     QJsonObject json;
     json[QStringLiteral("execution_id")] = executionId;
-    json[QStringLiteral("path_identity")] = pathIdentity;
+    json[QStringLiteral("execution_path_key")] = executionPathKey;
     json[QStringLiteral("path_id")] = pathId;
     json[QStringLiteral("canonical_path_key")] = canonicalPathKey;
     json[QStringLiteral("path_uid")] = pathUid;
@@ -442,8 +442,8 @@ PathExecutionResult PathExecutionResult::fromJson(
 {
     qCDebug(lcScenario)
         << "PathExecutionResult::fromJson:"
-        << "path_identity="
-        << json.value(QStringLiteral("path_identity")).toString()
+        << "execution_path_key="
+        << json.value(QStringLiteral("execution_path_key")).toString()
         << "path_id="
         << json.value(QStringLiteral("path_id")).toInt(-1)
         << "rank="
@@ -459,8 +459,8 @@ PathExecutionResult PathExecutionResult::fromJson(
     PathExecutionResult result;
     result.executionId =
         json.value(QStringLiteral("execution_id")).toString();
-    result.pathIdentity =
-        json.value(QStringLiteral("path_identity")).toString();
+    result.executionPathKey =
+        json.value(QStringLiteral("execution_path_key")).toString();
     result.pathId =
         json.value(QStringLiteral("path_id")).toInt(-1);
     result.canonicalPathKey =
@@ -508,7 +508,7 @@ PathExecutionResult PathExecutionResult::fromJson(
     }
     qCDebug(lcScenario)
         << "PathExecutionResult::fromJson: decoded"
-        << "path_identity=" << result.pathIdentity
+        << "execution_path_key=" << result.executionPathKey
         << "path_id=" << result.pathId
         << "rank=" << result.rank
         << "effective_container_count="
@@ -539,7 +539,7 @@ void ScenarioExecutionResultSet::addPathResult(
 {
     for (auto it = m_pathResults.begin(); it != m_pathResults.end(); ++it)
     {
-        if (it->pathIdentity == result.pathIdentity)
+        if (it->executionPathKey == result.executionPathKey)
         {
             *it = result;
             return;
@@ -549,12 +549,12 @@ void ScenarioExecutionResultSet::addPathResult(
 }
 
 const PathExecutionResult *
-ScenarioExecutionResultSet::findByPathIdentity(
-    const QString &pathIdentity) const
+ScenarioExecutionResultSet::findByExecutionPathKey(
+    const QString &executionPathKey) const
 {
     for (int i = 0; i < m_pathResults.size(); ++i)
     {
-        if (m_pathResults[i].pathIdentity == pathIdentity)
+        if (m_pathResults[i].executionPathKey == executionPathKey)
             return &m_pathResults[i];
     }
     return nullptr;
@@ -571,13 +571,13 @@ ScenarioExecutionResultSet::summaryResults() const
 }
 
 QHash<QString, PathMetrics>
-ScenarioExecutionResultSet::actualMetricsByPathIdentity(
+ScenarioExecutionResultSet::actualMetricsByExecutionPathKey(
     ConfigController *config) const
 {
     QHash<QString, PathMetrics> metrics;
     for (const auto &result : m_pathResults)
     {
-        metrics.insert(result.pathIdentity,
+        metrics.insert(result.executionPathKey,
                        result.toActualMetrics(config));
     }
     return metrics;

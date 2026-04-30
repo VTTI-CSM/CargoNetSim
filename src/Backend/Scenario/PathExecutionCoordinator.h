@@ -54,17 +54,17 @@ public:
     ExecutionEventOutcome applyEvent(const ExecutionEvent &event);
 
 private:
-    const PathExecutionPlan *findPathPlan(const QString &pathIdentity) const;
-    PathExecutionState      *findPathState(const QString &pathIdentity);
-    SegmentExecutionState   *findSegmentState(const QString &pathIdentity,
+    const PathExecutionPlan *findPathPlan(const QString &executionPathKey) const;
+    PathExecutionState      *findPathState(const QString &executionPathKey);
+    SegmentExecutionState   *findSegmentState(const QString &executionPathKey,
                                               int            segmentIndex);
-    VehicleExecutionState   *findVehicleState(const QString &pathIdentity,
+    VehicleExecutionState   *findVehicleState(const QString &executionPathKey,
                                               int            segmentIndex,
                                               const QString &vehicleId);
-    SegmentTimelineWindow   *findTimelineWindow(const QString &pathIdentity,
+    SegmentTimelineWindow   *findTimelineWindow(const QString &executionPathKey,
                                                 int            segmentIndex);
     ContainerExecutionState *findContainerState(
-        const QString &pathIdentity,
+        const QString &executionPathKey,
         const QString &logicalContainerId);
 
     void refreshSegmentState(const PathExecutionPlan &pathPlan,
@@ -76,7 +76,7 @@ private:
 
     ExecutionEventOutcome failPath(const ExecutionEvent &event,
                                    const QString        &message);
-    ExecutionEventOutcome completeSegment(const QString &pathIdentity,
+    ExecutionEventOutcome completeSegment(const QString &executionPathKey,
                                           int            segmentIndex,
                                           double         eventTimeSeconds);
 

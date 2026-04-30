@@ -75,7 +75,7 @@ bool NetworkExecutionSessionManager::dispatchWave(
             {
                 *err = QStringLiteral(
                     "Dispatch wave assignment references an unknown segment for %1[%2]")
-                           .arg(assignment.pathIdentity)
+                           .arg(assignment.executionPathKey)
                            .arg(assignment.segmentIndex);
             }
             return false;
@@ -127,7 +127,7 @@ bool NetworkExecutionSessionManager::registerAssignments(
             {
                 *err = QStringLiteral(
                     "Session registration references an unknown segment for %1[%2]")
-                           .arg(assignment.pathIdentity)
+                           .arg(assignment.executionPathKey)
                            .arg(assignment.segmentIndex);
             }
             return false;
@@ -144,7 +144,7 @@ bool NetworkExecutionSessionManager::registerAssignments(
         record.regionName = segmentPlan->regionName;
 
         const QString activeSegmentKey =
-            segmentKey(assignment.pathIdentity,
+            segmentKey(assignment.executionPathKey,
                        assignment.segmentIndex);
         record.activeSimulatorVehicleIds.insert(assignment.vehicleId);
         record.segmentKeyByVehicleId.insert(assignment.vehicleId,
@@ -345,10 +345,10 @@ QString NetworkExecutionSessionManager::sessionKey(
 }
 
 QString NetworkExecutionSessionManager::segmentKey(
-    const QString &pathIdentity, int segmentIndex) const
+    const QString &executionPathKey, int segmentIndex) const
 {
     return QStringLiteral("%1|%2")
-        .arg(pathIdentity)
+        .arg(executionPathKey)
         .arg(segmentIndex);
 }
 
@@ -357,7 +357,7 @@ NetworkExecutionSessionManager::findSegmentPlan(
     const ScenarioExecutionPlan              &plan,
     const VehicleDispatchAssignment          &assignment) const
 {
-    const auto *pathPlan = plan.findPath(assignment.pathIdentity);
+    const auto *pathPlan = plan.findPath(assignment.executionPathKey);
     if (!pathPlan)
         return nullptr;
 

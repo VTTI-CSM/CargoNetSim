@@ -205,20 +205,10 @@ QString extractCanonicalPathKeyMetadata(const QJsonObject &container,
     if (!canonicalPathKey.isEmpty())
         return canonicalPathKey;
 
-    QString legacyError;
-    const QString legacyPathKey =
-        extractConsistentStringMetadata(
-            container,
-            ExecutionContainerKeys::pathIdentity(),
-            &legacyError);
-    if (!legacyPathKey.isEmpty())
-        return legacyPathKey;
-
     if (errorMessage)
     {
         *errorMessage = QStringLiteral(
-            "Container is missing canonical_path_key metadata "
-            "(legacy path_identity fallback also missing)");
+            "Container is missing canonical_path_key metadata");
     }
     return {};
 }

@@ -29,7 +29,7 @@ struct SegmentDispatchCursor
 struct TrainSegmentDispatchRequest
 {
     int     pathId = -1;
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     int     segmentIndex = -1;
     QString startTerminalId;
@@ -46,7 +46,7 @@ struct TrainSegmentDispatchRequest
 struct TruckSegmentDispatchRequest
 {
     int     pathId = -1;
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     int     segmentIndex = -1;
     QString startTerminalId;
@@ -65,7 +65,7 @@ struct TruckSegmentDispatchRequest
 struct ShipSegmentDispatchRequest
 {
     int     pathId = -1;
-    QString pathIdentity;
+    QString executionPathKey;
     QString canonicalPathKey;
     int     segmentIndex = -1;
     QString startTerminalId;

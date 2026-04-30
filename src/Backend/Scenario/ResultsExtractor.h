@@ -84,7 +84,7 @@ public:
      */
     ScenarioExecutionResultSet extractExecutionResults(
         const QList<CargoNetSim::Backend::Path *> &paths,
-        const QVector<QString>                    &pathIdentities = {},
+        const QVector<QString>                    &executionPathKeys = {},
         const PathAllocation                      *allocation = nullptr,
         const QString                            &executionId = QString());
 

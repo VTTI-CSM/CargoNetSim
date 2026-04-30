@@ -89,7 +89,7 @@ DispatchableWaveBuildResult DispatchableWaveBuilder::build(
                 QStringLiteral(
                     "Terminal %1 has not released all containers for path %2 segment %3")
                     .arg(segmentPlan.startTerminalId,
-                         pathPlan.pathIdentity)
+                         pathPlan.executionPathKey)
                     .arg(segmentPlan.segmentIndex);
             return blocked;
         };
@@ -97,12 +97,12 @@ DispatchableWaveBuildResult DispatchableWaveBuilder::build(
     for (const auto &segmentRef : dispatchableSegments)
     {
         const auto *pathPlan =
-            findPathPlan(plan, segmentRef.pathIdentity);
+            findPathPlan(plan, segmentRef.executionPathKey);
         if (!pathPlan)
         {
             return fail(QStringLiteral(
-                "Unknown path identity in dispatchable wave: %1")
-                            .arg(segmentRef.pathIdentity));
+                "Unknown execution path key in dispatchable wave: %1")
+                            .arg(segmentRef.executionPathKey));
         }
 
         if (segmentRef.segmentIndex < 0
@@ -111,18 +111,18 @@ DispatchableWaveBuildResult DispatchableWaveBuilder::build(
             return fail(QStringLiteral(
                 "Invalid dispatchable segment index %1 for %2")
                             .arg(segmentRef.segmentIndex)
-                            .arg(segmentRef.pathIdentity));
+                            .arg(segmentRef.executionPathKey));
         }
 
         const auto &segmentPlan =
             pathPlan->segments[segmentRef.segmentIndex];
         const auto stateIt =
-            ledger.containerStates.constFind(pathPlan->pathIdentity);
+            ledger.containerStates.constFind(pathPlan->executionPathKey);
         if (stateIt == ledger.containerStates.constEnd())
         {
             return fail(QStringLiteral(
                 "Missing container ledger state for %1")
-                            .arg(pathPlan->pathIdentity));
+                            .arg(pathPlan->executionPathKey));
         }
 
         int eligibleContainerCount = 0;
@@ -146,14 +146,14 @@ DispatchableWaveBuildResult DispatchableWaveBuilder::build(
         {
             return failAfterReservations(QStringLiteral(
                 "No dispatchable containers are staged for path %1 segment %2")
-                            .arg(pathPlan->pathIdentity)
+                            .arg(pathPlan->executionPathKey)
                             .arg(segmentRef.segmentIndex));
         }
 
         {
             TerminalPickupRequest pickupRequest;
             pickupRequest.executionId = plan.executionId;
-            pickupRequest.pathIdentity = pathPlan->pathIdentity;
+            pickupRequest.executionPathKey = pathPlan->executionPathKey;
             pickupRequest.canonicalPathKey =
                 pathPlan->canonicalPathKey;
             pickupRequest.terminalId = segmentPlan.startTerminalId;
@@ -200,7 +200,7 @@ DispatchableWaveBuildResult DispatchableWaveBuilder::build(
                 segmentPlan.networkName);
             TrainSegmentDispatchRequest request;
             request.pathId = pathPlan->pathId;
-            request.pathIdentity = pathPlan->pathIdentity;
+            request.executionPathKey = pathPlan->executionPathKey;
             request.canonicalPathKey =
                 pathPlan->canonicalPathKey;
             request.segmentIndex = segmentPlan.segmentIndex;
@@ -227,7 +227,7 @@ DispatchableWaveBuildResult DispatchableWaveBuilder::build(
                 segmentPlan.networkName);
             TruckSegmentDispatchRequest request;
             request.pathId = pathPlan->pathId;
-            request.pathIdentity = pathPlan->pathIdentity;
+            request.executionPathKey = pathPlan->executionPathKey;
             request.canonicalPathKey =
                 pathPlan->canonicalPathKey;
             request.segmentIndex = segmentPlan.segmentIndex;
@@ -255,7 +255,7 @@ DispatchableWaveBuildResult DispatchableWaveBuilder::build(
         {
             ShipSegmentDispatchRequest request;
             request.pathId = pathPlan->pathId;
-            request.pathIdentity = pathPlan->pathIdentity;
+            request.executionPathKey = pathPlan->executionPathKey;
             request.canonicalPathKey =
                 pathPlan->canonicalPathKey;
             request.segmentIndex = segmentPlan.segmentIndex;
@@ -289,7 +289,7 @@ DispatchableWaveBuildResult DispatchableWaveBuilder::build(
         for (const auto &load : loads)
         {
             VehicleDispatchAssignment assignment;
-            assignment.pathIdentity = pathPlan->pathIdentity;
+            assignment.executionPathKey = pathPlan->executionPathKey;
             assignment.canonicalPathKey =
                 pathPlan->canonicalPathKey;
             assignment.pathId = pathPlan->pathId;
@@ -344,9 +344,9 @@ int DispatchableWaveBuilder::capacityForMode(
 
 const PathExecutionPlan *DispatchableWaveBuilder::findPathPlan(
     const ScenarioExecutionPlan &plan,
-    const QString &pathIdentity) const
+    const QString &executionPathKey) const
 {
-    return plan.findPath(pathIdentity);
+    return plan.findPath(executionPathKey);
 }
 
 DispatchableWaveBuildResult DispatchableWaveBuilder::fail(

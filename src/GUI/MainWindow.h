@@ -272,7 +272,7 @@ public:
 
     /**
      * @brief Flashes the path lines for a selected path
-     * @param pathKey Stable backend-derived path identity
+     * @param pathKey Stable backend-derived execution path key
      */
     void flashPathLines(const QString &pathKey);
 

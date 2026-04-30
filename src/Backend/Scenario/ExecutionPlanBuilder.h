@@ -45,7 +45,7 @@ public:
 
     ExecutionPlanBuildResult build(
         const QList<CargoNetSim::Backend::Path *> &paths,
-        const QVector<QString>                    &pathIdentities,
+        const QVector<QString>                    &executionPathKeys,
         const PathAllocation                      &allocation,
         const QString                             &executionId,
         ExecutionDemandPolicy demandPolicy =

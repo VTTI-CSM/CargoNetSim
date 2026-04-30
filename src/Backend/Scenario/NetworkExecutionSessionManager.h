@@ -77,7 +77,7 @@ private:
     QString sessionKey(
         TransportationTypes::TransportationMode mode,
         const QString                          &networkName) const;
-    QString segmentKey(const QString &pathIdentity,
+    QString segmentKey(const QString &executionPathKey,
                        int            segmentIndex) const;
 
     const SegmentExecutionPlan *findSegmentPlan(

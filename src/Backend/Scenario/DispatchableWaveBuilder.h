@@ -53,7 +53,7 @@ private:
 
     const PathExecutionPlan *findPathPlan(
         const ScenarioExecutionPlan &plan,
-        const QString               &pathIdentity) const;
+        const QString               &executionPathKey) const;
 
     DispatchableWaveBuildResult fail(
         const QString &message) const;

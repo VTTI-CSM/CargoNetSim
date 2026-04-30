@@ -84,7 +84,7 @@ namespace Cli {
  *
  * The optional `metrics` and `origin`/`destination`/`rank` fields are
  * emitted when the caller passes populated `metrics` / `keys` maps
- * keyed by canonical path identity. This avoids collisions when
+ * keyed by canonical path key. This avoids collisions when
  * multiple origin/destination pairs legitimately reuse the same local
  * `path_id`. The `metrics` block is the preview/discovery view of a
  * path; execution allocation stays in `effective_container_count`.
@@ -102,12 +102,12 @@ public:
      * @param err         On failure, filled with a human-readable
      *                    reason. Caller can pass nullptr.
      * @param metrics     Optional per-path metrics keyed by canonical
-     *                    path identity.
+     *                    execution path key.
      *                    When a result's key is present AND the value's
      *                    `valid` flag is true, a nested `metrics`
      *                    object is emitted.
      * @param keys        Optional per-path (origin, destination, rank)
-     *                    tuples keyed by canonical path identity. When
+     *                    tuples keyed by canonical path key. When
      *                    present, they are emitted as top-level fields
      *                    on the path object.
      * @param paths       Optional list of Path pointers. When a

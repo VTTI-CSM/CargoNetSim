@@ -5,6 +5,7 @@
 #include <QUuid>
 
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Controllers/ConfigController.h"
 #include "Backend/Controllers/RegionDataController.h"
@@ -22,6 +23,7 @@
 #include "ResultsExtractor.h"
 #include "ScenarioDocument.h"
 #include "ScenarioRegistry.h"
+#include "SegmentCostMath.h"
 #include "SimulationSettings.h"
 #include "SimulatorCommandAvailability.h"
 #include "TerminalGraphBootstrap.h"
@@ -29,6 +31,7 @@
 #include "TerminalPickupCoordinator.h"
 
 #include <QElapsedTimer>
+#include <algorithm>
 #include <optional>
 
 namespace CargoNetSim
@@ -46,7 +49,7 @@ constexpr int kPostArrivalEventWaitMs = 5000;
 struct ExecutableSelection
 {
     QList<CargoNetSim::Backend::Path *> paths;
-    QVector<QString>                    pathIdentities;
+    QVector<QString>                    executionPathKeys;
 };
 
 struct LiveExecutionTimeOverrideGuard
@@ -197,6 +200,177 @@ bool resetModeStateForAlternative(
     return true;
 }
 
+double clampProgressPercent(double value)
+{
+    return std::max(0.0, std::min(100.0, value));
+}
+
+void copyActiveSegmentFields(PathProgressSnapshot *row)
+{
+    if (!row
+        || row->activeSegmentIndex < 0
+        || row->activeSegmentIndex >= row->segments.size())
+    {
+        return;
+    }
+
+    const auto &segment = row->segments.at(row->activeSegmentIndex);
+    row->activeMode = segment.mode;
+    row->activeNetworkName = segment.networkName;
+    row->activeStartTerminalId = segment.startTerminalId;
+    row->activeEndTerminalId = segment.endTerminalId;
+}
+
+void markProgressRowCompleted(PathProgressSnapshot *row)
+{
+    if (!row)
+        return;
+
+    row->lifecycle = PathLifecycleState::Completed;
+    row->percent = 100.0;
+    row->completedSegments = row->totalSegments;
+    row->activeSegmentIndex =
+        row->totalSegments > 0 ? row->totalSegments - 1 : -1;
+
+    for (auto &segment : row->segments)
+    {
+        segment.lifecycle = SegmentLifecycleState::Completed;
+        segment.percent = 100.0;
+        segment.active = false;
+        if (segment.dispatchedVehicleCount > 0)
+        {
+            segment.completedVehicleCount =
+                std::max(segment.completedVehicleCount,
+                         segment.dispatchedVehicleCount);
+        }
+    }
+
+    copyActiveSegmentFields(row);
+}
+
+QHash<QString, int> indexProgressRowsByExecutionPathKey(
+    const QVector<PathProgressSnapshot> &rows)
+{
+    QHash<QString, int> index;
+    for (int i = 0; i < rows.size(); ++i)
+    {
+        if (!rows.at(i).executionPathKey.isEmpty())
+            index.insert(rows.at(i).executionPathKey, i);
+    }
+    return index;
+}
+
+int progressRowIndexForKey(
+    const QHash<QString, int> &rowIndexByExecutionPathKey,
+    const QString             &executionPathKey)
+{
+    const auto it =
+        rowIndexByExecutionPathKey.constFind(executionPathKey);
+    return it == rowIndexByExecutionPathKey.constEnd()
+        ? -1
+        : it.value();
+}
+
+void applyChildProgressSnapshot(
+    QVector<PathProgressSnapshot>       *rows,
+    const QHash<QString, int>           &rowIndexByExecutionPathKey,
+    int                                  fallbackIndex,
+    const ExecutionProgressSnapshot     &childSnapshot)
+{
+    if (!rows)
+        return;
+
+    bool applied = false;
+    for (const auto &childRow : childSnapshot.paths)
+    {
+        const int rowIndex = progressRowIndexForKey(
+            rowIndexByExecutionPathKey, childRow.executionPathKey);
+        if (rowIndex < 0)
+            continue;
+
+        if (rowIndex < rows->size())
+        {
+            (*rows)[rowIndex] = childRow;
+            applied = true;
+        }
+    }
+
+    if (!applied
+        && childSnapshot.paths.size() == 1
+        && fallbackIndex >= 0
+        && fallbackIndex < rows->size())
+    {
+        (*rows)[fallbackIndex] = childSnapshot.paths.first();
+    }
+}
+
+ExecutionProgressSnapshot composeIsolatedProgressSnapshot(
+    const QVector<PathProgressSnapshot> &rows,
+    double                               aggregatePercent,
+    int                                  activeAlternativeIndex,
+    int                                  alternativeCount)
+{
+    ExecutionProgressSnapshot snapshot;
+    snapshot.aggregatePercent =
+        clampProgressPercent(aggregatePercent);
+    snapshot.activeAlternativeIndex = activeAlternativeIndex;
+    snapshot.alternativeCount = alternativeCount;
+    snapshot.paths = rows;
+
+    for (const auto &row : rows)
+    {
+        if (!row.executable)
+            continue;
+
+        ++snapshot.executablePathCount;
+        snapshot.executableSegmentCount += row.totalSegments;
+        snapshot.completedExecutableSegments +=
+            std::min(row.completedSegments, row.totalSegments);
+
+        if (row.lifecycle == PathLifecycleState::Completed)
+            ++snapshot.completedExecutablePaths;
+    }
+
+    return snapshot;
+}
+
+ExecutionLedger isolatedLedgerFromProgressRows(
+    const QVector<PathProgressSnapshot> &rows)
+{
+    ExecutionLedger ledger;
+
+    for (const auto &row : rows)
+    {
+        if (row.executionPathKey.isEmpty())
+            continue;
+
+        PathExecutionState pathState;
+        pathState.executionPathKey = row.executionPathKey;
+        pathState.lifecycle = row.lifecycle;
+        pathState.activeSegmentIndex = row.activeSegmentIndex;
+        if (row.lifecycle == PathLifecycleState::Failed)
+            pathState.lastError = row.message;
+        ledger.pathStates.insert(row.executionPathKey, pathState);
+
+        QVector<SegmentExecutionState> segmentStates;
+        segmentStates.reserve(row.segments.size());
+        for (const auto &segment : row.segments)
+        {
+            SegmentExecutionState segmentState;
+            segmentState.executionPathKey = row.executionPathKey;
+            segmentState.segmentIndex = segment.segmentIndex;
+            segmentState.lifecycle = segment.lifecycle;
+            segmentState.networkName = segment.networkName;
+            segmentState.lastTerminalId = segment.endTerminalId;
+            segmentStates.append(segmentState);
+        }
+        ledger.segmentStates.insert(row.executionPathKey,
+                                    segmentStates);
+    }
+
+    return ledger;
+}
+
 bool hasPendingPostArrivalWork(
     const ScenarioExecutionPlan &plan,
     const ExecutionLedger       &ledger)
@@ -207,7 +381,7 @@ bool hasPendingPostArrivalWork(
             continue;
 
         const auto segmentStatesIt =
-            ledger.segmentStates.constFind(pathPlan.pathIdentity);
+            ledger.segmentStates.constFind(pathPlan.executionPathKey);
         if (segmentStatesIt == ledger.segmentStates.constEnd())
             continue;
 
@@ -240,7 +414,7 @@ QString validateExecutionPlan(const ScenarioExecutionPlan &plan)
 
     for (const auto &pathPlan : plan.paths)
     {
-        if (pathPlan.pathIdentity.isEmpty())
+        if (pathPlan.executionPathKey.isEmpty())
         {
             return QStringLiteral(
                 "Execution plan contains a path with an empty prepared identity");
@@ -253,14 +427,14 @@ QString validateExecutionPlan(const ScenarioExecutionPlan &plan)
         {
             return QStringLiteral(
                 "Execution plan path %1 has non-sequential segments")
-                .arg(pathPlan.pathIdentity);
+                .arg(pathPlan.executionPathKey);
         }
 
         if (pathPlan.segments.isEmpty())
         {
             return QStringLiteral(
                 "Execution plan path %1 is executable but has no segments")
-                .arg(pathPlan.pathIdentity);
+                .arg(pathPlan.executionPathKey);
         }
 
         for (const auto &segmentPlan : pathPlan.segments)
@@ -269,7 +443,7 @@ QString validateExecutionPlan(const ScenarioExecutionPlan &plan)
             {
                 return QStringLiteral(
                     "Execution plan path %1 has a malformed segment at index %2")
-                    .arg(pathPlan.pathIdentity)
+                    .arg(pathPlan.executionPathKey)
                     .arg(segmentPlan.segmentIndex);
             }
         }
@@ -279,7 +453,7 @@ QString validateExecutionPlan(const ScenarioExecutionPlan &plan)
         {
             return QStringLiteral(
                 "Execution plan path %1 has an inconsistent transition count")
-                .arg(pathPlan.pathIdentity);
+                .arg(pathPlan.executionPathKey);
         }
 
         for (const auto &transition : pathPlan.transitions)
@@ -288,7 +462,7 @@ QString validateExecutionPlan(const ScenarioExecutionPlan &plan)
             {
                 return QStringLiteral(
                     "Execution plan path %1 has a non-sequential transition from %2 to %3")
-                    .arg(pathPlan.pathIdentity)
+                    .arg(pathPlan.executionPathKey)
                     .arg(transition.fromSegmentIndex)
                     .arg(transition.toSegmentIndex);
             }
@@ -301,16 +475,17 @@ QString validateExecutionPlan(const ScenarioExecutionPlan &plan)
 ExecutableSelection collectExecutableSelection(
     const ScenarioExecutionPlan &plan,
     const QList<CargoNetSim::Backend::Path *> &selectedPaths,
-    const QVector<QString> &selectedPathIdentities,
+    const QVector<QString> &selectedExecutionPathKeys,
     QString *err)
 {
     ExecutableSelection selection;
-    QHash<QString, CargoNetSim::Backend::Path *> pathByIdentity;
-    pathByIdentity.reserve(selectedPathIdentities.size());
+    QHash<QString, CargoNetSim::Backend::Path *> pathByExecutionKey;
+    pathByExecutionKey.reserve(selectedExecutionPathKeys.size());
 
-    for (int i = 0; i < selectedPathIdentities.size(); ++i)
+    for (int i = 0; i < selectedExecutionPathKeys.size(); ++i)
     {
-        pathByIdentity.insert(selectedPathIdentities[i], selectedPaths.value(i));
+        pathByExecutionKey.insert(selectedExecutionPathKeys[i],
+                                  selectedPaths.value(i));
     }
 
     for (const auto &pathPlan : plan.paths)
@@ -318,19 +493,20 @@ ExecutableSelection collectExecutableSelection(
         if (pathPlan.disposition != PlannedPathDisposition::Execute)
             continue;
 
-        const auto it = pathByIdentity.constFind(pathPlan.pathIdentity);
-        if (it == pathByIdentity.constEnd() || !it.value())
+        const auto it =
+            pathByExecutionKey.constFind(pathPlan.executionPathKey);
+        if (it == pathByExecutionKey.constEnd() || !it.value())
         {
             if (err)
             {
                 *err = QStringLiteral(
-                    "Executable path identity %1 was not found in the selected path set")
-                           .arg(pathPlan.pathIdentity);
+                    "Executable path key %1 was not found in the selected path set")
+                           .arg(pathPlan.executionPathKey);
             }
             return {};
         }
 
-        selection.pathIdentities.append(pathPlan.pathIdentity);
+        selection.executionPathKeys.append(pathPlan.executionPathKey);
         selection.paths.append(it.value());
     }
 
@@ -356,7 +532,7 @@ void emitSupplementalPlanningStatus(
 
         const QString message = QStringLiteral(
             "Execution plan: path %1 (%2) -> %3%4")
-                                    .arg(pathPlan.pathIdentity,
+                                    .arg(pathPlan.executionPathKey,
                                          pathPlan.canonicalPathKey,
                                          dispositionLabel(pathPlan.disposition),
                                          pathPlan.planningMessage.isEmpty()
@@ -408,7 +584,7 @@ bool hasExecutablePathFailure(const ScenarioExecutionPlan &plan,
             continue;
 
         const auto it =
-            ledger.pathStates.constFind(pathPlan.pathIdentity);
+            ledger.pathStates.constFind(pathPlan.executionPathKey);
         if (it == ledger.pathStates.constEnd())
             continue;
 
@@ -419,7 +595,7 @@ bool hasExecutablePathFailure(const ScenarioExecutionPlan &plan,
                 *message = it.value().lastError.isEmpty()
                     ? QStringLiteral(
                           "Executable path %1 failed during live execution")
-                          .arg(pathPlan.pathIdentity)
+                          .arg(pathPlan.executionPathKey)
                     : it.value().lastError;
             }
             return true;
@@ -442,7 +618,7 @@ bool allExecutablePathsCompleted(const ScenarioExecutionPlan &plan,
 
         sawExecutablePath = true;
         const auto it =
-            ledger.pathStates.constFind(pathPlan.pathIdentity);
+            ledger.pathStates.constFind(pathPlan.executionPathKey);
         if (it == ledger.pathStates.constEnd())
             return false;
 
@@ -481,10 +657,10 @@ void ScenarioExecutor::setPaths(
     m_paths = paths;
 }
 
-void ScenarioExecutor::setPathIdentities(
-    const QVector<QString> &pathIdentities)
+void ScenarioExecutor::setExecutionPathKeys(
+    const QVector<QString> &executionPathKeys)
 {
-    m_pathIdentities = pathIdentities;
+    m_executionPathKeys = executionPathKeys;
 }
 
 void ScenarioExecutor::setDemandPolicy(
@@ -580,6 +756,56 @@ bool ScenarioExecutor::runIsolatedAlternativeExecutions()
         return false;
     };
 
+    const auto progressAllocation =
+        ContainerAllocator::allocate(*m_document, m_paths,
+                                     m_demandPolicy);
+    ExecutionPlanBuilder progressPlanBuilder(*m_document);
+    const auto progressPlanResult = progressPlanBuilder.build(
+        m_paths, m_executionPathKeys, progressAllocation,
+        QUuid::createUuid().toString(QUuid::WithoutBraces),
+        m_demandPolicy);
+    if (!progressPlanResult.isSuccess())
+    {
+        return failIsolatedRun(
+            progressPlanResult.errorMessage.isEmpty()
+                ? QStringLiteral(
+                      "Failed to build aggregate isolated progress plan")
+                : progressPlanResult.errorMessage);
+    }
+
+    m_executionPlan = progressPlanResult.plan;
+    m_executionLedger = ExecutionLedger();
+    const auto initialProgress =
+        calculateExecutionProgress(m_executionPlan,
+                                   m_executionLedger);
+    QVector<PathProgressSnapshot> isolatedProgressRows =
+        initialProgress.paths;
+    m_executionLedger =
+        isolatedLedgerFromProgressRows(isolatedProgressRows);
+    const auto rowIndexByExecutionPathKey =
+        indexProgressRowsByExecutionPathKey(isolatedProgressRows);
+
+    auto aggregatePercentForAlternative =
+        [totalAlternatives](int alternativeIndex,
+                            double alternativePercent) {
+        if (totalAlternatives <= 0)
+            return 100.0;
+
+        return ((static_cast<double>(alternativeIndex)
+                 + (clampProgressPercent(alternativePercent)
+                    / 100.0))
+                / static_cast<double>(totalAlternatives))
+               * 100.0;
+    };
+
+    emit progressSnapshotChanged(
+        0.0,
+        composeIsolatedProgressSnapshot(
+            isolatedProgressRows, 0.0,
+            totalAlternatives > 0 ? 0 : -1,
+            totalAlternatives));
+    emit progressChanged(0.0, 0.0);
+
     for (int index = 0; index < m_paths.size(); ++index)
     {
         if (m_stopRequested.load())
@@ -595,11 +821,11 @@ bool ScenarioExecutor::runIsolatedAlternativeExecutions()
         }
 
         auto *path = m_paths[index];
-        const QString pathIdentity =
-            index < m_pathIdentities.size()
-                ? m_pathIdentities[index]
+        const QString executionPathKey =
+            index < m_executionPathKeys.size()
+                ? m_executionPathKeys[index]
                 : (path ? path->canonicalPathKey() : QString());
-        if (!path || pathIdentity.isEmpty())
+        if (!path || executionPathKey.isEmpty())
         {
             return failIsolatedRun(QStringLiteral(
                 "Isolated what-if execution received an invalid path at index %1")
@@ -610,7 +836,7 @@ bool ScenarioExecutor::runIsolatedAlternativeExecutions()
             "Preparing isolated alternative %1/%2: %3")
                                .arg(index + 1)
                                .arg(totalAlternatives)
-                               .arg(pathIdentity));
+                               .arg(executionPathKey));
 
         QString err;
         if (!TerminalGraphBootstrap::resetAndLoad(
@@ -636,7 +862,7 @@ bool ScenarioExecutor::runIsolatedAlternativeExecutions()
         childExecutor.setDocument(m_document);
         childExecutor.setRegistry(m_registry);
         childExecutor.setPaths({path});
-        childExecutor.setPathIdentities({pathIdentity});
+        childExecutor.setExecutionPathKeys({executionPathKey});
         childExecutor.setDemandPolicy(m_demandPolicy);
         childExecutor.setIsolationPolicy(
             ExecutionIsolationPolicy::SharedSimulatorState);
@@ -662,33 +888,38 @@ bool ScenarioExecutor::runIsolatedAlternativeExecutions()
                 &ScenarioExecutor::progressChanged,
                 this,
                 [this, index, totalAlternatives,
-                 &lastReportedTimeSeconds](double currentTime,
-                                           double percent) {
+                 &lastReportedTimeSeconds,
+                 aggregatePercentForAlternative](
+                    double currentTime,
+                    double percent) {
                     lastReportedTimeSeconds = currentTime;
-                    const double aggregatePercent =
-                        ((static_cast<double>(index)
-                          + (percent / 100.0))
-                         / static_cast<double>(totalAlternatives))
-                        * 100.0;
                     emit progressChanged(currentTime,
-                                         aggregatePercent);
+                                         aggregatePercentForAlternative(
+                                             index, percent));
                 });
         connect(&childExecutor,
                 &ScenarioExecutor::progressSnapshotChanged,
                 this,
-                [this, index, totalAlternatives](
+                [this, index, totalAlternatives,
+                 &isolatedProgressRows,
+                 &rowIndexByExecutionPathKey,
+                aggregatePercentForAlternative](
                     double currentTime,
                     const ExecutionProgressSnapshot &snapshot) {
-                    auto adjusted = snapshot;
-                    adjusted.aggregatePercent =
-                        ((static_cast<double>(index)
-                          + (snapshot.aggregatePercent / 100.0))
-                         / static_cast<double>(totalAlternatives))
-                        * 100.0;
-                    adjusted.activeAlternativeIndex = index;
-                    adjusted.alternativeCount = totalAlternatives;
+                    applyChildProgressSnapshot(
+                        &isolatedProgressRows,
+                        rowIndexByExecutionPathKey, index,
+                        snapshot);
+                    m_executionLedger =
+                        isolatedLedgerFromProgressRows(
+                            isolatedProgressRows);
                     emit progressSnapshotChanged(currentTime,
-                                                 adjusted);
+                        composeIsolatedProgressSnapshot(
+                            isolatedProgressRows,
+                            aggregatePercentForAlternative(
+                                index,
+                                snapshot.aggregatePercent),
+                            index, totalAlternatives));
                 });
 
         if (!childExecutor.run())
@@ -696,7 +927,7 @@ bool ScenarioExecutor::runIsolatedAlternativeExecutions()
             return failIsolatedRun(childError.isEmpty()
                                        ? QStringLiteral(
                                              "Isolated what-if alternative failed: %1")
-                                             .arg(pathIdentity)
+                                             .arg(executionPathKey)
                                        : childError);
         }
 
@@ -706,19 +937,46 @@ bool ScenarioExecutor::runIsolatedAlternativeExecutions()
             aggregateResults.addPathResult(pathResult);
         }
 
-        m_executionPlan = childExecutor.executionPlan();
-        m_executionLedger = childExecutor.executionLedger();
         m_dispatchableSegments =
             childExecutor.dispatchableSegments();
+
+        const int completedRowIndex =
+            progressRowIndexForKey(rowIndexByExecutionPathKey,
+                                   executionPathKey);
+        if (completedRowIndex >= 0
+            && completedRowIndex < isolatedProgressRows.size())
+        {
+            markProgressRowCompleted(
+                &isolatedProgressRows[completedRowIndex]);
+        }
+        m_executionLedger =
+            isolatedLedgerFromProgressRows(isolatedProgressRows);
+        emit progressSnapshotChanged(
+            lastReportedTimeSeconds,
+            composeIsolatedProgressSnapshot(
+                isolatedProgressRows,
+                aggregatePercentForAlternative(index, 100.0),
+                index, totalAlternatives));
+        emit progressChanged(
+            lastReportedTimeSeconds,
+            aggregatePercentForAlternative(index, 100.0));
 
         emit statusMessage(QStringLiteral(
             "Completed isolated alternative %1/%2: %3")
                                .arg(index + 1)
                                .arg(totalAlternatives)
-                               .arg(pathIdentity));
+                               .arg(executionPathKey));
     }
 
     m_executionResults = aggregateResults;
+    m_executionLedger =
+        isolatedLedgerFromProgressRows(isolatedProgressRows);
+    emit progressSnapshotChanged(
+        lastReportedTimeSeconds,
+        composeIsolatedProgressSnapshot(
+            isolatedProgressRows, 100.0,
+            totalAlternatives > 0 ? totalAlternatives - 1 : -1,
+            totalAlternatives));
     emit progressChanged(lastReportedTimeSeconds, 100.0);
     emit statusMessage(QStringLiteral(
         "Isolated what-if validation completed successfully"));
@@ -777,7 +1035,7 @@ bool ScenarioExecutor::run()
             << "ScenarioExecutor::run:"
             << "container allocation completed"
             << "selectedPaths=" << m_paths.size()
-            << "pathIdentityCount=" << m_pathIdentities.size()
+            << "selectedExecutionPathKeyCount=" << m_executionPathKeys.size()
             << "executionId=" << executionId;
         for (auto *path : m_paths)
         {
@@ -798,7 +1056,7 @@ bool ScenarioExecutor::run()
 
         ExecutionPlanBuilder executionPlanBuilder(*m_document);
         const auto planResult = executionPlanBuilder.build(
-            m_paths, m_pathIdentities, allocation, executionId,
+            m_paths, m_executionPathKeys, allocation, executionId,
             m_demandPolicy);
         if (!planResult.isSuccess())
         {
@@ -959,7 +1217,7 @@ bool ScenarioExecutor::run()
         }
 
         const auto executableSelection = collectExecutableSelection(
-            m_executionPlan, m_paths, m_pathIdentities, &err);
+            m_executionPlan, m_paths, m_executionPathKeys, &err);
         if (!err.isEmpty())
         {
             qCWarning(lcScenario)
@@ -1031,6 +1289,10 @@ bool ScenarioExecutor::run()
             controller.getTrainClient(),
             controller.getShipClient()};
         liveClockGuard.set(currentTimeSeconds);
+        const QVariantMap progressCostWeights =
+            config ? config->getCostFunctionWeights() : QVariantMap{};
+        const QVariantMap progressTransportModes =
+            config ? config->getTransportModes() : QVariantMap{};
 
         auto refreshSnapshot = [&]() {
             const auto snapshot = coordinator.snapshot();
@@ -1039,10 +1301,88 @@ bool ScenarioExecutor::run()
                 snapshot.dispatchableSegments;
         };
 
+        auto enrichProgressWithActuals =
+            [&](ExecutionProgressSnapshot &snapshot) {
+            for (auto &pathSnapshot : snapshot.paths)
+            {
+                if (!pathSnapshot.executable)
+                    continue;
+
+                int selectedIndex = -1;
+                for (int i = 0;
+                     i < executableSelection.executionPathKeys.size();
+                     ++i)
+                {
+                    if (executableSelection.executionPathKeys[i]
+                        == pathSnapshot.executionPathKey)
+                    {
+                        selectedIndex = i;
+                        break;
+                    }
+                }
+
+                if (selectedIndex < 0
+                    || selectedIndex >= executableSelection.paths.size())
+                {
+                    continue;
+                }
+
+                auto *path = executableSelection.paths[selectedIndex];
+                if (!path)
+                    continue;
+
+                const int containerCount =
+                    allocation.effectiveContainerCountForPath(path);
+                if (containerCount <= 0)
+                    continue;
+
+                const auto liveResult =
+                    SegmentCostMath::computePathExecutionResult(
+                        controller.getShipClient(),
+                        controller.getTrainClient(),
+                        controller.getTruckManager(),
+                        path,
+                        pathSnapshot.executionPathKey,
+                        progressCostWeights,
+                        progressTransportModes,
+                        containerCount,
+                        /*emitInfoLog=*/false);
+                const auto actualMetrics =
+                    liveResult.totalActualMetrics();
+                const auto actualCosts =
+                    liveResult.totalActualCosts();
+
+                pathSnapshot.actualMetricsAvailable =
+                    actualMetrics.available;
+                pathSnapshot.actualCostsAvailable =
+                    actualCosts.available;
+                if (actualMetrics.available)
+                {
+                    pathSnapshot.actualDistanceKm =
+                        Units::toKilometers(
+                            actualMetrics.distanceUnits())
+                            .value();
+                    pathSnapshot.actualTravelTimeHours =
+                        Units::toHours(
+                            actualMetrics.travelTimeUnits())
+                            .value();
+                }
+                if (actualCosts.available)
+                {
+                    pathSnapshot.actualEdgeCostUsd =
+                        actualCosts.total();
+                    pathSnapshot.actualTotalCostUsd =
+                        pathSnapshot.actualEdgeCostUsd
+                        + pathSnapshot.actualTerminalCostUsd;
+                }
+            }
+        };
+
         auto emitExecutionProgress = [&](double timeSeconds) {
-            const auto progressSnapshot =
+            auto progressSnapshot =
                 calculateExecutionProgress(m_executionPlan,
                                            m_executionLedger);
+            enrichProgressWithActuals(progressSnapshot);
             emit progressSnapshotChanged(timeSeconds,
                                          progressSnapshot);
             emit progressChanged(
@@ -1443,7 +1783,7 @@ bool ScenarioExecutor::run()
 
         m_executionResults = extractor.extractExecutionResults(
             executableSelection.paths,
-            executableSelection.pathIdentities,
+            executableSelection.executionPathKeys,
             &allocation,
             executionId);
         qCDebug(lcScenario) << "ScenarioExecutor::run: extracted"

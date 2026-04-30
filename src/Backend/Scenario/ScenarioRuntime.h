@@ -73,7 +73,7 @@ public:
     void refreshPreparedPathEligibility();
 
     /** @brief Select the subset of prepared paths to simulate using the
-     *         stable prepared-path identities supplied by A2 discovery.
+     *         stable execution path keys supplied by path discovery.
      *         Returns false and optionally fills @p err if any requested
      *         identity is unknown. */
     bool setSelectedPathKeys(const QVector<QString> &pathKeys,

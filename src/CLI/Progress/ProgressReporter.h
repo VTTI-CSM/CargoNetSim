@@ -16,7 +16,9 @@ enum class ProgressRenderMode
 {
     Auto,
     AppendLines,
-    SingleLine
+    AppendTable,
+    SingleLine,
+    LiveTable
 };
 
 /**
@@ -82,6 +84,10 @@ public:
         const CargoNetSim::Backend::Scenario::ExecutionProgressSnapshot
             &snapshot);
 
+    /// Repaint the most recent live-table snapshot without requiring
+    /// backend progress to advance. No-op for append/single-line modes.
+    void repaintLastSnapshot();
+
     /// Force a final line regardless of rate limiting. Still honours
     /// quiet mode. Use exactly once per simulation, after the last
     /// `report()`, so the last line on stderr reflects the terminal
@@ -94,6 +100,12 @@ private:
     ProgressRenderMode           m_renderMode =
         ProgressRenderMode::AppendLines;
     bool                         m_liveLineActive = false;
+    int                          m_liveRowsRendered = 0;
+    int                          m_spinnerFrame = 0;
+    bool                         m_hasLastSnapshot = false;
+    double                       m_lastSnapshotTimeSec = 0.0;
+    CargoNetSim::Backend::Scenario::ExecutionProgressSnapshot
+                                 m_lastSnapshot;
     double                       m_lastPercent = -100.0;  // first call always emits
     QString                      m_lastFocusKey;
     QElapsedTimer                m_lastEmitTimer;
