@@ -14,7 +14,7 @@
  */
 #pragma once
 #include "Backend/Application/PathPresentationService.h"
-#include "Backend/Scenario/ExecutionPlanTypes.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
 #include <QBrush>
 #include <QCheckBox>
 #include <QHBoxLayout>

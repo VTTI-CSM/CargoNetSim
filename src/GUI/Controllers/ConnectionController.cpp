@@ -617,23 +617,6 @@ void ConnectionController::
         << "ConnectionController::"
            "connectVisibleTerminalsByNetworks: enter";
 
-    auto &controller =
-        CargoNetSim::CargoNetSimController::getInstance();
-
-    if (!controller.hasAnyShips())
-    {
-        m_status->showError(
-            "No ships available! Load ships first!", 3000);
-        return;
-    }
-    if (!controller.hasAnyTrains())
-    {
-        m_status->showError(
-            "No trains available! Load trains first!",
-            3000);
-        return;
-    }
-
     // Store the current button states and disable all
     m_status->storeButtons();
     m_status->disableButtons();
@@ -650,15 +633,13 @@ void ConnectionController::
     QSet<QString>               visibleTerminalTypes;
     QSet<QString>               availableNetworks;
 
-    if (!m_runtime
-        || !m_runtime->document().hasAnyOrigin())
+    if (!m_runtime)
     {
         qCWarning(lcGuiView)
-            << "ConnectionController: no runtime or "
-               "no origin terminals";
+            << "ConnectionController: no runtime available";
         m_status->showError(
-            "No origin terminal with containers in "
-            "this scenario.",
+            "No active scenario is available for terminal "
+            "connection authoring.",
             3000);
         m_status->restoreButtons();
         m_status->stopProgress();
@@ -1278,52 +1259,6 @@ void ConnectionController::
         m_status->restoreButtons();
         m_status->stopProgress();
         return;
-    }
-
-    // If using coordinate distance, perform additional checks
-    if (useCoordinateDistance)
-    {
-        if (!m_runtime
-            || !m_runtime->document().hasAnyOrigin())
-        {
-            qCWarning(lcGuiView)
-                << "ConnectionController: no runtime or "
-                   "no origin terminals "
-                   "(coordinate distance)";
-            m_status->showError(
-                "No origin terminal with containers in "
-                "this scenario.",
-                3000);
-            m_status->restoreButtons();
-            m_status->stopProgress();
-            return;
-        }
-
-        auto &controller =
-            CargoNetSim::CargoNetSimController::
-                getInstance();
-
-        if (!controller.hasAnyShips())
-        {
-            m_status->showError(
-                "No ships available! Load ships first.",
-                3000);
-
-            m_status->restoreButtons();
-            m_status->stopProgress();
-            return;
-        }
-
-        if (!controller.hasAnyTrains())
-        {
-            m_status->showError(
-                "No trains available! Load trains first.",
-                3000);
-
-            m_status->restoreButtons();
-            m_status->stopProgress();
-            return;
-        }
     }
 
     QApplication::processEvents();

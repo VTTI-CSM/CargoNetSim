@@ -29,6 +29,7 @@
 #include <QObject>
 #include <QReadWriteLock>
 #include <QString>
+#include <QStringList>
 #include <containerLib/container.h>
 
 namespace CargoNetSim
@@ -93,6 +94,15 @@ public:
      * Sends a reset command to clear server state.
      */
     Q_INVOKABLE bool resetServer();
+
+    /**
+     * @brief Clears TerminalSim runtime inventory, reservations, execution
+     *        records, and SD state while preserving loaded terminals/routes.
+     * @param terminalIds Optional subset of terminal IDs. Empty means all.
+     * @return True if TerminalSim acknowledged the runtime reset.
+     */
+    Q_INVOKABLE bool resetRuntimeState(
+        const QStringList &terminalIds = {});
 
     /**
      * @brief Sets cost function parameters for path finding
@@ -304,7 +314,9 @@ public:
     Q_INVOKABLE bool
     addContainer(const QString                  &terminalId,
                  const ContainerCore::Container *container,
-                 double addTime = -1.0);
+                 double addTime = -1.0,
+                 const QString &arrivalMode = "",
+                 const QString &arrivalSemantics = "");
 
     /**
      * @brief Adds multiple containers to a terminal
@@ -319,7 +331,8 @@ public:
     addContainers(const QString &terminalId,
                   const QString &containers,
                   double         addTime,
-                  const QString &arrivalMode = "");
+                  const QString &arrivalMode = "",
+                  const QString &arrivalSemantics = "");
 
     /**
      * @brief Adds multiple containers to a terminal
@@ -335,7 +348,8 @@ public:
         const QString                     &terminalId,
         QList<ContainerCore::Container *> &containers,
         double                             addTime = -1.0,
-        const QString                     &arrivalMode = "");
+        const QString                     &arrivalMode = "",
+        const QString                     &arrivalSemantics = "");
 
     /**
      * @brief Adds containers from JSON data
@@ -351,7 +365,8 @@ public:
     addContainersFromJson(const QString &terminalId,
                           const QString &json,
                           double         addTime = -1.0,
-                          const QString &arrivalMode = "");
+                          const QString &arrivalMode = "",
+                          const QString &arrivalSemantics = "");
 
     /**
      * @brief Gets containers matching generic TerminalSim criteria
@@ -380,7 +395,8 @@ public:
      */
     Q_INVOKABLE QList<ContainerCore::Container *>
     dequeueContainers(const QString     &terminalId,
-                      const QJsonObject &criteria);
+                      const QJsonObject &criteria,
+                      double operationTimeSeconds = -1.0);
 
     /**
      * @brief Reserves containers matching generic criteria for later pickup
@@ -400,7 +416,8 @@ public:
      */
     Q_INVOKABLE QJsonObject
     commitContainerReservation(const QString &terminalId,
-                               const QString &reservationId);
+                               const QString &reservationId,
+                               double operationTimeSeconds = -1.0);
 
     /**
      * @brief Releases a prior TerminalSim reservation without pickup effects.

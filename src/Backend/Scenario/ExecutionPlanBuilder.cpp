@@ -176,8 +176,6 @@ void markPlanningFailure(PathExecutionPlan &pathPlan,
                          const QString     &message)
 {
     pathPlan.disposition = PlannedPathDisposition::PlanningFailure;
-    pathPlan.resultVisibility =
-        ResultVisibilityPolicy::SupplementalStatusOnly;
     pathPlan.planningMessage = message;
     pathPlan.segments.clear();
     pathPlan.transitions.clear();
@@ -199,8 +197,6 @@ void finalizeDisposition(PathExecutionPlan    &pathPlan,
     if (pathPlan.effectiveContainerCount <= 0)
     {
         pathPlan.disposition = PlannedPathDisposition::SkipNoDemand;
-        pathPlan.resultVisibility =
-            ResultVisibilityPolicy::SupplementalStatusOnly;
         pathPlan.planningMessage =
             demandPolicy
                     == ExecutionDemandPolicy::
@@ -213,7 +209,6 @@ void finalizeDisposition(PathExecutionPlan    &pathPlan,
     }
 
     pathPlan.disposition = PlannedPathDisposition::Execute;
-    pathPlan.resultVisibility = ResultVisibilityPolicy::PrimaryResults;
     pathPlan.planningMessage.clear();
 }
 

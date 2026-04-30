@@ -107,26 +107,6 @@ QMap<QString, QVariant> defaultProperties(const QString &type)
     props[QStringLiteral("Name")]              = type;
     props[QStringLiteral("Show on Global Map")] = true;
 
-    // Interface set derived from the typed single source of truth.
-    // Convert typed → canonical strings at the property-bag boundary so the
-    // PropertiesPanel UI editor (which still works in strings) sees the
-    // unchanged "Available Interfaces" schema.
-    const auto pair = interfacesFor(type);
-    auto typedToStringList =
-        [](const QSet<TransportationTypes::TransportationMode> &modes) {
-            QStringList out;
-            for (auto m : modes)
-            {
-                const QString s = interfaceModeCanonicalString(m);
-                if (!s.isEmpty()) out.append(s);
-            }
-            return out;
-        };
-    QMap<QString, QVariant> interfaces;
-    interfaces[QStringLiteral("land_side")] = typedToStringList(pair.first);
-    interfaces[QStringLiteral("sea_side")]  = typedToStringList(pair.second);
-    props[QStringLiteral("Available Interfaces")] = interfaces;
-
     QMap<QString, QVariant> cost;
     cost[QStringLiteral("fixed_fees")]   = QStringLiteral("400");
     cost[QStringLiteral("customs_fees")] = QStringLiteral("100");

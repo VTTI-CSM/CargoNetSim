@@ -19,6 +19,16 @@ class TerminalSimulationClient;
 namespace Scenario
 {
 
+enum class TerminalInventoryArrivalSemantics
+{
+    Infer,
+    RuntimeArrival,
+    Preload
+};
+
+QString terminalInventoryArrivalSemanticsToWire(
+    TerminalInventoryArrivalSemantics semantics);
+
 class TerminalInventoryGateway
 {
 public:
@@ -28,7 +38,9 @@ public:
         const QString                     &terminalId,
         QList<ContainerCore::Container *> &containers,
         double                             addTimeSeconds,
-        const QString                     &arrivalMode) = 0;
+        const QString                     &arrivalMode,
+        TerminalInventoryArrivalSemantics arrivalSemantics =
+            TerminalInventoryArrivalSemantics::Infer) = 0;
 
     virtual QJsonObject reserveContainers(
         const QString     &terminalId,
@@ -37,7 +49,8 @@ public:
 
     virtual QJsonObject commitContainerReservation(
         const QString &terminalId,
-        const QString &reservationId) = 0;
+        const QString &reservationId,
+        double operationTimeSeconds) = 0;
 
     virtual QJsonObject releaseContainerReservation(
         const QString &terminalId,
@@ -55,7 +68,9 @@ public:
         const QString                     &terminalId,
         QList<ContainerCore::Container *> &containers,
         double                             addTimeSeconds,
-        const QString                     &arrivalMode) override;
+        const QString                     &arrivalMode,
+        TerminalInventoryArrivalSemantics arrivalSemantics =
+            TerminalInventoryArrivalSemantics::Infer) override;
 
     QJsonObject reserveContainers(
         const QString     &terminalId,
@@ -64,7 +79,8 @@ public:
 
     QJsonObject commitContainerReservation(
         const QString &terminalId,
-        const QString &reservationId) override;
+        const QString &reservationId,
+        double operationTimeSeconds) override;
 
     QJsonObject releaseContainerReservation(
         const QString &terminalId,

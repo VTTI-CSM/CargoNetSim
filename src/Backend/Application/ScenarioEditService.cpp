@@ -7,7 +7,10 @@
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/TerminalTypeDefaults.h"
 
+#include <QSet>
 #include <QUuid>
+
+#include <cmath>
 
 namespace CargoNetSim
 {
@@ -26,6 +29,18 @@ Scenario::LatLon toLatLon(const QPointF &p)
     return Scenario::LatLon{p.y(), p.x()};
 }
 
+Scenario::TerminalPlacement::InterfaceSet defaultInterfacesForType(
+    const QString &terminalType)
+{
+    Scenario::TerminalPlacement::InterfaceSet interfaces;
+    const auto defaults =
+        Scenario::TerminalTypeDefaults::interfacesFor(terminalType);
+    interfaces.landSide = defaults.first;
+    interfaces.seaSide  = defaults.second;
+    interfaces.isSet    = true;
+    return interfaces;
+}
+
 void applyRoleSideEffects(Scenario::TerminalPlacement &p)
 {
     using Role = Scenario::TerminalPlacement::TerminalRole;
@@ -34,13 +49,13 @@ void applyRoleSideEffects(Scenario::TerminalPlacement &p)
         if (p.properties
                 .value(PK::Terminal::InitialContainerCount, 0)
                 .toInt()
-            == 0)
+            <= 0)
         {
             p.properties[PK::Terminal::InitialContainerCount] =
                 100;
         }
     }
-    else if (p.role == Role::Transit)
+    else
     {
         p.properties.remove(
             PK::Terminal::InitialContainerCount);
@@ -48,6 +63,57 @@ void applyRoleSideEffects(Scenario::TerminalPlacement &p)
             PK::Terminal::DestinationTerminal);
         p.properties.remove(PK::Terminal::Destinations);
     }
+}
+
+bool destinationExists(const Scenario::ScenarioDocument *doc,
+                       const QString                    &terminalId)
+{
+    return doc && !terminalId.isEmpty()
+           && doc->terminals.contains(terminalId);
+}
+
+bool validateDestinationRoutes(const Scenario::ScenarioDocument              *doc,
+                               const QString                                &originId,
+                               const QList<Scenario::DestinationRoute>      &routes)
+{
+    if (!destinationExists(doc, originId)
+        || !doc->isOrigin(originId)
+        || routes.isEmpty())
+    {
+        return false;
+    }
+
+    QSet<QString> seen;
+    double        fractionSum = 0.0;
+    for (const auto &route : routes)
+    {
+        if (!destinationExists(doc, route.terminal)
+            || route.terminal == originId
+            || route.fraction <= 0.0
+            || seen.contains(route.terminal))
+        {
+            return false;
+        }
+        seen.insert(route.terminal);
+        fractionSum += route.fraction;
+    }
+
+    return std::abs(fractionSum - 1.0) <= 1e-6;
+}
+
+QVariantList destinationRoutesToVariantList(
+    const QList<Scenario::DestinationRoute> &routes)
+{
+    QVariantList out;
+    out.reserve(routes.size());
+    for (const auto &route : routes)
+    {
+        QVariantMap row;
+        row[PK::Terminal::DestTerminal] = route.terminal;
+        row[PK::Terminal::DestFraction] = route.fraction;
+        out.append(row);
+    }
+    return out;
 }
 
 } // namespace
@@ -62,6 +128,14 @@ QString ScenarioEditService::createTerminal(
     using namespace Scenario;
     if (!doc)
         return QString();
+    if (!TerminalTypeDefaults::isValidType(terminalType))
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioEditService::createTerminal:"
+            << "invalid terminal type:" << terminalType;
+        return QString();
+    }
+
     qCInfo(lcGuiScene) << "ScenarioEditService::createTerminal:"
                        << "type=" << terminalType
                        << "region=" << region << "role="
@@ -78,6 +152,7 @@ QString ScenarioEditService::createTerminal(
     p.latLon = toLatLon(localLatLon);
     p.properties =
         TerminalTypeDefaults::defaultProperties(terminalType);
+    p.interfaces = defaultInterfacesForType(terminalType);
     p.role = role;
     applyRoleSideEffects(p);
 
@@ -143,8 +218,8 @@ bool ScenarioEditService::setTerminalType(
     p.type = newType;
     p.properties =
         TerminalTypeDefaults::defaultProperties(newType);
+    p.interfaces = defaultInterfacesForType(newType);
     applyRoleSideEffects(p);
-    p.interfaces = {};
 
     return doc->updateTerminal(terminalId, p);
 }
@@ -178,6 +253,41 @@ bool ScenarioEditService::updateTerminalPosition(
     return doc->updateTerminal(terminalId, p);
 }
 
+bool ScenarioEditService::updateTerminalPlacement(
+    Scenario::ScenarioDocument         *doc,
+    const QString                      &terminalId,
+    const Scenario::TerminalPlacement &placement)
+{
+    using namespace Scenario;
+    if (!doc || !doc->terminals.contains(terminalId))
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioEditService::updateTerminalPlacement:"
+            << "doc null or terminal not found:" << terminalId;
+        return false;
+    }
+    if (!placement.id.isEmpty() && placement.id != terminalId)
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioEditService::updateTerminalPlacement:"
+            << "id mismatch:" << terminalId << placement.id;
+        return false;
+    }
+    if (!TerminalTypeDefaults::isValidType(placement.type))
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioEditService::updateTerminalPlacement:"
+            << "invalid terminal type:" << placement.type;
+        return false;
+    }
+
+    TerminalPlacement sanitized = placement;
+    sanitized.id = terminalId;
+    sanitized.properties.remove(QStringLiteral("Available Interfaces"));
+    applyRoleSideEffects(sanitized);
+    return doc->updateTerminal(terminalId, sanitized);
+}
+
 bool ScenarioEditService::setTerminalProperty(
     Scenario::ScenarioDocument *doc,
     const QString              &terminalId,
@@ -198,6 +308,67 @@ bool ScenarioEditService::setTerminalProperty(
     else
         p.properties.remove(key);
     return doc->updateTerminal(terminalId, p);
+}
+
+bool ScenarioEditService::setOriginDestinationScalar(
+    Scenario::ScenarioDocument *doc,
+    const QString              &originTerminalId,
+    const QString              &destinationTerminalId)
+{
+    using namespace Scenario;
+    if (!destinationExists(doc, originTerminalId)
+        || !doc->isOrigin(originTerminalId)
+        || !destinationExists(doc, destinationTerminalId)
+        || originTerminalId == destinationTerminalId)
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioEditService::setOriginDestinationScalar:"
+            << "invalid origin/destination"
+            << originTerminalId << destinationTerminalId;
+        return false;
+    }
+
+    TerminalPlacement p = doc->terminals[originTerminalId];
+    p.properties[PK::Terminal::DestinationTerminal] =
+        destinationTerminalId;
+    p.properties.remove(PK::Terminal::Destinations);
+    return doc->updateTerminal(originTerminalId, p);
+}
+
+bool ScenarioEditService::setOriginDestinationRoutes(
+    Scenario::ScenarioDocument              *doc,
+    const QString                           &originTerminalId,
+    const QList<Scenario::DestinationRoute> &routes)
+{
+    using namespace Scenario;
+    if (!validateDestinationRoutes(doc, originTerminalId, routes))
+    {
+        qCWarning(lcGuiScene)
+            << "ScenarioEditService::setOriginDestinationRoutes:"
+            << "invalid routes for origin" << originTerminalId
+            << "routeCount=" << routes.size();
+        return false;
+    }
+
+    TerminalPlacement p = doc->terminals[originTerminalId];
+    p.properties[PK::Terminal::Destinations] =
+        destinationRoutesToVariantList(routes);
+    p.properties.remove(PK::Terminal::DestinationTerminal);
+    return doc->updateTerminal(originTerminalId, p);
+}
+
+bool ScenarioEditService::clearOriginDestinations(
+    Scenario::ScenarioDocument *doc,
+    const QString              &originTerminalId)
+{
+    using namespace Scenario;
+    if (!destinationExists(doc, originTerminalId))
+        return false;
+
+    TerminalPlacement p = doc->terminals[originTerminalId];
+    p.properties.remove(PK::Terminal::DestinationTerminal);
+    p.properties.remove(PK::Terminal::Destinations);
+    return doc->updateTerminal(originTerminalId, p);
 }
 
 bool ScenarioEditService::linkTerminalToNode(
@@ -559,6 +730,19 @@ bool ScenarioEditService::updateFleet(
                        << "trainFiles=" << fleet.trainsFiles.size()
                        << "shipFiles=" << fleet.shipsFiles.size();
     doc->fleet = fleet;
+    return true;
+}
+
+bool ScenarioEditService::updateComparisonSnapshots(
+    Scenario::ScenarioDocument *doc,
+    const QList<QJsonObject>   &snapshots)
+{
+    if (!doc)
+        return false;
+    qCInfo(lcGuiScene)
+        << "ScenarioEditService::updateComparisonSnapshots"
+        << "snapshots=" << snapshots.size();
+    doc->comparisonSnapshots = snapshots;
     return true;
 }
 

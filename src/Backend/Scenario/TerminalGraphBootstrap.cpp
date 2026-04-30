@@ -11,6 +11,7 @@
 #include "GlobalLink.h"
 #include "RouteMetricUnits.h"
 #include "ScenarioDocument.h"
+#include "ScenarioEndpointResolver.h"
 #include "ScenarioRegistry.h"
 #include "SimulatorCommandAvailability.h"
 
@@ -155,6 +156,23 @@ bool TerminalGraphBootstrap::resetAndLoad(
     }
     for (const auto &globalLink : document.globalLinks)
     {
+        const auto fromEndpoint =
+            resolveTerminalEndpoint(document, globalLink.fromTerminalId);
+        const auto toEndpoint =
+            resolveTerminalEndpoint(document, globalLink.toTerminalId);
+        if (!fromEndpoint.found || !toEndpoint.found)
+        {
+            const QString message =
+                QStringLiteral("Global link endpoint cannot be resolved: %1 -> %2")
+                    .arg(globalLink.fromTerminalId, globalLink.toTerminalId);
+            qCWarning(lcScenario) << op << message;
+            setError(error, message);
+            qDeleteAll(routes);
+            return false;
+        }
+
+        const QString fromTerminalId = fromEndpoint.terminalId;
+        const QString toTerminalId = toEndpoint.terminalId;
         const QStringList missingKeys =
             RouteMetricUnits::missingCanonicalRouteMetricKeys(
                 globalLink.properties);
@@ -165,15 +183,17 @@ bool TerminalGraphBootstrap::resetAndLoad(
                 << "global link"
                 << globalLink.fromTerminalId
                 << "->" << globalLink.toTerminalId
+                << "canonical=" << fromTerminalId
+                << "->" << toTerminalId
                 << "is missing canonical route metrics"
                 << missingKeys;
         }
         routes.append(new PathSegment(
-            makeSegmentId(globalLink.fromTerminalId,
-                          globalLink.toTerminalId,
+            makeSegmentId(fromTerminalId,
+                          toTerminalId,
                           globalLink.mode),
-            globalLink.fromTerminalId,
-            globalLink.toTerminalId,
+            fromTerminalId,
+            toTerminalId,
             globalLink.mode,
             RouteMetricUnits::routeAttributesFromCanonical(
                 globalLink.properties)));

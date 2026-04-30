@@ -2,6 +2,7 @@
 
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/GuiApi/ScenarioDocumentApi.h"
+#include "Backend/Scenario/ScenarioEndpointResolver.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/GlobalTerminalItem.h"
 #include "GUI/Items/TerminalItem.h"
@@ -132,17 +133,33 @@ ConnectionLine *ConnectionLineFactory::fromGlobalLink(
         << "from=" << link->fromTerminalId
         << "to=" << link->toTerminalId;
 
-    // GlobalTerminalItem::getID() (Task 4 follow-up) returns the linked
-    // terminal's id, so the scene's registry is keyed by terminal id.
-    // O(1) lookup via the type-indexed registry; no scan needed.
+    const auto fromEndpoint =
+        Backend::Scenario::resolveTerminalEndpoint(*doc, link->fromTerminalId);
+    const auto toEndpoint =
+        Backend::Scenario::resolveTerminalEndpoint(*doc, link->toTerminalId);
+    if (!fromEndpoint.found || !toEndpoint.found)
+    {
+        qCWarning(lcGuiScene)
+            << "ConnectionLineFactory::fromGlobalLink:"
+            << "global link endpoint cannot be resolved"
+            << link->fromTerminalId << "->" << link->toTerminalId;
+        return nullptr;
+    }
+
+    // GlobalTerminalItem::getID() returns the linked terminal's canonical id,
+    // while GlobalLink endpoints may be stored as "region/id". Resolve once at
+    // the boundary so reload/rendering follows the same endpoint contract as
+    // validation and TerminalSim bootstrap.
     auto *startItem = globalScene->getItemById<GlobalTerminalItem>(
-        link->fromTerminalId);
+        fromEndpoint.terminalId);
     auto *endItem = globalScene->getItemById<GlobalTerminalItem>(
-        link->toTerminalId);
+        toEndpoint.terminalId);
     qCDebug(lcGuiScene)
         << "ConnectionLineFactory::fromGlobalLink:"
         << "startItem=" << startItem
-        << "endItem=" << endItem;
+        << "endItem=" << endItem
+        << "canonical=" << fromEndpoint.terminalId
+        << "->" << toEndpoint.terminalId;
     if (!startItem || !endItem)
     {
         qCWarning(lcGuiScene)

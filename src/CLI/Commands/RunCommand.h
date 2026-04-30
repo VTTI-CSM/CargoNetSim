@@ -52,6 +52,9 @@ namespace Cli {
  * selects a comma-separated subset by the 1-based presentation index
  * shown by `cargonetsim-cli discover`; the command translates those
  * indexes to stable prepared-path identities before simulation.
+ * `--top N` overrides the discovery count exactly like `discover --top N`
+ * so a larger discovery table can be selected from without editing the
+ * scenario.
  * Every selected alternative executes as an isolated what-if run under
  * duplicate-demand comparison policy. A bare scenario path is treated
  * as an alias for `--all`.

@@ -11,7 +11,9 @@
 #include "Backend/Scenario/SimulationSettings.h"
 #include "Backend/Scenario/TerminalPlacement.h"
 
+#include <QJsonObject>
 #include <QPointF>
+#include <QList>
 #include <QString>
 #include <QVariant>
 
@@ -22,6 +24,7 @@ namespace Backend
 namespace Scenario
 {
 class ScenarioDocument;
+struct DestinationRoute;
 }
 
 namespace Application
@@ -57,11 +60,30 @@ public:
         const QString              &terminalId,
         const QPointF              &localLatLon);
 
+    static bool updateTerminalPlacement(
+        Scenario::ScenarioDocument         *doc,
+        const QString                      &terminalId,
+        const Scenario::TerminalPlacement &placement);
+
     static bool setTerminalProperty(
         Scenario::ScenarioDocument *doc,
         const QString              &terminalId,
         const QString              &key,
         const QVariant             &value);
+
+    static bool setOriginDestinationScalar(
+        Scenario::ScenarioDocument *doc,
+        const QString              &originTerminalId,
+        const QString              &destinationTerminalId);
+
+    static bool setOriginDestinationRoutes(
+        Scenario::ScenarioDocument              *doc,
+        const QString                           &originTerminalId,
+        const QList<Scenario::DestinationRoute> &routes);
+
+    static bool clearOriginDestinations(
+        Scenario::ScenarioDocument *doc,
+        const QString              &originTerminalId);
 
     static bool linkTerminalToNode(
         Scenario::ScenarioDocument *doc,
@@ -175,6 +197,10 @@ public:
     static bool updateFleet(
         Scenario::ScenarioDocument *doc,
         const Scenario::FleetSpec  &fleet);
+
+    static bool updateComparisonSnapshots(
+        Scenario::ScenarioDocument *doc,
+        const QList<QJsonObject>   &snapshots);
 
     static bool restoreConnection(
         Scenario::ScenarioDocument *doc,

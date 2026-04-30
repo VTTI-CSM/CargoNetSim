@@ -878,8 +878,26 @@ bool ScenarioExecutor::run()
             << "ScenarioExecutor::run: coordinator initialized"
             << "dispatchableSegments=" << m_dispatchableSegments.size();
 
+        const double deltaTSeconds =
+            resolveTimeStepSeconds(*m_document, config);
+        const auto endTimeSeconds =
+            resolveEndTimeSeconds(*m_document);
+
         if (m_executionPlan.executablePathCount() > 0)
         {
+            if (terminalClient
+                && !terminalClient->resetRuntimeState())
+            {
+                const QString message = QStringLiteral(
+                    "Failed to reset TerminalSim runtime state before execution");
+                qCWarning(lcScenario)
+                    << "ScenarioExecutor::run:" << message;
+                emit errorMessage(message);
+                emit failed(message);
+                emit finished();
+                return false;
+            }
+
             if (!coordinator.seedContainers(allocation, &err))
             {
                 const QString message =
@@ -918,6 +936,21 @@ bool ScenarioExecutor::run()
                 qCWarning(lcScenario)
                     << "ScenarioExecutor::run: terminal inventory seed failed:"
                     << message;
+                emit errorMessage(message);
+                emit failed(message);
+                emit finished();
+                return false;
+            }
+
+            if (terminalClient
+                && !terminalClient->updateAllTerminalsSystemDynamics(
+                    0.0,
+                    deltaTSeconds))
+            {
+                const QString message = QStringLiteral(
+                    "Failed to initialize TerminalSim system dynamics at CargoNetSim time zero");
+                qCWarning(lcScenario)
+                    << "ScenarioExecutor::run:" << message;
                 emit errorMessage(message);
                 emit failed(message);
                 emit finished();
@@ -992,10 +1025,6 @@ bool ScenarioExecutor::run()
             controller.getShipClient(), controller.getTruckManager(),
             controller.truckExecutablePath());
 
-        const double deltaTSeconds =
-            resolveTimeStepSeconds(*m_document, config);
-        const auto endTimeSeconds =
-            resolveEndTimeSeconds(*m_document);
         double currentTimeSeconds = 0.0;
         int waveCounter = 0;
         LiveExecutionTimeOverrideGuard liveClockGuard{
@@ -1258,7 +1287,9 @@ bool ScenarioExecutor::run()
 
                 if (pickupCoordinator
                     && !pickupCoordinator->commitReservations(
-                        wave.pickupReservations, &err))
+                        wave.pickupReservations,
+                        currentTimeSeconds,
+                        &err))
                 {
                     err = err.isEmpty()
                         ? QStringLiteral(

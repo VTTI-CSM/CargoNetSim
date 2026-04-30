@@ -2,6 +2,7 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
 #include "PropertyKeys.h"
+#include "ScenarioEndpointResolver.h"
 #include "TerminalTypeDefaults.h"
 
 #include <QSet>
@@ -34,6 +35,34 @@ void warn(QList<ValidationIssue> &out, const QString &path, const QString &msg)
     i.path     = path;
     i.message  = msg;
     out.append(i);
+}
+
+QPair<QSet<TransportationTypes::TransportationMode>,
+      QSet<TransportationTypes::TransportationMode>>
+interfacesForTerminal(const TerminalPlacement &terminal)
+{
+    if (terminal.interfaces.isSet)
+        return {terminal.interfaces.landSide,
+                terminal.interfaces.seaSide};
+    return TerminalTypeDefaults::interfacesFor(terminal.type);
+}
+
+bool terminalSupportsMode(
+    const TerminalPlacement &terminal,
+    TransportationTypes::TransportationMode mode)
+{
+    if (mode == TransportationTypes::TransportationMode::Any)
+        return false;
+
+    const auto interfaces = interfacesForTerminal(terminal);
+    return interfaces.first.contains(mode)
+           || interfaces.second.contains(mode);
+}
+
+QString modeLabel(TransportationTypes::TransportationMode mode)
+{
+    const QString label = transportationModeToString(mode);
+    return label.isEmpty() ? QStringLiteral("Any") : label;
 }
 
 } // namespace
@@ -176,10 +205,23 @@ void ScenarioValidator::checkLinkages(const ScenarioDocument &doc,
 {
     qCDebug(lcScenario) << "ScenarioValidator::checkLinkages:"
                         << doc.linkages.size() << "linkages";
+    QSet<QString> seen;
+
     for (int i = 0; i < doc.linkages.size(); ++i)
     {
         const NodeLinkage &l = doc.linkages.at(i);
         const QString path = QStringLiteral("linkages[%1]").arg(i);
+        const QString key =
+            l.terminalId + QLatin1Char('|')
+            + l.networkName + QLatin1Char('|')
+            + QString::number(l.nodeId);
+
+        if (seen.contains(key))
+            err(out, path,
+                QStringLiteral("Duplicate linkage for the same "
+                               "(terminal, network, node_id) identity"));
+        else
+            seen.insert(key);
 
         if (!doc.terminals.contains(l.terminalId))
         {
@@ -230,8 +272,12 @@ void ScenarioValidator::checkConnections(const ScenarioDocument &doc,
         if (doc.terminals.contains(c.fromTerminalId) &&
             doc.terminals.contains(c.toTerminalId))
         {
-            const QString rf = doc.terminals[c.fromTerminalId].region;
-            const QString rt = doc.terminals[c.toTerminalId].region;
+            const TerminalPlacement &fromTerminal =
+                doc.terminals[c.fromTerminalId];
+            const TerminalPlacement &toTerminal =
+                doc.terminals[c.toTerminalId];
+            const QString rf = fromTerminal.region;
+            const QString rt = toTerminal.region;
             if (rf != rt)
                 err(out, path,
                     QStringLiteral("Endpoints must be in the same region (%1 vs %2); "
@@ -242,6 +288,17 @@ void ScenarioValidator::checkConnections(const ScenarioDocument &doc,
                                    "endpoints' region '%2' (Connection.region is "
                                    "a redundant cross-check field; drop it or keep "
                                    "it consistent)").arg(c.region, rf));
+            if (c.mode != TransportationTypes::TransportationMode::Any)
+            {
+                if (!terminalSupportsMode(fromTerminal, c.mode))
+                    err(out, path + ".from",
+                        QStringLiteral("Terminal '%1' does not support route mode '%2'")
+                            .arg(c.fromTerminalId, modeLabel(c.mode)));
+                if (!terminalSupportsMode(toTerminal, c.mode))
+                    err(out, path + ".to",
+                        QStringLiteral("Terminal '%1' does not support route mode '%2'")
+                            .arg(c.toTerminalId, modeLabel(c.mode)));
+            }
         }
         // Connection.mode is now a strongly-typed enum
         // (TransportationTypes::TransportationMode); the type system
@@ -261,19 +318,6 @@ void ScenarioValidator::checkGlobalLinks(const ScenarioDocument &doc,
     qCDebug(lcScenario) << "ScenarioValidator::checkGlobalLinks:"
                         << doc.globalLinks.size() << "global links";
     QSet<QString> seen;
-    auto regionOf = [&](const QString &qualified, QString *foundRegion) -> bool
-    {
-        const int slash = qualified.indexOf('/');
-        if (slash >= 0)
-        {
-            *foundRegion = qualified.left(slash);
-            return doc.regions.contains(*foundRegion);
-        }
-        const QString id = qualified;
-        if (!doc.terminals.contains(id)) return false;
-        *foundRegion = doc.terminals[id].region;
-        return true;
-    };
 
     for (int i = 0; i < doc.globalLinks.size(); ++i)
     {
@@ -290,11 +334,19 @@ void ScenarioValidator::checkGlobalLinks(const ScenarioDocument &doc,
         else
             seen.insert(key);
 
-        QString rf, rt;
-        if (!regionOf(g.fromTerminalId, &rf))
+        const auto fromEndpoint =
+            resolveTerminalEndpoint(doc, g.fromTerminalId);
+        const auto toEndpoint =
+            resolveTerminalEndpoint(doc, g.toTerminalId);
+        const TerminalPlacement *fromTerminal = fromEndpoint.terminal;
+        const TerminalPlacement *toTerminal = toEndpoint.terminal;
+        const QString rf = fromEndpoint.region;
+        const QString rt = toEndpoint.region;
+
+        if (!fromTerminal)
             err(out, path + ".from",
                 QStringLiteral("Unknown terminal '%1'").arg(g.fromTerminalId));
-        if (!regionOf(g.toTerminalId, &rt))
+        if (!toTerminal)
             err(out, path + ".to",
                 QStringLiteral("Unknown terminal '%1'").arg(g.toTerminalId));
 
@@ -302,6 +354,17 @@ void ScenarioValidator::checkGlobalLinks(const ScenarioDocument &doc,
             err(out, path,
                 QStringLiteral("global_link endpoints must live in different regions (both in %1)")
                     .arg(rf));
+        if (g.mode != TransportationTypes::TransportationMode::Any)
+        {
+            if (fromTerminal && !terminalSupportsMode(*fromTerminal, g.mode))
+                err(out, path + ".from",
+                    QStringLiteral("Terminal '%1' does not support global link mode '%2'")
+                        .arg(g.fromTerminalId, modeLabel(g.mode)));
+            if (toTerminal && !terminalSupportsMode(*toTerminal, g.mode))
+                err(out, path + ".to",
+                    QStringLiteral("Terminal '%1' does not support global link mode '%2'")
+                        .arg(g.toTerminalId, modeLabel(g.mode)));
+        }
 
         // Same enum invariant as connections — type system handles
         // the rest.
@@ -423,7 +486,9 @@ void ScenarioValidator::checkOriginContainers(
     //   2. count > 0 but neither form set → error
     //   3. destination terminal id must exist in doc.terminals
     //   4. origin may not self-reference as destination
-    //   5. (list form only) fractions must sum to 1.0 within 1e-6
+    //   5. destination ids must be unique within an origin route list
+    //   6. (list form only) fractions must be positive and sum to 1.0
+    //      within 1e-6
     //
     // Rule evaluation is per-origin so a single malformed terminal does not
     // mask other issues — every offending id produces at least one issue.
@@ -432,9 +497,20 @@ void ScenarioValidator::checkOriginContainers(
     {
         const QString                 &id    = it.key();
         const QMap<QString, QVariant> &props = it.value().properties;
+        const bool hasInitialCount =
+            props.contains(PK::Terminal::InitialContainerCount);
+        bool countOk = true;
         const int count =
             props.value(PK::Terminal::InitialContainerCount, 0)
-                .toInt();
+                .toInt(&countOk);
+        if (hasInitialCount && (!countOk || count < 0))
+        {
+            err(out,
+                QStringLiteral("terminals[%1].initial_container_count")
+                    .arg(id),
+                QStringLiteral("initial_container_count must be a non-negative integer"));
+            continue;
+        }
         if (count <= 0) continue;
 
         const QString path = QStringLiteral("terminals[%1]").arg(id);
@@ -464,6 +540,7 @@ void ScenarioValidator::checkOriginContainers(
         // logic (violates DRY).
         const auto routes = doc.destinationsFor(id);
         double fractionSum = 0.0;
+        QSet<QString> seenDestinations;
         for (const auto &r : routes)
         {
             fractionSum += r.fraction;
@@ -475,6 +552,16 @@ void ScenarioValidator::checkOriginContainers(
             if (!doc.terminals.contains(r.terminal))
                 err(out, path,
                     QStringLiteral("unknown destination terminal '%1'")
+                        .arg(r.terminal));
+            if (seenDestinations.contains(r.terminal))
+                err(out, path,
+                    QStringLiteral("duplicate destination terminal '%1'")
+                        .arg(r.terminal));
+            seenDestinations.insert(r.terminal);
+            if (hasList && r.fraction <= 0.0)
+                err(out, path,
+                    QStringLiteral(
+                        "destination '%1' fraction must be positive")
                         .arg(r.terminal));
         }
         if (hasList && qAbs(fractionSum - 1.0) > 1e-6)

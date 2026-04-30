@@ -266,7 +266,7 @@ void MapPoint::buildContextMenu(QMenu* menu, const Input::ClickContext& ctx)
         menu->addMenu(QStringLiteral("Create Terminal at Node"));
 
     QAction *originAction =
-        createTerminalMenu->addAction(QStringLiteral("Origin"));
+        createTerminalMenu->addAction(QStringLiteral("Origin Facility"));
     QObject::connect(originAction, &QAction::triggered,
                      [self, doc, createBus]() {
         if (!self) return;
@@ -276,7 +276,7 @@ void MapPoint::buildContextMenu(QMenu* menu, const Input::ClickContext& ctx)
     });
 
     QAction *destinationAction =
-        createTerminalMenu->addAction(QStringLiteral("Destination"));
+        createTerminalMenu->addAction(QStringLiteral("Destination Facility"));
     QObject::connect(destinationAction, &QAction::triggered,
                      [self, doc, createBus]() {
         if (!self) return;
@@ -416,8 +416,6 @@ void MapPoint::createTerminalAtPosition(
         networkView.networkNameOf(m_referenceNetwork);
     const int     nodeId      = getReferencedNetworkNodeID().toInt();
 
-    // Preferred path: submit the composite command so creation + linkage
-    // are both persisted in the document and reversible via undo.
     if (doc && bus && !networkName.isEmpty())
     {
         // Resolve the local lat/lon the same way TerminalController does
@@ -441,24 +439,16 @@ void MapPoint::createTerminalAtPosition(
         return;
     }
 
-    // Fallback: legacy view-only path when the input context could not
-    // supply the document/bus or the network name is not resolvable.
     qCWarning(lcGuiScene)
-        << "MapPoint::createTerminalAtPosition: legacy view-only path"
+        << "MapPoint::createTerminalAtPosition:"
+        << "missing canonical creation context"
         << "(doc=" << (doc ? "ok" : "null")
         << ", bus=" << (bus ? "ok" : "null")
         << ", networkName=" << networkName << ")";
-
-    TerminalItem *newTerminal =
-        mainWindow->terminalCtrl()->createTerminalAtPoint(
-            region, terminalType, pos(), role);
-
-    // Link the newly created terminal to this map point
-    if (newTerminal)
-    {
-        UtilitiesFunctions::linkMapPointToTerminal(
-            mainWindow, this, newTerminal);
-    }
+    mainWindow->showStatusBarError(
+        QObject::tr("Cannot create terminal here: missing scenario, "
+                    "command bus, or network identity."),
+        4000);
 }
 
 QMap<QString, QVariant> MapPoint::toDict() const

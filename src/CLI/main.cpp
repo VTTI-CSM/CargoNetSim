@@ -25,7 +25,7 @@
 
 #include "Commands/ConnectionsCommand.h"
 #include "Commands/HelpVersion.h"
-#include "Commands/PathsCommand.h"
+#include "Commands/DiscoverCommand.h"
 #include "Commands/PreviewCommand.h"
 #include "Commands/RunCommand.h"
 #include "Commands/ValidateCommand.h"
@@ -98,11 +98,8 @@ int main(int argc, char *argv[])
                       std::make_shared<ValidateCommand>());
     d.registerCommand(QStringLiteral("preview"),
                       std::make_shared<PreviewCommand>());
-    auto discover = std::make_shared<PathsCommand>();
+    auto discover = std::make_shared<DiscoverCommand>();
     d.registerCommand(QStringLiteral("discover"), discover);
-    // Compatibility alias for existing scripts. The documented command
-    // name is `discover` so it is not confused with `run --paths`.
-    d.registerCommand(QStringLiteral("paths"), discover);
     d.registerCommand(QStringLiteral("connections"),
                       std::make_shared<ConnectionsCommand>());
 

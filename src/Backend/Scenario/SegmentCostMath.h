@@ -33,7 +33,7 @@ namespace Scenario
  * @brief Per-mode segment cost math + segment-attribute writeback.
  *
  * This namespace exists for **separation of concerns**, not for
- * multi-consumer DRY. Same rationale as `TerminalCostMath`:
+ * multi-consumer DRY:
  *
  *   - **Testability.** Per-mode scalar math stays free of orchestration
  *     coupling; inputs are client pointers and plain structs, so tests

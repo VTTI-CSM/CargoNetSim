@@ -1,4 +1,4 @@
-#include "PathsCommand.h"
+#include "DiscoverCommand.h"
 
 #include <QIODevice>
 #include <QJsonArray>
@@ -34,6 +34,7 @@ struct Options
     QString scenarioPath;
     bool    json = false;
     bool    details = false;
+    bool    verbose = false;
     bool    hasTopOverride = false;
     int     topOverride = 0;
 };
@@ -45,10 +46,30 @@ struct TableColumn
     bool    rightAligned = false;
 };
 
-void emitStatus(QIODevice *sink, const QString &message)
+void emitStatus(QIODevice *sink, const Options &options,
+                const QString &message)
 {
+    if (!options.verbose)
+        return;
+
     streamToOr(sink, stderr,
                QStringLiteral("discover: %1\n").arg(message));
+}
+
+bool parseTopValue(const QString &value, int *topOverride,
+                   QString *error)
+{
+    bool ok = false;
+    const int parsed = value.toInt(&ok);
+    if (!ok || parsed <= 0)
+    {
+        *error = QStringLiteral(
+            "discover: --top requires a positive integer\n");
+        return false;
+    }
+
+    *topOverride = parsed;
+    return true;
 }
 
 QString modeName(Backend::TransportationTypes::TransportationMode mode)
@@ -562,6 +583,11 @@ bool parseArgs(const QStringList &args, Options &options,
             options.details = true;
             continue;
         }
+        if (arg == QLatin1String("--verbose"))
+        {
+            options.verbose = true;
+            continue;
+        }
         if (arg == QLatin1String("--top"))
         {
             if (i + 1 >= args.size())
@@ -571,24 +597,28 @@ bool parseArgs(const QStringList &args, Options &options,
                 return false;
             }
 
-            bool ok = false;
-            const int value = args.at(++i).toInt(&ok);
-            if (!ok || value <= 0)
-            {
-                *error = QStringLiteral(
-                    "discover: --top requires a positive integer\n");
+            if (!parseTopValue(args.at(++i),
+                               &options.topOverride, error))
                 return false;
-            }
 
             options.hasTopOverride = true;
-            options.topOverride = value;
+            continue;
+        }
+        if (arg.startsWith(QLatin1String("--top=")))
+        {
+            if (!parseTopValue(
+                    arg.mid(QStringLiteral("--top=").size()),
+                    &options.topOverride, error))
+                return false;
+
+            options.hasTopOverride = true;
             continue;
         }
         if (arg.startsWith(QLatin1Char('-')))
         {
             *error = QStringLiteral(
                 "discover: unsupported flag '%1' "
-                "(supported: --top N, --json, --details)\n")
+                "(supported: --top N, --json, --details, --verbose)\n")
                          .arg(arg);
             return false;
         }
@@ -615,22 +645,23 @@ bool parseArgs(const QStringList &args, Options &options,
 
 } // namespace
 
-PathsCommand::PathsCommand(QIODevice *outSink, QIODevice *errSink)
+DiscoverCommand::DiscoverCommand(QIODevice *outSink,
+                                 QIODevice *errSink)
     : m_out(outSink)
     , m_err(errSink)
 {
 }
 
-int PathsCommand::execute(const QStringList &args)
+int DiscoverCommand::execute(const QStringList &args)
 {
-    qCInfo(lcCli) << "PathsCommand::execute: entry, args =" << args;
+    qCInfo(lcCli) << "DiscoverCommand::execute: entry, args =" << args;
 
     Options options;
     QString error;
     if (!parseArgs(args, options, &error))
     {
         qCWarning(lcCli)
-            << "PathsCommand::execute: bad arguments -"
+            << "DiscoverCommand::execute: bad arguments -"
             << error.trimmed();
         streamToOr(m_err, stderr, error);
         return static_cast<int>(ExitCode::BadArgs);
@@ -681,7 +712,8 @@ int PathsCommand::execute(const QStringList &args)
     auto stopGuard = qScopeGuard([&controller]() {
         controller.stopAll();
     });
-    emitStatus(m_err, QStringLiteral("backend clients started"));
+    emitStatus(m_err, options,
+               QStringLiteral("backend clients started"));
 
     auto loadResult =
         loadService.loadValidatedDocument(
@@ -696,14 +728,14 @@ int PathsCommand::execute(const QStringList &args)
     }
     Backend::Scenario::ScenarioRuntime &runtime =
         *loadResult.runtime;
-    emitStatus(m_err, QStringLiteral("scenario loaded"));
+    emitStatus(m_err, options, QStringLiteral("scenario loaded"));
 
     const int topN = options.hasTopOverride
         ? options.topOverride
         : controller.getSimulationParams()
               .value(QStringLiteral("shortest_paths"), 5)
               .toInt();
-    emitStatus(m_err,
+    emitStatus(m_err, options,
                QStringLiteral(
                    "discovering candidate paths (topN=%1)")
                    .arg(topN));
@@ -730,7 +762,7 @@ int PathsCommand::execute(const QStringList &args)
                 : ExitCode::RunFailed);
     }
 
-    emitStatus(m_err,
+    emitStatus(m_err, options,
                QStringLiteral("discovered %1 path(s)")
                    .arg(preparedResult.preparedPathCount));
 

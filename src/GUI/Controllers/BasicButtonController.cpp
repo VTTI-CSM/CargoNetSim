@@ -31,6 +31,7 @@
 #include "../Input/Modes/NormalMode.h"
 #include "../Input/Modes/UnlinkTerminalMode.h"
 #include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/ScenarioEditService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Application/ScenarioLoadService.h"
 #include "Backend/Commons/LogCategories.h"
@@ -563,7 +564,16 @@ void BasicButtonController::newProject(
                 QStringLiteral("#00FF00");
             defaultRegion.localOrigin    = {0.0, 0.0};
             defaultRegion.globalPosition = {0.0, 0.0};
-            doc->addRegion(defaultRegion);
+            if (!Backend::Application::ScenarioEditService::addRegion(
+                    doc.get(), defaultRegion))
+            {
+                qCCritical(lcGuiButton)
+                    << "newProject: failed to seed default region";
+                QMessageBox::critical(
+                    mainWindow, "New Project",
+                    "Failed to initialize the default region.");
+                return;
+            }
 
             Backend::Application::ScenarioLoadService loadService;
             auto loadResult =
@@ -681,16 +691,23 @@ void BasicButtonController::saveScenario(
         mainWindow->currentProjectPath_ = filePath;
     }
 
-    mainWindow->runtime()->document().comparisonSnapshots =
+    auto &document = mainWindow->runtime()->document();
+    const QList<QJsonObject> comparisonSnapshots =
         mainWindow->shortestPathTable_
             ? mainWindow->shortestPathTable_
-                  ->buildComparisonSnapshots(
-                      mainWindow->runtime()->document())
+                  ->buildComparisonSnapshots(document)
             : QList<QJsonObject>{};
+    if (!Backend::Application::ScenarioEditService::
+            updateComparisonSnapshots(&document, comparisonSnapshots))
+    {
+        qCWarning(lcGuiButton)
+            << "BasicButtonController::saveScenario:"
+            << "failed to update comparison snapshots";
+    }
 
     QString err;
     if (!ProjectSerializer::saveProject(
-            mainWindow->runtime()->document(), filePath, &err))
+            document, filePath, &err))
     {
         qCWarning(lcGuiButton) << "BasicButtonController::saveScenario:"
                                << "save failed:" << err;

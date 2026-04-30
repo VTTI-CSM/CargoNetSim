@@ -41,13 +41,6 @@ enum class PlannedPathDisposition
     PlanningFailure
 };
 
-enum class ResultVisibilityPolicy
-{
-    PrimaryResults,
-    SupplementalStatusOnly,
-    Hidden
-};
-
 enum class TerminalProcessingRequirement
 {
     None,
@@ -221,8 +214,6 @@ struct PathExecutionPlan
     QString planningMessage;
     PlannedPathDisposition disposition =
         PlannedPathDisposition::SkipNoDemand;
-    ResultVisibilityPolicy resultVisibility =
-        ResultVisibilityPolicy::SupplementalStatusOnly;
     QVector<SegmentExecutionPlan> segments;
     QVector<ExecutionTransition> transitions;
 

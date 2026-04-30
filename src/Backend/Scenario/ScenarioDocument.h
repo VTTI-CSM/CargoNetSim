@@ -116,9 +116,15 @@ public:
     // Terminal CRUD.
     bool addTerminal(const TerminalPlacement &t);
     bool removeTerminal(const QString &id);
+    /// Updates terminal fields without changing the terminal id. Region
+    /// changes are accepted only when the terminal has no region-scoped
+    /// linkages, connections, or global links; otherwise callers must edit
+    /// those dependencies explicitly before moving the terminal.
     bool updateTerminal(const QString &id, const TerminalPlacement &t);
 
-    // Network CRUD (nested inside a region).
+    // Network CRUD (nested inside a region). Removing a network drops its
+    // terminal-node linkages in that region; renaming a network reanchors
+    // those linkages to the new network name.
     bool addNetwork(const QString &region, const NetworkSpec &n);
     bool removeNetwork(const QString &region, const QString &network);
     bool renameNetwork(const QString &region,
@@ -156,6 +162,10 @@ public:
         const QString &fromId, const QString &toId,
         TransportationTypes::TransportationMode mode) const;
 
+    // Update payload fields for an existing identity. The identity fields
+    // themselves are immutable here; route/linkage identity changes must be
+    // represented explicitly as remove + add so duplicate checks and lifecycle
+    // signals stay correct.
     bool updateConnection(const QString &fromId,
                           const QString &toId,
                           TransportationTypes::TransportationMode mode,
@@ -172,10 +182,9 @@ public:
     // ---- Read-only query accessors (consumed by Plan 3's executor) ----
 
     /// Returns every linkage whose `terminalId` matches AND whose
-    /// `networkName` resolves to a network of the requested type.
-    /// Network-type resolution walks `regions.*.networks.*` to find the
-    /// matching `NetworkSpec` and reads its `type`. Linkages pointing at
-    /// unknown networks are silently skipped.
+    /// `networkName` resolves to a network of the requested type in the
+    /// terminal's owning region. Linkages pointing at unknown networks are
+    /// skipped.
     QList<NodeLinkage> linkagesFor(const QString     &terminalId,
                                    NetworkSpec::Type  type) const;
 

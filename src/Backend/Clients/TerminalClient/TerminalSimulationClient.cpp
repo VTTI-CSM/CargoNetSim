@@ -184,6 +184,27 @@ bool TerminalSimulationClient::resetServer()
     });
 }
 
+bool TerminalSimulationClient::resetRuntimeState(
+    const QStringList &terminalIds)
+{
+    return executeSerializedCommand([this, terminalIds]() {
+        QJsonObject params;
+        QJsonArray ids;
+        for (const QString &terminalId : terminalIds)
+        {
+            if (!terminalId.trimmed().isEmpty())
+                ids.append(terminalId.trimmed());
+        }
+        if (!ids.isEmpty())
+        {
+            params["terminal_ids"] = ids;
+        }
+        return sendCommandAndWait("reset_runtime_state",
+                                  params,
+                                  {"runtimeStateReset"});
+    });
+}
+
 // Initialize client in thread
 void TerminalSimulationClient::initializeClient(
     SimulationTime           *simulationTime,
@@ -660,7 +681,9 @@ QList<Path *> TerminalSimulationClient::findTopPaths(
 bool TerminalSimulationClient::addContainer(
     const QString                  &terminalId,
     const ContainerCore::Container *container,
-    double                          addTime)
+    double                          addTime,
+    const QString                   &arrivalMode,
+    const QString                   &arrivalSemantics)
 {
     // Execute container addition serially
     return executeSerializedCommand([&]() {
@@ -671,6 +694,14 @@ bool TerminalSimulationClient::addContainer(
         if (addTime >= 0.0)
         {
             params["adding_time"] = addTime;
+        }
+        if (!arrivalMode.isEmpty())
+        {
+            params["arrival_mode"] = arrivalMode;
+        }
+        if (!arrivalSemantics.isEmpty())
+        {
+            params["arrival_semantics"] = arrivalSemantics;
         }
         // Send container addition command
         const bool success = sendCommandAndWait(
@@ -690,12 +721,14 @@ bool TerminalSimulationClient::addContainer(
 bool TerminalSimulationClient::addContainers(
     const QString &terminalId,
     const QString &containers, double addTime,
-    const QString &arrivalMode)
+    const QString &arrivalMode,
+    const QString &arrivalSemantics)
 {
     qCInfo(lcClientTerminal)
         << "TerminalSimulationClient::addContainers(string):"
         << "terminalId=" << terminalId
         << "arrivalMode=" << arrivalMode
+        << "arrivalSemantics=" << arrivalSemantics
         << "payloadBytes=" << containers.toUtf8().size();
 
     // Execute containers addition serially
@@ -713,6 +746,10 @@ bool TerminalSimulationClient::addContainers(
         {
             params["arrival_mode"] = arrivalMode;
         }
+        if (!arrivalSemantics.isEmpty())
+        {
+            params["arrival_semantics"] = arrivalSemantics;
+        }
         // Send containers addition command
         const bool success = sendCommandAndWait(
             "add_containers", params, {"containersAdded"});
@@ -722,6 +759,7 @@ bool TerminalSimulationClient::addContainers(
                 << "TerminalSimulationClient::addContainers(string):"
                 << "terminalId=" << terminalId
                 << "arrivalMode=" << arrivalMode
+                << "arrivalSemantics=" << arrivalSemantics
                 << "success=false";
             return false;
         }
@@ -734,6 +772,7 @@ bool TerminalSimulationClient::addContainers(
             << "TerminalSimulationClient::addContainers(string):"
             << "terminalId=" << terminalId
             << "arrivalMode=" << arrivalMode
+            << "arrivalSemantics=" << arrivalSemantics
             << "success=" << payloadSuccess;
         return payloadSuccess;
     });
@@ -744,7 +783,8 @@ bool TerminalSimulationClient::addContainers(
     const QString                     &terminalId,
     QList<ContainerCore::Container *> &containers,
     double                             addTime,
-    const QString                     &arrivalMode)
+    const QString                     &arrivalMode,
+    const QString                     &arrivalSemantics)
 {
     // Execute containers addition serially
     return executeSerializedCommand([&]() {
@@ -768,6 +808,10 @@ bool TerminalSimulationClient::addContainers(
         {
             params["arrival_mode"] = arrivalMode;
         }
+        if (!arrivalSemantics.isEmpty())
+        {
+            params["arrival_semantics"] = arrivalSemantics;
+        }
         // Send containers addition command
         const bool success = sendCommandAndWait(
             "add_containers", params, {"containersAdded"});
@@ -786,7 +830,8 @@ bool TerminalSimulationClient::addContainers(
 // Add containers from JSON
 bool TerminalSimulationClient::addContainersFromJson(
     const QString &terminalId, const QString &json,
-    double addTime, const QString &arrivalMode)
+    double addTime, const QString &arrivalMode,
+    const QString &arrivalSemantics)
 {
     // Execute JSON addition serially
     return executeSerializedCommand([&]() {
@@ -801,6 +846,10 @@ bool TerminalSimulationClient::addContainersFromJson(
         if (!arrivalMode.isEmpty())
         {
             params["arrival_mode"] = arrivalMode;
+        }
+        if (!arrivalSemantics.isEmpty())
+        {
+            params["arrival_semantics"] = arrivalSemantics;
         }
         // Send JSON containers command
         const bool success = sendCommandAndWait(
@@ -839,13 +888,16 @@ QList<ContainerCore::Container *> TerminalSimulationClient::
 
 QList<ContainerCore::Container *> TerminalSimulationClient::
     dequeueContainers(const QString &terminalId,
-                      const QJsonObject &criteria)
+                      const QJsonObject &criteria,
+                      double operationTimeSeconds)
 {
     const bool success = executeSerializedCommand([&]() {
         QJsonObject params;
         params["terminal_id"] = terminalId;
         params["criteria"] = criteria;
         params["dequeue"] = true;
+        if (operationTimeSeconds >= 0.0)
+            params["operation_time"] = operationTimeSeconds;
         return sendCommandAndWait(
             "dequeue_containers", params, {"containersFetched"});
     });
@@ -882,12 +934,15 @@ QJsonObject TerminalSimulationClient::reserveContainers(
 
 QJsonObject TerminalSimulationClient::commitContainerReservation(
     const QString &terminalId,
-    const QString &reservationId)
+    const QString &reservationId,
+    double operationTimeSeconds)
 {
     const bool success = executeSerializedCommand([&]() {
         QJsonObject params;
         params["terminal_id"] = terminalId;
         params["reservation_id"] = reservationId;
+        if (operationTimeSeconds >= 0.0)
+            params["operation_time"] = operationTimeSeconds;
         return sendCommandAndWait(
             "commit_container_reservation", params,
             {"containerReservationCommitted"});
@@ -1299,6 +1354,24 @@ void TerminalSimulationClient::onEventReceived(
     else if (normEvent == "serverreset")
     {
         onServerReset(message);
+    }
+    else if (normEvent == "runtimestatereset")
+    {
+        Commons::ScopedWriteLock locker(m_dataMutex);
+        for (const QList<ContainerCore::Container *>
+                 &containers : m_containers.values())
+        {
+            for (ContainerCore::Container *container : containers)
+                delete container;
+        }
+        m_containers.clear();
+        m_terminalSystemDynamicsStates.clear();
+        m_terminalRuntimeStates.clear();
+        m_terminalRuntimeProjections.clear();
+        m_lastTerminalExecutionResults = QJsonArray();
+        m_lastTerminalExecutionResultsCleared = QJsonObject();
+        qCInfo(lcClientTerminal)
+            << "Terminal runtime state reset acknowledged";
     }
     else if (normEvent == "erroroccurred")
     {

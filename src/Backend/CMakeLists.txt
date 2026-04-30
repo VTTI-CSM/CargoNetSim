@@ -241,6 +241,8 @@ set(Backend_SOURCES
     Scenario/ScenarioDocument.cpp
     Scenario/ScenarioExecutor.h
     Scenario/ScenarioExecutor.cpp
+    Scenario/ScenarioEndpointResolver.h
+    Scenario/ScenarioEndpointResolver.cpp
     Scenario/ScenarioLinker.h
     Scenario/ScenarioLinker.cpp
     Scenario/ScenarioRegistry.h
@@ -253,6 +255,8 @@ set(Backend_SOURCES
     Scenario/ScenarioValidator.cpp
     Scenario/SegmentCostMath.h
     Scenario/SegmentCostMath.cpp
+    Scenario/EstimatedPathCostCalculator.h
+    Scenario/EstimatedPathCostCalculator.cpp
     Scenario/SegmentPhysicsEstimator.h
     Scenario/SegmentPhysicsEstimator.cpp
     Scenario/EstimatedPhysicsPopulator.h
@@ -267,8 +271,6 @@ set(Backend_SOURCES
     Scenario/TerminalGraphBootstrap.cpp
     Scenario/SimulationSettings.h
     Scenario/SystemDynamicsSpec.h
-    Scenario/TerminalCostMath.h
-    Scenario/TerminalCostMath.cpp
     Scenario/TerminalPlacement.h
     Scenario/TerminalPlacement.cpp
     Scenario/TerminalTypeDefaults.h

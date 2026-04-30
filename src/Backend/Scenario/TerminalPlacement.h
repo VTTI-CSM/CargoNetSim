@@ -44,8 +44,8 @@ struct TerminalPlacement
     /// terminal explicitly has no interfaces on that side".
     ///
     /// Plan 7 (2026-04-13): migrated from QList<QString> ("Truck"/"Rail"/
-    /// "Ship") to typed QSet<TransportationMode>. YAML schema + property-bag
-    /// string form are preserved at the boundaries via
+    /// "Ship") to typed QSet<TransportationMode>. YAML schema string form is
+    /// handled only at the serialization boundary via
     /// interfaceModeCanonicalString / interfaceModeFromCanonicalString.
     struct InterfaceSet
     {

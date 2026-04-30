@@ -150,7 +150,8 @@ bool TerminalPickupCoordinator::seedExecutionInventory(
                 it.key(),
                 it.value(),
                 addTimeSeconds,
-                QStringLiteral("Origin")))
+                QString(),
+                TerminalInventoryArrivalSemantics::Preload))
         {
             ok = false;
             if (err)
@@ -253,6 +254,7 @@ TerminalPickupBatch TerminalPickupCoordinator::reserveForDispatch(
 
 bool TerminalPickupCoordinator::commitReservations(
     const QVector<TerminalPickupReservationHandle> &handles,
+    double                                          operationTimeSeconds,
     QString                                        *err) const
 {
     if (handles.isEmpty())
@@ -284,7 +286,8 @@ bool TerminalPickupCoordinator::commitReservations(
         const QJsonObject response =
             m_gateway->commitContainerReservation(
                 handle.terminalId,
-                handle.reservationId);
+                handle.reservationId,
+                operationTimeSeconds);
         if (response.isEmpty()
             || !responseStateIs(response,
                                 QStringLiteral("committed")))

@@ -72,6 +72,45 @@ QMap<QString, QVariant> jsonToVariantMap(const QJsonObject &o)
     return o.toVariantMap();
 }
 
+QSet<TransportationTypes::TransportationMode>
+interfaceModesFromStrings(const QStringList &values,
+                          const QString &context)
+{
+    QSet<TransportationTypes::TransportationMode> modes;
+    for (const QString &value : values)
+    {
+        bool ok = false;
+        const auto mode = interfaceModeFromCanonicalString(value, &ok);
+        if (ok && mode != TransportationTypes::TransportationMode::Any)
+        {
+            modes.insert(mode);
+        }
+        else
+        {
+            qCWarning(lcScenario)
+                << "ScenarioSerializer:" << context
+                << "unknown terminal interface mode skipped:" << value;
+        }
+    }
+    return modes;
+}
+
+TerminalPlacement::InterfaceSet
+interfaceSetFromJsonObject(const QJsonObject &iface)
+{
+    TerminalPlacement::InterfaceSet result;
+    result.isSet = true;
+    result.landSide =
+        interfaceModesFromStrings(
+            arrayToStringList(iface.value("land_side").toArray()),
+            QStringLiteral("interfaces.land_side"));
+    result.seaSide =
+        interfaceModesFromStrings(
+            arrayToStringList(iface.value("sea_side").toArray()),
+            QStringLiteral("interfaces.sea_side"));
+    return result;
+}
+
 // ----- YAML ↔ QJsonValue bridge -----
 //
 // Strategy: convert YAML ↔ QJsonDocument once, then delegate to toJson/fromJson.
@@ -169,9 +208,8 @@ YAML::Node jsonValueToYamlNode(const QJsonValue &v)
 
 // ----- Relative path resolution -----
 //
-// Walks regions[*].networks[*].files.*, fleet.*.files[], output.log_file,
-// and output.path_report_pdf, replacing every relative path with an absolute
-// path anchored on yamlDir.
+// Walks regions[*].networks[*].files.* and fleet.*.files[], replacing every
+// relative path with an absolute path anchored on yamlDir.
 void resolvePathsRelativeTo(ScenarioDocument &doc, const QString &yamlDir)
 {
     const QDir anchor(yamlDir);
@@ -192,8 +230,6 @@ void resolvePathsRelativeTo(ScenarioDocument &doc, const QString &yamlDir)
     for (QString &p : doc.fleet.shipsFiles)  resolve(p);
     for (QString &p : doc.fleet.trucksFiles) resolve(p);
 
-    resolve(doc.output.logFile);
-    resolve(doc.output.pathReportPdf);
 }
 
 // ----- per-struct serializers -----
@@ -231,8 +267,11 @@ QJsonObject terminalPlacementToJson(const TerminalPlacement &t)
     o["type"]               = t.type;
     if (t.role != TerminalPlacement::TerminalRole::Transit)
         o["role"] = roleToString(t.role);
-    o["region"]     = t.region;
-    o["properties"] = variantMapToJson(t.properties);
+    o["region"] = t.region;
+
+    QMap<QString, QVariant> properties = t.properties;
+    properties.remove(QStringLiteral("Available Interfaces"));
+    o["properties"] = variantMapToJson(properties);
 
     QJsonObject position;
     position["mode"] = positionModeToString(t.mode);
@@ -301,6 +340,7 @@ TerminalPlacement terminalPlacementFromJson(const QJsonObject &o)
     t.type   = o.value("type").toString();
     t.region     = o.value("region").toString();
     t.properties = jsonToVariantMap(o.value("properties").toObject());
+    t.properties.remove(QStringLiteral("Available Interfaces"));
 
     if (o.contains("role"))
     {
@@ -335,22 +375,8 @@ TerminalPlacement terminalPlacementFromJson(const QJsonObject &o)
 
     if (o.contains("interfaces"))
     {
-        auto arrayToTypedSet = [](const QJsonArray &arr) {
-            QSet<TransportationTypes::TransportationMode> out;
-            for (const auto &v : arr)
-            {
-                bool ok = false;
-                auto m = interfaceModeFromCanonicalString(v.toString(), &ok);
-                // Unknown strings ("Helicopter" etc.) silently skipped —
-                // matches the long-standing InterfaceConversion behavior.
-                if (ok) out.insert(m);
-            }
-            return out;
-        };
-        QJsonObject iface = o.value("interfaces").toObject();
-        t.interfaces.isSet    = true;
-        t.interfaces.landSide = arrayToTypedSet(iface.value("land_side").toArray());
-        t.interfaces.seaSide  = arrayToTypedSet(iface.value("sea_side").toArray());
+        t.interfaces =
+            interfaceSetFromJsonObject(o.value("interfaces").toObject());
     }
 
     if (o.contains("system_dynamics"))
@@ -651,9 +677,7 @@ QJsonObject outputSpecToJson(const OutputSpec &o)
     QJsonObject j;
     j["directory"]          = o.directory;
     j["formats"]            = stringListToArray(o.formats);
-    j["path_report_pdf"]    = o.pathReportPdf;
     j["container_tracking"] = o.containerTracking;
-    j["log_file"]           = o.logFile;
     return j;
 }
 
@@ -663,9 +687,7 @@ OutputSpec outputSpecFromJson(const QJsonObject &j)
     o.directory         = j.value("directory").toString("./results");
     o.formats           = arrayToStringList(j.value("formats").toArray());
     if (o.formats.isEmpty()) o.formats = { QStringLiteral("json") };
-    o.pathReportPdf     = j.value("path_report_pdf").toString();
     o.containerTracking = j.value("container_tracking").toBool(true);
-    o.logFile           = j.value("log_file").toString();
     return o;
 }
 
@@ -836,25 +858,22 @@ ScenarioSerializer::fromJson(const QJsonObject &j)
         if (!doc->addTerminal(t)) return nullptr;
     }
 
-    // Linkages / connections / global_links (depend on terminals)
+    // Linkages / connections / global_links are authored relationship
+    // records. Preserve every parsed record here, even if it violates an
+    // authoring invariant, so ScenarioValidator can report the exact invalid
+    // row instead of losing user data during deserialization. Interactive
+    // editing still goes through ScenarioDocument's strict mutators.
     QJsonArray linkages = j.value("linkages").toArray();
     for (const QJsonValue &lv : linkages)
-    {
-        NodeLinkage l = nodeLinkageFromJson(lv.toObject());
-        doc->addLinkage(l);   // invariant: terminal must exist; silently drop if not
-    }
+        doc->linkages.append(nodeLinkageFromJson(lv.toObject()));
+
     QJsonArray connections = j.value("connections").toArray();
     for (const QJsonValue &cv : connections)
-    {
-        Connection c = connectionFromJson(cv.toObject());
-        doc->addConnection(c);
-    }
+        doc->connections.append(connectionFromJson(cv.toObject()));
+
     QJsonArray globalLinks = j.value("global_links").toArray();
     for (const QJsonValue &gv : globalLinks)
-    {
-        GlobalLink g = globalLinkFromJson(gv.toObject());
-        doc->addGlobalLink(g);
-    }
+        doc->globalLinks.append(globalLinkFromJson(gv.toObject()));
 
     const QJsonArray comparisonSnapshots =
         j.value("comparison_snapshots").toArray();

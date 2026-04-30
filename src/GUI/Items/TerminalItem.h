@@ -153,11 +153,9 @@ public:
     /**
      * @brief Typed view of the terminal's interface modes.
      *
-     * When bound to a placement (factory path), returns the placement's
-     * typed `InterfaceSet` reshaped into the backend's InterfaceMap.
-     * When unbound (legacy pre-scenario), falls back to reading the
-     * property bag and translating strings → enums via
-     * InterfaceConversion::toBackendInterfaces.
+     * When bound to a placement with explicit interfaces, returns the
+     * placement's typed `InterfaceSet` reshaped into the backend's InterfaceMap.
+     * Otherwise derives the typed defaults from the terminal type.
      *
      * Single source of truth for GUI-side interface queries. Consumers
      * (PathFindingWorker, UtilityFunctions) read enums, never strings.
@@ -377,8 +375,8 @@ private:
         m_globalTerminalItem; ///< Linked global terminal (QPointer auto-nulls on deletion)
 
     /// Non-owning pointer into ScenarioDocument's terminals map. When
-    /// non-null, this item is a VIEW of the placement; when null, the
-    /// item operates in legacy property-bag-only mode.
+    /// non-null, this item is a VIEW of the placement; when null, it is an
+    /// unbound graphics item and derives structural defaults from its type.
     Backend::Scenario::TerminalPlacement *m_placement = nullptr;
 
     // Static ID management

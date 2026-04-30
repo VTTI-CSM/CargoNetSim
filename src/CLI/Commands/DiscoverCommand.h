@@ -7,11 +7,11 @@ class QIODevice;
 namespace CargoNetSim {
 namespace Cli {
 
-class PathsCommand : public Subcommand
+class DiscoverCommand : public Subcommand
 {
 public:
-    explicit PathsCommand(QIODevice *outSink = nullptr,
-                          QIODevice *errSink = nullptr);
+    explicit DiscoverCommand(QIODevice *outSink = nullptr,
+                             QIODevice *errSink = nullptr);
 
     int execute(const QStringList &args) override;
 

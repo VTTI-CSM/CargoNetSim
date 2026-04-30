@@ -36,22 +36,20 @@ QStringList allTypes();
 bool isValidType(const QString &type);
 
 /// Returns { land_side, sea_side } default interface mode sets for the given
-/// terminal type. Land modes are members of {Truck, Train}; sea modes are
-/// {Ship}. Unknown types return a pair of empty sets. Plan 7 migrated this
-/// from QStringList to typed enum sets — the property-bag writer
-/// (`defaultProperties`) converts to canonical strings at the boundary.
+    /// terminal type. Land modes are members of {Truck, Train}; sea modes are
+    /// {Ship}. Unknown types return a pair of empty sets. These typed sets are
+    /// the canonical source for GUI creation and scenario serialization.
 QPair<QSet<TransportationTypes::TransportationMode>,
       QSet<TransportationTypes::TransportationMode>>
 interfacesFor(const QString &type);
 
 /// Returns the canonical default property bag for a terminal of the given
-/// type. All kinds share: "Name" (placeholder, caller overwrites),
-/// "Show on Global Map", "Available Interfaces" (map with "land_side" /
-/// "sea_side" QStringList entries derived via `interfacesFor()`), "Region"
-/// (empty — caller fills in), "cost" (map), "dwell_time" (map). Sea Port
-/// and Intermodal Land additionally carry "customs" + "capacity"; Intermodal
-/// / Train Stop / Truck Parking suppress the global-map mirror. Unknown
-/// types return an empty map.
+    /// type. All kinds share: "Name" (placeholder, caller overwrites),
+    /// "Show on Global Map", and "cost" (map). Physical interfaces are not
+    /// stored here; they live on TerminalPlacement::interfaces. Sea Port and
+    /// Intermodal Land additionally carry "customs" + "capacity"; Intermodal /
+    /// Train Stop / Truck Parking suppress the global-map mirror. Unknown types
+    /// return an empty map.
 QMap<QString, QVariant> defaultProperties(const QString &type);
 
 } // namespace TerminalTypeDefaults

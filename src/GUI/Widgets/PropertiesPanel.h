@@ -143,9 +143,6 @@ private:
     void processNestedProperty(
         QMap<QString, QVariant> &properties,
         const QString &key, QWidget *widget);
-    void processInterfaceProperty(
-        QMap<QString, QVariant> &properties,
-        const QStringList &parts, QWidget *widget);
     void processSimpleProperty(
         QMap<QString, QVariant> &properties,
         const QString &key, QWidget *widget);

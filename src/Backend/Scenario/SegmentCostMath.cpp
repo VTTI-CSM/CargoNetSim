@@ -17,7 +17,6 @@
 #include "Backend/Models/PathSegment.h"
 #include "PropertyKeys.h"
 #include "RuntimeArtifactIdentity.h"
-#include "TerminalCostMath.h"
 
 namespace CargoNetSim
 {
@@ -662,9 +661,10 @@ computePathExecutionResult(
         result.edgeCosts += totalCost(computed);
     }
 
-    result.terminalCosts = TerminalCostMath::totalTerminalCosts(
-        segments, path->getTerminalsInPath(),
-        costFunctionWeights, containerCount);
+    // Predicted terminal totals are returned by TerminalSim during path
+    // discovery. ResultsExtractor replaces this with TerminalSim actual
+    // execution totals when terminal execution records are available.
+    result.terminalCosts = path->getTotalTerminalCosts();
     result.totalCost = result.edgeCosts + result.terminalCosts;
 
     qCInfo(lcScenario)

@@ -39,8 +39,8 @@ InterfaceSelectionDialog::InterfaceSelectionDialog(
     else
     { // InterfaceSelection (default)
         windowTitle = "Select Interfaces to Connect";
-        headerText  = "Select which interfaces to connect:";
-        optionsGroupTitle = "Available Interfaces:";
+        headerText  = "Select which transport interfaces to connect:";
+        optionsGroupTitle = "Available Transport Interfaces:";
     }
 
     setWindowTitle(windowTitle);

@@ -4,6 +4,7 @@
 // to the GUI for editing, rendering, and settings/property translation.
 
 #include "Backend/Scenario/FleetSpec.h"
+#include "Backend/Scenario/ExecutionPlanTypes.h"
 #include "Backend/Scenario/InterfaceConversion.h"
 #include "Backend/Scenario/LinkageSource.h"
 #include "Backend/Scenario/PropertyKeys.h"

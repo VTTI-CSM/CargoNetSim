@@ -28,7 +28,14 @@ SetTerminalTypeCommand::SetTerminalTypeCommand(
 void SetTerminalTypeCommand::redo()
 {
     if (!m_doc) { setObsolete(true); return; }
-    if (!m_captured) {
+    if (m_captured)
+    {
+        Backend::Application::ScenarioEditService::updateTerminalPlacement(
+            m_doc.data(), m_terminalId, m_after);
+        return;
+    }
+
+    {
         auto it = m_doc->terminals.find(m_terminalId);
         if (it == m_doc->terminals.end()) {
             qCWarning(lcGuiInputCmd)
@@ -37,11 +44,25 @@ void SetTerminalTypeCommand::redo()
             setObsolete(true);
             return;
         }
-        m_oldType  = it->type;
-        m_captured = true;
+        m_before = *it;
     }
-    Backend::Application::ScenarioEditService::setTerminalType(
-        m_doc.data(), m_terminalId, m_newType);
+
+    if (!Backend::Application::ScenarioEditService::setTerminalType(
+            m_doc.data(), m_terminalId, m_newType))
+    {
+        setObsolete(true);
+        return;
+    }
+
+    auto afterIt = m_doc->terminals.find(m_terminalId);
+    if (afterIt == m_doc->terminals.end())
+    {
+        setObsolete(true);
+        return;
+    }
+    m_after = *afterIt;
+    m_captured = true;
+
     qCInfo(lcGuiInputCmd) << "SetTerminalTypeCommand::redo"
                           << m_terminalId << "type=" << m_newType;
 }
@@ -49,10 +70,10 @@ void SetTerminalTypeCommand::redo()
 void SetTerminalTypeCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Backend::Application::ScenarioEditService::setTerminalType(
-        m_doc.data(), m_terminalId, m_oldType);
+    Backend::Application::ScenarioEditService::updateTerminalPlacement(
+        m_doc.data(), m_terminalId, m_before);
     qCInfo(lcGuiInputCmd) << "SetTerminalTypeCommand::undo"
-                          << m_terminalId << "type=" << m_oldType;
+                          << m_terminalId << "type=" << m_before.type;
 }
 
 } // namespace CargoNetSim::GUI::Input

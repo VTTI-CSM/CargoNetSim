@@ -19,6 +19,7 @@
 #include "GraphicsView.h"
 #include "../Input/Commands/ApplyBackgroundPhotoEditCommand.h"
 #include "../Input/Commands/CommandBus.h"
+#include "../Input/Commands/SetTerminalRoleCommand.h"
 #include "../Input/Commands/UpdateRegionGlobalPositionCommand.h"
 #include "../Input/Commands/UpdateRegionLocalOriginCommand.h"
 #include "../Input/InteractionController.h"
@@ -28,6 +29,7 @@
 #include "Backend/Application/RouteAuthoringService.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QDebug>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -43,6 +45,89 @@ namespace CargoNetSim
 {
 namespace GUI
 {
+
+namespace
+{
+
+using InterfaceSet =
+    Backend::Scenario::TerminalPlacement::InterfaceSet;
+using Mode = Backend::TransportationTypes::TransportationMode;
+
+InterfaceSet interfaceSetFromItem(const TerminalItem *item)
+{
+    InterfaceSet result;
+    if (!item)
+        return result;
+
+    const auto map = item->availableInterfaces();
+    result.landSide = map.value(
+        Backend::TerminalTypes::TerminalInterface::LAND_SIDE);
+    result.seaSide = map.value(
+        Backend::TerminalTypes::TerminalInterface::SEA_SIDE);
+    result.isSet = true;
+    return result;
+}
+
+InterfaceSet interfaceSetFromEditorFields(
+    const TerminalItem              *item,
+    const QMap<QString, QWidget *> &fields)
+{
+    InterfaceSet result = interfaceSetFromItem(item);
+    result.isSet = true;
+
+    bool sawInterfaceField = false;
+    QSet<Mode> land;
+    QSet<Mode> sea;
+
+    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
+    {
+        const QStringList parts = it.key().split('.');
+        if (parts.size() != 3 || parts[0] != QLatin1String("interfaces"))
+            continue;
+
+        auto *checkbox = qobject_cast<QCheckBox *>(it.value());
+        if (!checkbox)
+            continue;
+
+        sawInterfaceField = true;
+        if (!checkbox->isChecked())
+            continue;
+
+        const QString side = parts[1];
+        const QString mode = parts[2];
+        if (side == QLatin1String("land")
+            && mode == QLatin1String("truck"))
+        {
+            land.insert(Mode::Truck);
+        }
+        else if (side == QLatin1String("land")
+                 && mode == QLatin1String("rail"))
+        {
+            land.insert(Mode::Train);
+        }
+        else if (side == QLatin1String("sea")
+                 && mode == QLatin1String("ship"))
+        {
+            sea.insert(Mode::Ship);
+        }
+    }
+
+    if (sawInterfaceField)
+    {
+        result.landSide = land;
+        result.seaSide = sea;
+    }
+    return result;
+}
+
+bool sameInterfaceSet(const InterfaceSet &a, const InterfaceSet &b)
+{
+    return a.isSet == b.isSet
+           && a.landSide == b.landSide
+           && a.seaSide == b.seaSide;
+}
+
+} // namespace
 
 PropertiesPanel::PropertiesPanel(QWidget *parent)
     : QWidget(parent)
@@ -394,10 +479,9 @@ void PropertiesPanel::displayTerminalProperties(
     qCDebug(lcGuiUtil) << "PropertiesPanel::displayTerminalProperties:"
                        << "id=" << item->getTerminalId();
     {
-        QMap<QString, QVariant> ifaces =
-            item->getProperties().value("Available Interfaces").toMap();
-        int ifaceCount = ifaces.value("land_side").toStringList().size()
-                       + ifaces.value("sea_side").toStringList().size();
+        const InterfaceSet interfaces = interfaceSetFromItem(item);
+        const int ifaceCount =
+            interfaces.landSide.size() + interfaces.seaSide.size();
         qCDebug(lcGuiUtil) << "PropertiesPanel::displayTerminalProperties: type="
                            << item->getTerminalType() << "interfaces=" << ifaceCount;
     }
@@ -425,7 +509,7 @@ void PropertiesPanel::displayTerminalProperties(
     displayGenericProperties(
         item,
         {"ID", "Type", "Region", "capacity", "cost", "dwell_time",
-         "customs", "Available Interfaces", "Containers",
+         "customs", "Containers",
          PK::Terminal::InitialContainerCount,
          PK::Terminal::DestinationTerminal,
          PK::Terminal::Destinations});
@@ -467,18 +551,15 @@ void PropertiesPanel::addInterfacesSection(
     const QMap<QString, bool> &isEditable)
 {
     QGroupBox *interfacesGroup =
-        new QGroupBox(tr("Available Interfaces"));
+        new QGroupBox(tr("Transport Interfaces"));
     QVBoxLayout *interfacesLayout = new QVBoxLayout();
 
-    // Get interfaces from properties
-    const QMap<QString, QVariant> &properties =
-        item->getProperties();
-    QMap<QString, QVariant> interfaces =
-        properties["Available Interfaces"].toMap();
+    const auto currentInterfaces =
+        Backend::Scenario::InterfaceConversion::fromBackendInterfaces(
+            item->availableInterfaces());
 
     // Land-side interfaces
-    QStringList currentLand =
-        interfaces["land_side"].toStringList();
+    QStringList currentLand = currentInterfaces.first;
     QLayout *landLayout = createInterfaceLayout(
         tr("Land-side:"),
         {{tr("Truck"), "truck"}, {tr("Rail"), "rail"}},
@@ -486,8 +567,7 @@ void PropertiesPanel::addInterfacesSection(
         isEditable.value("land_side", false));
 
     // Sea-side interfaces
-    QStringList currentSea =
-        interfaces["sea_side"].toStringList();
+    QStringList currentSea = currentInterfaces.second;
     qCDebug(lcGuiUtil) << "PropertiesPanel::addInterfacesSection: landSide=" << currentLand.size() << "seaSide=" << currentSea.size();
     QLayout *seaLayout = createInterfaceLayout(
         tr("Sea-side:"), {{tr("Ship"), "ship"}}, currentSea,
@@ -835,13 +915,36 @@ void PropertiesPanel::addRoleSection(TerminalItem *item)
     connect(
         roleCombo,
         QOverload<int>::of(&QComboBox::currentIndexChanged),
-        this, [doc, id](int index) {
+        this, [this, doc, id](int index) {
             auto role = static_cast<TerminalRole>(index);
+            const auto it = doc->terminals.constFind(id);
+            if (it == doc->terminals.constEnd()
+                || it->role == role)
+            {
+                return;
+            }
+
+            if (!mainWindow)
+                mainWindow = qobject_cast<MainWindow *>(window());
+            if (mainWindow && mainWindow->commandBus())
+            {
+                mainWindow->commandBus()->submit(
+                    std::make_unique<Input::SetTerminalRoleCommand>(
+                        doc, id, role));
+                return;
+            }
+
             Backend::Application::ScenarioEditService::setTerminalRole(
                 doc, id, role);
         });
 
     form->addRow("Terminal Role:", roleCombo);
+    QLabel *hint = new QLabel(
+        tr("Origins are terminals with containers. Select Origin to configure "
+           "initial containers and destination splits below; destination "
+           "terminals are the terminals referenced by those splits."));
+    hint->setWordWrap(true);
+    form->addRow(hint);
     layout->addRow(group);
 }
 
@@ -881,27 +984,20 @@ void PropertiesPanel::addOriginConfigurationSection(
     }
     // Show Origin Configuration when the terminal is an
     // origin by EITHER designation: explicit role=Origin OR
-    // initial_container_count > 0 (the runtime source of
-    // truth). This ensures terminals loaded from YAML with
-    // containers but no role field still show the section.
+    // ScenarioDocument::isOrigin(id), which is the canonical runtime
+    // source and covers both authored counts and loaded container pools.
     const bool isOriginByRole =
         placement->role
         == TerminalPlacement::TerminalRole::Origin;
-    const bool isOriginByProperty =
-        placement->properties
-            .value(PK::Terminal::InitialContainerCount, 0)
-            .toInt()
-        > 0;
-    if (!isOriginByRole && !isOriginByProperty)
+    const bool isOriginByDocument = doc->isOrigin(id);
+    if (!isOriginByRole && !isOriginByDocument)
     {
         qCDebug(lcGuiUtil)
             << "PropertiesPanel::addOriginConfigurationSection:"
             << "not an origin (role="
             << roleToString(placement->role)
             << ", count="
-            << placement->properties.value(
-                   PK::Terminal::InitialContainerCount, 0)
-                   .toInt()
+            << doc->originContainerCount(id)
             << "), skipping";
         return;
     }
@@ -912,8 +1008,7 @@ void PropertiesPanel::addOriginConfigurationSection(
     // ---- Count spinbox (unchanged from Plan 8 Commit B) ---------------
     QSpinBox *countSpin = new QSpinBox();
     countSpin->setRange(0, 1'000'000);
-    countSpin->setValue(
-        item->getProperty(PK::Terminal::InitialContainerCount).toInt());
+    countSpin->setValue(doc->originContainerCount(id));
     connect(countSpin, QOverload<int>::of(&QSpinBox::valueChanged),
             this, [doc, id](int value) {
                 Backend::Application::ScenarioEditService::setTerminalProperty(
@@ -990,32 +1085,40 @@ void PropertiesPanel::addOriginConfigurationSection(
     connect(listEditor, &DestinationListEditor::changed,
             this, [doc, id, listEditor]() {
                 if (!listEditor->isValid()) return;  // wait for valid state
-                QVariantList out;
-                for (const auto &r : listEditor->routes())
-                {
-                    QVariantMap m;
-                    m[PK::Terminal::DestTerminal] = r.terminal;
-                    m[PK::Terminal::DestFraction] = r.fraction;
-                    out.append(m);
-                }
-                Backend::Application::ScenarioEditService::setTerminalProperty(
-                    doc, id, PK::Terminal::Destinations, out);
+                Backend::Application::ScenarioEditService::
+                    setOriginDestinationRoutes(
+                        doc, id, listEditor->routes());
             });
 
-    // ---- Mutex wiring: switching modes clears the opposite key -------
+    // ---- Mutex wiring: mode changes write exactly one destination form ---
     auto applyMode = [=](const QString &mode) {
         const bool multi = (mode == QStringLiteral("multi"));
         pickButton->setVisible(!multi);
         listEditor->setVisible(multi);
         if (multi)
         {
-            Backend::Application::ScenarioEditService::setTerminalProperty(
-                doc, id, PK::Terminal::DestinationTerminal, QVariant());
+            if (listEditor->isValid())
+            {
+                Backend::Application::ScenarioEditService::
+                    setOriginDestinationRoutes(
+                        doc, id, listEditor->routes());
+            }
         }
         else
         {
-            Backend::Application::ScenarioEditService::setTerminalProperty(
-                doc, id, PK::Terminal::Destinations, QVariant());
+            const auto routes = listEditor->routes();
+            if (routes.size() == 1
+                && !routes.first().terminal.isEmpty())
+            {
+                Backend::Application::ScenarioEditService::
+                    setOriginDestinationScalar(
+                        doc, id, routes.first().terminal);
+            }
+            else
+            {
+                Backend::Application::ScenarioEditService::
+                    clearOriginDestinations(doc, id);
+            }
         }
     };
     // Detect initial mode from whichever property is already set.
@@ -1414,6 +1517,7 @@ void PropertiesPanel::saveTerminalProperties(
 
     QMap<QString, QVariant> oldProperties =
         terminal->getProperties();
+    oldProperties.remove(QStringLiteral("Available Interfaces"));
     QMap<QString, QVariant> newProperties = oldProperties;
 
     // Build complete updated properties using the existing
@@ -1435,8 +1539,17 @@ void PropertiesPanel::saveTerminalProperties(
         const QString oldRegion = terminal->getRegion();
 
         // Start from BACKEND truth, not local snapshot.
-        Backend::Scenario::TerminalPlacement p =
-            doc->terminals[id];
+        const auto terminalIt = doc->terminals.constFind(id);
+        if (terminalIt == doc->terminals.constEnd())
+        {
+            qCWarning(lcGuiUtil)
+                << "saveTerminalProperties: terminal not found in backend:"
+                << id;
+            return;
+        }
+        Backend::Scenario::TerminalPlacement p = terminalIt.value();
+        const int removedLegacyInterfaces =
+            p.properties.remove(QStringLiteral("Available Interfaces"));
 
         // Apply only keys that the user actually changed.
         // "Region" is a first-class field handled separately below.
@@ -1461,13 +1574,36 @@ void PropertiesPanel::saveTerminalProperties(
         if (regionChanged)
             p.region = newRegion;
 
-        if (changedCount > 0 || regionChanged)
-            doc->updateTerminal(id, p);
+        const bool madeInterfacesExplicit = !p.interfaces.isSet;
+        const InterfaceSet oldInterfaces =
+            p.interfaces.isSet ? p.interfaces
+                               : interfaceSetFromItem(terminal);
+        const InterfaceSet newInterfaces =
+            interfaceSetFromEditorFields(terminal, editFields);
+        const bool interfacesChanged =
+            !sameInterfaceSet(oldInterfaces, newInterfaces);
+        if (interfacesChanged || madeInterfacesExplicit)
+            p.interfaces = newInterfaces;
+
+        if (changedCount > 0 || regionChanged || interfacesChanged
+            || madeInterfacesExplicit || removedLegacyInterfaces > 0)
+        {
+            if (!Backend::Application::ScenarioEditService::
+                    updateTerminalPlacement(doc, id, p))
+            {
+                qCWarning(lcGuiUtil)
+                    << "saveTerminalProperties: failed to persist terminal"
+                    << id;
+                return;
+            }
+        }
 
         qCDebug(lcGuiUtil)
             << "saveTerminalProperties: persisted"
             << changedCount << "bag changes +"
             << (regionChanged ? "region change" : "no region change")
+            << "+"
+            << (interfacesChanged ? "interface change" : "no interface change")
             << "to backend for" << id;
 
         if (regionChanged)
@@ -1762,7 +1898,8 @@ void PropertiesPanel::processNestedProperty(
     // Special handling for interfaces
     if (parts[0] == "interfaces")
     {
-        processInterfaceProperty(properties, parts, widget);
+        // Terminal capabilities are typed placement fields, not property-bag
+        // entries. saveTerminalProperties collects these checkboxes directly.
         return;
     }
 
@@ -1825,67 +1962,6 @@ void PropertiesPanel::processNestedProperty(
         }
     }
     // Don't add the dotted key as a new property
-}
-
-void PropertiesPanel::processInterfaceProperty(
-    QMap<QString, QVariant> &properties,
-    const QStringList &parts, QWidget *widget)
-{
-    if (!properties.contains("Available Interfaces"))
-    {
-        properties["Available Interfaces"] =
-            QVariantMap{{"land_side", QVariantList()},
-                        {"sea_side", QVariantList()}};
-    }
-
-    // Get the current lists
-    QVariantMap interfaces =
-        properties["Available Interfaces"].toMap();
-    QStringList landSide =
-        interfaces["land_side"].toStringList();
-    QStringList seaSide =
-        interfaces["sea_side"].toStringList();
-
-    // Update interfaces based on checkbox state
-    if (QCheckBox *checkbox =
-            qobject_cast<QCheckBox *>(widget))
-    {
-        QString mode = parts[2];
-        mode[0] =
-            mode[0].toUpper(); // Capitalize first letter
-
-        if (parts[1] == "land")
-        {
-            // Remove the mode if it exists (to avoid
-            // duplicates)
-            landSide.removeAll(mode);
-
-            // Add it back if checked
-            if (checkbox->isChecked()
-                && !landSide.contains(mode))
-            {
-                landSide.append(mode);
-            }
-        }
-        else if (parts[1] == "sea")
-        {
-            // Remove the mode if it exists (to avoid
-            // duplicates)
-            seaSide.removeAll(mode);
-
-            // Add it back if checked
-            if (checkbox->isChecked()
-                && !seaSide.contains(mode))
-            {
-                seaSide.append(mode);
-            }
-        }
-
-        // Update the interfaces in the map
-        interfaces["land_side"]            = landSide;
-        interfaces["sea_side"]             = seaSide;
-        properties["Available Interfaces"] = interfaces;
-    }
 }
 
 void PropertiesPanel::processSimpleProperty(
@@ -2140,9 +2216,9 @@ void PropertiesPanel::onDestinationResolved(
         return;
     }
     auto *doc = &mainWindow->runtime()->document();
-    Backend::Application::ScenarioEditService::setTerminalProperty(
-        doc, session.requesterId,
-        PK::Terminal::DestinationTerminal, terminalId);
+    Backend::Application::ScenarioEditService::
+        setOriginDestinationScalar(
+            doc, session.requesterId, terminalId);
 }
 
 } // namespace GUI

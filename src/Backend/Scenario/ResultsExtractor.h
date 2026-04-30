@@ -125,29 +125,6 @@ private:
         const QVariantMap                 &transportModes,
         int                                containerCount);
 
-    // Terminal-cost math (Tasks 15-17).
-    double calculateTerminalCosts(
-        const QList<CargoNetSim::Backend::PathSegment *> &segments,
-        const QList<CargoNetSim::Backend::PathTerminal>  &terminals,
-        const QVariantMap                                &costFunctionWeights,
-        int                                               containerCount);
-
-    double calculateSingleTerminalCost(
-        CargoNetSim::Backend::Terminal *terminal,
-        const QVariantMap              &costFunctionWeights,
-        int                             containerCount,
-        TransportationTypes::TransportationMode
-            mode = TransportationTypes::TransportationMode::Any);
-
-    double calculateTerminalDwellTime(const QJsonObject &config);
-
-    bool calculateTerminalCustoms(const QJsonObject &config,
-                                  double            &customsDelay,
-                                  double            &customsCost);
-
-    double calculateTerminalDirectCosts(const QJsonObject &config,
-                                        bool               customsApplied);
-
     // Segment attribute writeback (Task 21).
     void setSegmentActualDetails(
         CargoNetSim::Backend::PathSegment *segment,

@@ -42,8 +42,29 @@ struct Options
     QString      scenarioPath;
     bool         selectAll = false;
     bool         verbose = false;
+    bool         hasTopOverride = false;
+    int          topOverride = 0;
     QVector<int> selectedPathIndexes;
 };
+
+bool parsePositiveIntOption(const QString &optionName,
+                            const QString &value,
+                            int           *parsed,
+                            QString       *err)
+{
+    bool ok = false;
+    const int result = value.toInt(&ok);
+    if (!ok || result <= 0)
+    {
+        *err = QStringLiteral(
+                   "run: %1 requires a positive integer\n")
+                   .arg(optionName);
+        return false;
+    }
+
+    *parsed = result;
+    return true;
+}
 
 bool parsePathSelection(const QString &value,
                         QVector<int>  &indexes,
@@ -127,11 +148,36 @@ bool parseArgs(const QStringList &args, Options &o, QString *err)
             o.verbose = true;
             continue;
         }
+        if (arg == QLatin1String("--top"))
+        {
+            if (i + 1 >= args.size())
+            {
+                *err = QStringLiteral(
+                    "run: --top requires a positive integer\n");
+                return false;
+            }
+            if (!parsePositiveIntOption(
+                    QStringLiteral("--top"),
+                    args.at(++i), &o.topOverride, err))
+                return false;
+            o.hasTopOverride = true;
+            continue;
+        }
+        if (arg.startsWith(QLatin1String("--top=")))
+        {
+            if (!parsePositiveIntOption(
+                    QStringLiteral("--top"),
+                    arg.mid(QStringLiteral("--top=").size()),
+                    &o.topOverride, err))
+                return false;
+            o.hasTopOverride = true;
+            continue;
+        }
         if (arg.startsWith(QLatin1Char('-')))
         {
             *err = QStringLiteral(
                 "run: unsupported flag '%1' "
-                "(supported: --all, --paths LIST, --verbose)\n")
+                "(supported: --all, --paths LIST, --top N, --verbose)\n")
                 .arg(arg);
             return false;
         }
@@ -149,7 +195,7 @@ bool parseArgs(const QStringList &args, Options &o, QString *err)
     {
         *err = QStringLiteral(
             "run: expected exactly one scenario argument "
-            "and optional --all/--paths/--verbose\n");
+            "and optional --all/--paths/--top/--verbose\n");
         return false;
     }
 
@@ -161,6 +207,30 @@ bool parseArgs(const QStringList &args, Options &o, QString *err)
         o.selectAll = true;
     }
     return true;
+}
+
+ExitCode exitCodeForRunServiceFailure(
+    Backend::Application::SimulationRunServiceStatus status)
+{
+    using Status =
+        Backend::Application::SimulationRunServiceStatus;
+
+    switch (status)
+    {
+    case Status::InvalidSelection:
+        return ExitCode::BadArgs;
+    case Status::ValidationFailed:
+        // SimulationRunService validation includes simulator command
+        // availability checks for the selected path modes. Surface that
+        // as the public "required simulator unavailable" exit contract.
+        return ExitCode::ConnectTimeout;
+    case Status::StartFailed:
+        return ExitCode::RunFailed;
+    case Status::Success:
+        return ExitCode::Success;
+    }
+
+    return ExitCode::RunFailed;
 }
 
 bool selectedPathIdentitiesForIndexes(
@@ -559,8 +629,10 @@ int RunCommand::execute(const QStringList &args)
         emitStatus(m_err, QStringLiteral("scenario loaded"));
 
     // ---- 5. Path discovery ---------------------------------------------
-    const int n = ctl.getSimulationParams()
-                      .value("shortest_paths", 5).toInt();
+    const int n = opt.hasTopOverride
+        ? opt.topOverride
+        : ctl.getSimulationParams()
+              .value("shortest_paths", 5).toInt();
     qCDebug(lcCli) << "RunCommand::execute: [stage 5] running path discovery (shortestPathsN ="
                    << n << ")...";
     if (m_verbose)
@@ -631,10 +703,7 @@ int RunCommand::execute(const QStringList &args)
                                       "failed to select prepared paths")
                                 : selectionResult.message));
         return static_cast<int>(
-            selectionResult.status
-                == Backend::Application::SimulationRunServiceStatus::ValidationFailed
-            ? ExitCode::ConnectTimeout
-            : ExitCode::RunFailed);
+            exitCodeForRunServiceFailure(selectionResult.status));
     }
 
     const QList<Backend::Path *> simulationSet = rt.paths();
@@ -708,10 +777,7 @@ int RunCommand::execute(const QStringList &args)
                        QStringLiteral("run: %1\n")
                            .arg(failMsg));
             return static_cast<int>(
-                startResult.status
-                    == Backend::Application::SimulationRunServiceStatus::ValidationFailed
-                ? ExitCode::ConnectTimeout
-                : ExitCode::RunFailed);
+                exitCodeForRunServiceFailure(startResult.status));
         }
         qCCritical(lcCli) << "RunCommand::execute: simulation failed —" << failMsg;
         streamToOr(m_err, stderr,

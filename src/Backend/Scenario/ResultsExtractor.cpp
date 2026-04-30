@@ -8,7 +8,6 @@
 #include "Backend/Models/Path.h"
 #include "PropertyKeys.h"
 #include "SegmentCostMath.h"
-#include "TerminalCostMath.h"
 
 namespace CargoNetSim
 {
@@ -317,6 +316,11 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
             result.modeledActualTerminalCosts +=
                 terminalResult.actualWeightedTotalContribution;
         }
+        if (!result.terminalResults.isEmpty())
+        {
+            result.terminalCosts = result.modeledActualTerminalCosts;
+            result.totalCost = result.edgeCosts + result.terminalCosts;
+        }
         const auto summary = result.toSimulationResult();
         results.addPathResult(result);
         qCDebug(lcScenario) << "ResultsExtractor::extractExecutionResults: pathId:" << summary.pathId
@@ -348,57 +352,6 @@ ScenarioExecutionResultSet ResultsExtractor::extractExecutionResults(
     emit statusMessage(QStringLiteral(
         "Results extraction completed successfully"));
     return results;
-}
-
-// --- Terminal-cost math (Tasks 15-17) ---
-
-double ResultsExtractor::calculateTerminalDwellTime(
-    const QJsonObject &config)
-{
-    qCDebug(lcScenario) << "ResultsExtractor::calculateTerminalDwellTime: entry";
-    return TerminalCostMath::dwellTime(config);
-}
-
-bool ResultsExtractor::calculateTerminalCustoms(
-    const QJsonObject &config,
-    double            &customsDelay,
-    double            &customsCost)
-{
-    qCDebug(lcScenario) << "ResultsExtractor::calculateTerminalCustoms: entry";
-    return TerminalCostMath::customs(config, customsDelay,
-                                     customsCost);
-}
-
-double ResultsExtractor::calculateTerminalDirectCosts(
-    const QJsonObject &config, bool customsApplied)
-{
-    qCDebug(lcScenario) << "ResultsExtractor::calculateTerminalDirectCosts: customsApplied:"
-                        << customsApplied;
-    return TerminalCostMath::directCosts(config, customsApplied);
-}
-
-double ResultsExtractor::calculateSingleTerminalCost(
-    CargoNetSim::Backend::Terminal *terminal,
-    const QVariantMap              &costFunctionWeights,
-    int                             containerCount,
-    TransportationTypes::TransportationMode mode)
-{
-    qCDebug(lcScenario) << "ResultsExtractor::calculateSingleTerminalCost: containers:"
-                        << containerCount;
-    return TerminalCostMath::singleTerminalCost(
-        terminal, costFunctionWeights, containerCount, mode);
-}
-
-double ResultsExtractor::calculateTerminalCosts(
-    const QList<CargoNetSim::Backend::PathSegment *> &segments,
-    const QList<CargoNetSim::Backend::PathTerminal>  &terminals,
-    const QVariantMap                                &costFunctionWeights,
-    int                                               containerCount)
-{
-    qCDebug(lcScenario) << "ResultsExtractor::calculateTerminalCosts: segments:"
-                        << segments.size() << "terminals:" << terminals.size();
-    return TerminalCostMath::totalTerminalCosts(
-        segments, terminals, costFunctionWeights, containerCount);
 }
 
 // --- Edge-cost math ---

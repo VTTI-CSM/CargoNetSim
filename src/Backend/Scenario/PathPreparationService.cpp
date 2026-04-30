@@ -15,7 +15,7 @@
 #include "PathDistancePopulator.h"
 #include "PropertyKeys.h"
 #include "PreparedPathEligibilityService.h"
-#include "PathMetricsCalculator.h"
+#include "EstimatedPathCostCalculator.h"
 #include "ScenarioDocument.h"
 #include "ScenarioRegistry.h"
 
@@ -217,6 +217,7 @@ PreparedPathSet PathPreparationService::prepareDiscoveredPaths(
     VehicleController                         *vehicles)
 {
     PreparedPathSet prepared;
+    Q_UNUSED(vehicles);
     prepared.m_records.reserve(
         static_cast<size_t>(discoveredPaths.size()));
 
@@ -287,21 +288,25 @@ PreparedPathSet PathPreparationService::prepareDiscoveredPaths(
         if (path->getSegments().isEmpty())
             continue;
 
-        const auto mode = path->getSegments().first()->getMode();
-        const auto inputs =
-            PathMetricsCalculator::gatherInputs(mode, *config,
-                                                vehicles);
         const int previewContainerCount =
             PathDemandResolver::previewContainerCount(doc, *path);
-        record.predictedMetrics =
-            PathMetricsCalculator::compute(
-                path->totalEstimatedLength(),
-                path->totalEstimatedTravelTime(),
-                mode, inputs,
+        const auto estimatedCost =
+            EstimatedPathCostCalculator::compute(
+                *path, config->getCostFunctionWeights(),
+                config->getTransportModes(),
                 previewContainerCount);
-        record.predictedMetrics.previewVehicleBreakdown =
-            previewVehicleBreakdownForPath(
-                *path, *config, previewContainerCount);
+        path->setTotalEdgeCosts(estimatedCost.edgeCost);
+        path->setTotalTerminalCosts(estimatedCost.terminalCost);
+        path->setTotalPathCost(estimatedCost.totalCost);
+        path->setRankingCost(estimatedCost.totalCost);
+        path->setCostBreakdown(estimatedCost.costBreakdown);
+        record.predictedMetrics = estimatedCost.metrics;
+        if (record.predictedMetrics.previewVehicleBreakdown.isEmpty())
+        {
+            record.predictedMetrics.previewVehicleBreakdown =
+                previewVehicleBreakdownForPath(
+                    *path, *config, previewContainerCount);
+        }
         prepared.m_predictedByPathIdentity.insert(
             record.pathIdentity, record.predictedMetrics);
         if (!record.canonicalPathKey.isEmpty())

@@ -53,7 +53,7 @@ namespace Segment {
     inline const QString Cost                    = QStringLiteral("cost");
 
     // Cost-function weight keys (keys in the per-mode weight maps from
-    // getCostFunctionWeights(), used by TerminalCostMath::singleTerminalCost())
+    // getCostFunctionWeights() and TerminalSim cost-function contracts.
     inline const QString TerminalDelay           = QStringLiteral("terminal_delay");
     inline const QString TerminalCost            = QStringLiteral("terminal_cost");
 } // namespace Segment

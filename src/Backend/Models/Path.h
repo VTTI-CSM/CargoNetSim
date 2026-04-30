@@ -194,6 +194,11 @@ public:
         return m_rankingCost;
     }
 
+    void setRankingCost(double cost)
+    {
+        m_rankingCost = qMax(0.0, cost);
+    }
+
     int getEffectiveContainerCount() const
     {
         return m_effectiveContainerCount;
@@ -227,6 +232,11 @@ public:
     QJsonObject getCostBreakdown() const
     {
         return m_costBreakdown;
+    }
+
+    void setCostBreakdown(const QJsonObject &breakdown)
+    {
+        m_costBreakdown = breakdown;
     }
 
     QString canonicalPathKey() const;

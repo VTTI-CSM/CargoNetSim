@@ -433,8 +433,8 @@ CargoNetSim::GUI::UtilitiesFunctions::getCommonModes(
         return {};
 
     // Dispatch to the typed accessor regardless of which view class the
-    // caller handed us. Plan 7: single extraction point — no more
-    // property-bag string walks copied across four branches.
+    // caller handed us. Plan 7: single extraction point for terminal
+    // capabilities.
     auto interfacesOf =
         [](QGraphicsItem *item)
         -> Backend::Scenario::InterfaceConversion::InterfaceMap {
@@ -812,7 +812,7 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
     QSet<QString> commonNetworks = sourceNetworkNames;
     commonNetworks.intersect(targetNetworkNames);
 
-    // Check each common network for valid paths
+    // Check each common network for valid paths.
     for (const QString &network : commonNetworks)
     {
         auto sourcePointsForNetwork =
@@ -889,9 +889,7 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
                             continue;
                         }
 
-                        // We found a valid path, so break
-                        // out of the inner loops
-                        break;
+                        return true;
                     }
                 }
                 catch (const std::exception &e)
@@ -904,7 +902,7 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
         }
     }
 
-    return true;
+    return false;
 }
 
 void CargoNetSim::GUI::UtilitiesFunctions::

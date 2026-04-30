@@ -4,7 +4,7 @@ USAGE
     cargonetsim-cli <subcommand> [options]
 
 SUBCOMMANDS
-    run         [--all|--paths LIST] [--verbose] <scenario.yml>
+    run         [--all|--paths LIST] [--top N] [--verbose] <scenario.yml>
                                  Execute the scenario end-to-end.
                                  `--all` selects every discovered
                                  candidate path and simulates each as
@@ -14,7 +14,9 @@ SUBCOMMANDS
                                  alias for `--all`.
                                  `--paths LIST` selects a comma-separated
                                  subset by the 1-based Select values
-                                 printed by the `paths` command.
+                                 printed by the `discover` command.
+                                 `--top N` overrides the number of
+                                 candidates discovered before selection.
                                  `--verbose` enables Qt logs and
                                  per-path progress details.
 
@@ -22,7 +24,7 @@ SUBCOMMANDS
 
     preview     <scenario.yml>   Load, validate, run linker, emit JSON to stdout.
 
-    paths       [--top N] [--json|--details] <scenario.yml>
+    discover    [--top N] [--json|--details] [--verbose] <scenario.yml>
                                  Discover and print candidate paths with
                                  prepared numeric values only. The Select
                                  column is accepted by `run --paths`.

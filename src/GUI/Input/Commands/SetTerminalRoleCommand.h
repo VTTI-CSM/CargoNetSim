@@ -12,7 +12,8 @@ namespace Backend::Scenario { class ScenarioDocument; }
 namespace GUI::Input {
 
 /// Sets a terminal's role (Origin / Destination / Transit). Undo restores the
-/// previous role captured on first redo.
+/// complete pre-edit placement because role transitions may intentionally
+/// mutate origin properties and destination splits.
 class SetTerminalRoleCommand final : public QUndoCommand {
 public:
     using TerminalRole = Backend::Scenario::TerminalPlacement::TerminalRole;
@@ -30,7 +31,8 @@ private:
     QPointer<Backend::Scenario::ScenarioDocument> m_doc;
     QString                                       m_terminalId;
     TerminalRole                                  m_newRole;
-    TerminalRole                                  m_oldRole = TerminalRole::Transit;
+    Backend::Scenario::TerminalPlacement          m_before;
+    Backend::Scenario::TerminalPlacement          m_after;
     bool                                          m_captured = false;
 };
 

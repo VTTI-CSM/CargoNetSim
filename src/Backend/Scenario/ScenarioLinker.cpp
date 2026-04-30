@@ -551,6 +551,28 @@ bool isExcluded(const QList<NodeLinkage> &all,
     return false;
 }
 
+bool manualConnectionBelongsToRegion(const ScenarioDocument &doc,
+                                      const Connection       &connection,
+                                      const QString          &region)
+{
+    const auto fromIt = doc.terminals.constFind(connection.fromTerminalId);
+    if (fromIt == doc.terminals.constEnd())
+        return false;
+
+    const auto toIt = doc.terminals.constFind(connection.toTerminalId);
+    if (toIt == doc.terminals.constEnd())
+        return false;
+
+    if (fromIt->region != region || toIt->region != region)
+        return false;
+
+    // Connection.region is a redundant authoring cross-check. Older and
+    // hand-authored scenarios may omit it; in that case endpoint ownership is
+    // the source of truth. An explicit mismatch remains invalid for this
+    // region and is skipped here after validation reports it.
+    return connection.region.isEmpty() || connection.region == region;
+}
+
 } // namespace
 
 QList<NodeLinkage>
@@ -625,10 +647,8 @@ ScenarioLinker::resolveConnections(const ScenarioDocument &doc,
         QList<Connection> manual;
         for (const Connection &c : doc.connections)
         {
-            if (c.region != region) continue;
-            if (!doc.terminals.contains(c.fromTerminalId)) continue;
-            if (!doc.terminals.contains(c.toTerminalId))   continue;
-            manual.append(c);
+            if (manualConnectionBelongsToRegion(doc, c, region))
+                manual.append(c);
         }
 
         QList<Connection> autoFromRules;

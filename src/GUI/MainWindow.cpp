@@ -3,6 +3,7 @@
 #include "Backend/Commons/LogCategories.h"
 
 #include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/ScenarioEditService.h"
 #include "Backend/Application/ScenarioLoadService.h"
 #include "Backend/GuiApi/ScenarioDocumentApi.h"
 #include "Backend/Scenario/ScenarioRuntime.h"
@@ -336,7 +337,12 @@ MainWindow::MainWindow()
         defaultRegion.color = QStringLiteral("#00FF00");
         defaultRegion.localOrigin    = {0.0, 0.0};
         defaultRegion.globalPosition = {0.0, 0.0};
-        doc->addRegion(defaultRegion);
+        if (!Backend::Application::ScenarioEditService::addRegion(
+                doc.get(), defaultRegion))
+        {
+            qCCritical(lcGui)
+                << "MainWindow: failed to seed default region";
+        }
 
         Backend::Application::ScenarioLoadService loadService;
         auto loadResult =
@@ -607,7 +613,7 @@ void MainWindow::subscribeDocumentObservers()
                 // exists AND Show-on-Global-Map is true" invariant has
                 // a single owner. Connection lines touching the removed
                 // mirror are handled by the globalLinkRemoved observer
-                // — doc->removeTerminal cascades those emissions first.
+                // because terminal removal cascades those emissions first.
                 if (m_terminalCtrl)
                     m_terminalCtrl->removeGlobalMirror(id);
             });

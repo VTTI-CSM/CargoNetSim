@@ -78,6 +78,7 @@ public:
 
     bool commitReservations(
         const QVector<TerminalPickupReservationHandle> &handles,
+        double operationTimeSeconds,
         QString                                        *err) const;
 
     bool releaseReservations(

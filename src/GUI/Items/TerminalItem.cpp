@@ -34,6 +34,37 @@ namespace CargoNetSim
 namespace GUI
 {
 
+namespace
+{
+
+Backend::Scenario::InterfaceConversion::InterfaceMap
+interfaceMapFromSets(
+    const QSet<Backend::TransportationTypes::TransportationMode> &land,
+    const QSet<Backend::TransportationTypes::TransportationMode> &sea)
+{
+    using InterfaceMap =
+        Backend::Scenario::InterfaceConversion::InterfaceMap;
+    using TerminalInterface = Backend::TerminalTypes::TerminalInterface;
+
+    InterfaceMap map;
+    if (!land.isEmpty())
+        map.insert(TerminalInterface::LAND_SIDE, land);
+    if (!sea.isEmpty())
+        map.insert(TerminalInterface::SEA_SIDE, sea);
+    return map;
+}
+
+Backend::Scenario::InterfaceConversion::InterfaceMap
+interfaceMapForType(const QString &terminalType)
+{
+    const auto defaults =
+        Backend::Scenario::TerminalTypeDefaults::interfacesFor(
+            terminalType);
+    return interfaceMapFromSets(defaults.first, defaults.second);
+}
+
+} // namespace
+
 // Initialize static variables
 QMap<QString, int> TerminalItem::TERMINAL_TYPES_IDs;
 
@@ -252,34 +283,15 @@ std::unique_ptr<QUndoCommand> TerminalItem::createConnectCommandTo(
 Backend::Scenario::InterfaceConversion::InterfaceMap
 TerminalItem::availableInterfaces() const
 {
-    using InterfaceMap = Backend::Scenario::InterfaceConversion::InterfaceMap;
-    using TerminalInterface = Backend::TerminalTypes::TerminalInterface;
-
-    // Preferred path: bound to a placement. Placement::interfaces holds the
-    // typed InterfaceSet (Plan 7 migration); reshape into the backend's
-    // InterfaceMap directly. No string round-trip.
     if (m_placement && m_placement->interfaces.isSet)
     {
-        InterfaceMap map;
-        if (!m_placement->interfaces.landSide.isEmpty())
-            map.insert(TerminalInterface::LAND_SIDE,
-                       m_placement->interfaces.landSide);
-        if (!m_placement->interfaces.seaSide.isEmpty())
-            map.insert(TerminalInterface::SEA_SIDE,
-                       m_placement->interfaces.seaSide);
-        return map;
+        return interfaceMapFromSets(m_placement->interfaces.landSide,
+                                    m_placement->interfaces.seaSide);
     }
 
-    // Fallback: placement absent or interfaces.isSet == false. Read the
-    // property bag — populated by TerminalTypeDefaults at construction
-    // time for legacy pre-scenario items, AND for bound items whose
-    // InterfaceSet has isSet=false (type-based defaults live only in the
-    // bag on that path). Strings → enums at the boundary.
-    const QMap<QString, QVariant> iface =
-        m_properties.value(QStringLiteral("Available Interfaces")).toMap();
-    return Backend::Scenario::InterfaceConversion::toBackendInterfaces(
-        iface.value(QStringLiteral("land_side")).toStringList(),
-        iface.value(QStringLiteral("sea_side")).toStringList());
+    const QString terminalType =
+        m_placement ? m_placement->type : m_terminalType;
+    return interfaceMapForType(terminalType);
 }
 
 void TerminalItem::resetClassIDs()

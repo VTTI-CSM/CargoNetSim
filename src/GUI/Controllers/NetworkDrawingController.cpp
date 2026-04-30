@@ -346,12 +346,6 @@ void NetworkDrawingController::drawTrainNetwork(
     qCDebug(lcRail) << "[RailDraw] drawing nodes, count="
              << nodes.size();
 
-    if (!skipTerminalCreation && m_mainWindow && m_mainWindow->runtime())
-    {
-        auto &lnk = m_mainWindow->runtime()->document().linkages;
-        lnk.reserve(lnk.size() + nodes.size());
-    }
-
     int nodeIdx = 0;
     for (auto &node : nodes)
     {

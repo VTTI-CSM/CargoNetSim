@@ -145,10 +145,9 @@ transportationModeFromString(const QString &s, bool *ok = nullptr);
  *
  * Produces the capitalized `"Truck"` / `"Rail"` / `"Ship"` vocabulary used
  * by the terminal interface schema (YAML `terminals[].interfaces.land_side`
- * / `.sea_side`) and the GUI's `"Available Interfaces"` property bag. This
- * is a DIFFERENT vocabulary from the lowercase `transportationModeToString`
- * used by `Connection`/`GlobalLink` — both are load-bearing and must not
- * be conflated.
+ * / `.sea_side`). This is a DIFFERENT vocabulary from the lowercase
+ * `transportationModeToString` used by `Connection`/`GlobalLink` — both are
+ * load-bearing and must not be conflated.
  *
  * `Any` → empty QString (invalid for interface modes).
  */

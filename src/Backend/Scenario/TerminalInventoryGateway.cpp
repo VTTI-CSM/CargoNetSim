@@ -9,6 +9,22 @@ namespace Backend
 namespace Scenario
 {
 
+QString terminalInventoryArrivalSemanticsToWire(
+    TerminalInventoryArrivalSemantics semantics)
+{
+    switch (semantics)
+    {
+    case TerminalInventoryArrivalSemantics::RuntimeArrival:
+        return QStringLiteral("runtime_arrival");
+    case TerminalInventoryArrivalSemantics::Preload:
+        return QStringLiteral("preload");
+    case TerminalInventoryArrivalSemantics::Infer:
+        return QString();
+    }
+
+    return QString();
+}
+
 TerminalSimulationInventoryGateway::TerminalSimulationInventoryGateway(
     TerminalSimulationClient *client)
     : m_client(client)
@@ -19,13 +35,16 @@ bool TerminalSimulationInventoryGateway::addContainers(
     const QString                     &terminalId,
     QList<ContainerCore::Container *> &containers,
     double                             addTimeSeconds,
-    const QString                     &arrivalMode)
+    const QString                     &arrivalMode,
+    TerminalInventoryArrivalSemantics  arrivalSemantics)
 {
     return m_client
         && m_client->addContainers(terminalId,
                                    containers,
                                    addTimeSeconds,
-                                   arrivalMode);
+                                   arrivalMode,
+                                   terminalInventoryArrivalSemanticsToWire(
+                                       arrivalSemantics));
 }
 
 QJsonObject TerminalSimulationInventoryGateway::reserveContainers(
@@ -42,11 +61,13 @@ QJsonObject TerminalSimulationInventoryGateway::reserveContainers(
 QJsonObject
 TerminalSimulationInventoryGateway::commitContainerReservation(
     const QString &terminalId,
-    const QString &reservationId)
+    const QString &reservationId,
+    double operationTimeSeconds)
 {
     return m_client
         ? m_client->commitContainerReservation(terminalId,
-                                               reservationId)
+                                               reservationId,
+                                               operationTimeSeconds)
         : QJsonObject{};
 }
 

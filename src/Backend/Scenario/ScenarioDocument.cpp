@@ -34,6 +34,101 @@ void deleteAllContainers(
         qDeleteAll(list);
     byTerminal.clear();
 }
+
+void deleteContainersForTerminal(
+    QMap<QString, QList<ContainerCore::Container *>> &byTerminal,
+    const QString                                    &terminalId)
+{
+    auto it = byTerminal.find(terminalId);
+    if (it == byTerminal.end())
+        return;
+    qDeleteAll(*it);
+    byTerminal.erase(it);
+}
+
+bool endpointReferencesTerminal(const QString &endpoint,
+                                const QString &terminalId,
+                                const QString &region)
+{
+    if (endpoint == terminalId)
+        return true;
+    if (region.isEmpty())
+        return false;
+    return endpoint == region + QLatin1Char('/') + terminalId;
+}
+
+bool terminalBelongsToRegion(const ScenarioDocument &doc,
+                             const QString          &terminalId,
+                             const QString          &region)
+{
+    const auto it = doc.terminals.constFind(terminalId);
+    return it != doc.terminals.constEnd() && it->region == region;
+}
+
+bool terminalHasRegionScopedDependencies(const ScenarioDocument &doc,
+                                         const QString          &terminalId,
+                                         const QString          &region)
+{
+    for (const NodeLinkage &linkage : doc.linkages)
+    {
+        if (linkage.terminalId == terminalId)
+            return true;
+    }
+
+    for (const Connection &connection : doc.connections)
+    {
+        if (connection.fromTerminalId == terminalId
+            || connection.toTerminalId == terminalId)
+        {
+            return true;
+        }
+    }
+
+    for (const GlobalLink &link : doc.globalLinks)
+    {
+        if (endpointReferencesTerminal(link.fromTerminalId,
+                                       terminalId, region)
+            || endpointReferencesTerminal(link.toTerminalId,
+                                          terminalId, region))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool connectionIdentityMatches(
+    const Connection &connection,
+    const QString &fromId,
+    const QString &toId,
+    TransportationTypes::TransportationMode mode)
+{
+    return connection.fromTerminalId == fromId
+        && connection.toTerminalId == toId
+        && connection.mode == mode;
+}
+
+bool globalLinkIdentityMatches(
+    const GlobalLink &link,
+    const QString &fromId,
+    const QString &toId,
+    TransportationTypes::TransportationMode mode)
+{
+    return link.fromTerminalId == fromId
+        && link.toTerminalId == toId
+        && link.mode == mode;
+}
+
+bool linkageIdentityMatches(const NodeLinkage &linkage,
+                            const QString &terminalId,
+                            const QString &networkName,
+                            int nodeId)
+{
+    return linkage.terminalId == terminalId
+        && linkage.networkName == networkName
+        && linkage.nodeId == nodeId;
+}
 } // namespace
 
 ScenarioDocument::~ScenarioDocument()
@@ -69,24 +164,34 @@ ScenarioDocument::linkagesFor(const QString     &terminalId,
     qCDebug(lcScenario) << "ScenarioDocument::linkagesFor: terminalId:" << terminalId
                         << "type:" << static_cast<int>(type);
     QList<NodeLinkage> out;
+    const auto terminalIt = terminals.constFind(terminalId);
+    if (terminalIt == terminals.constEnd())
+    {
+        qCDebug(lcScenario) << "ScenarioDocument::linkagesFor:"
+                            << "terminal not found";
+        return out;
+    }
+    const auto regionIt = regions.constFind(terminalIt->region);
+    if (regionIt == regions.constEnd())
+    {
+        qCDebug(lcScenario) << "ScenarioDocument::linkagesFor:"
+                            << "terminal region not found";
+        return out;
+    }
+
     for (const NodeLinkage &l : linkages)
     {
         if (l.terminalId != terminalId) continue;
 
-        // Resolve the linkage's networkName → NetworkSpec::Type by scanning
-        // regions.*.networks.*. Ship has no NetworkSpec; a linkage pointing
-        // at a missing network is silently skipped (invariant-preserving).
-        bool matched = false;
-        for (const RegionSpec &r : regions)
+        // Resolve networkName within the terminal's owning region only.
+        // Network names can repeat across regions; using any matching region
+        // would bind a terminal to another region's network by accident.
+        auto networkIt = regionIt->networks.constFind(l.networkName);
+        if (networkIt != regionIt->networks.constEnd()
+            && networkIt->type == type)
         {
-            auto it = r.networks.constFind(l.networkName);
-            if (it != r.networks.constEnd() && it->type == type)
-            {
-                matched = true;
-                break;
-            }
+            out.append(l);
         }
-        if (matched) out.append(l);
     }
     qCDebug(lcScenario) << "ScenarioDocument::linkagesFor: found" << out.size() << "linkages";
     return out;
@@ -157,6 +262,8 @@ ScenarioDocument::destinationsFor(
 {
     const auto tit = terminals.constFind(originTerminalId);
     if (tit == terminals.constEnd()) return {};
+    if (!isOrigin(originTerminalId)) return {};
+
     const QMap<QString, QVariant> &props = tit->properties;
 
     // Preferred form: explicit routing list with per-entry fractions.
@@ -245,6 +352,16 @@ void ScenarioDocument::setOriginContainers(
 {
     qCDebug(lcScenario) << "ScenarioDocument::setOriginContainers: terminalId:" << terminalId
                         << "count:" << containers.size();
+    if (terminalId.isEmpty() || !terminals.contains(terminalId))
+    {
+        qCWarning(lcScenario)
+            << "ScenarioDocument::setOriginContainers:"
+            << "unknown terminal id:" << terminalId
+            << "discarding containers=" << containers.size();
+        qDeleteAll(containers);
+        return;
+    }
+
     // Replace semantics: free any prior pool at this id, then install.
     // Mirrors the single-pool setter that shipped in Plan 3 but scoped
     // per-origin so multiple origins coexist without interference.
@@ -435,6 +552,7 @@ bool ScenarioDocument::removeTerminal(const QString &id)
                         << "connections=" << removedConnections
                         << "globalLinks=" << removedGlobalLinks;
 
+    deleteContainersForTerminal(m_containersByTerminal, id);
     terminals.remove(id);
     emit terminalRemoved(id);
     return true;
@@ -446,6 +564,20 @@ bool ScenarioDocument::updateTerminal(const QString &id, const TerminalPlacement
     if (!terminals.contains(id))     return false;
     if (t.id != id)                  return false;  // id must stay pinned to the key
     if (!regions.contains(t.region)) return false;
+
+    const TerminalPlacement current = terminals.value(id);
+    if (current.region != t.region
+        && terminalHasRegionScopedDependencies(*this, id,
+                                               current.region))
+    {
+        qCWarning(lcScenario)
+            << "ScenarioDocument::updateTerminal: region change rejected for"
+            << id << "from" << current.region << "to" << t.region
+            << "because the terminal has linkages or routes. Remove or"
+               "recreate those dependencies explicitly before moving it.";
+        return false;
+    }
+
     terminals.insert(id, t);
     emit terminalChanged(id);
     return true;
@@ -471,7 +603,26 @@ bool ScenarioDocument::removeNetwork(const QString &region, const QString &netwo
     if (!regions.contains(region))        return false;
     auto &r = regions[region];
     if (!r.networks.contains(network))    return false;
+
+    int removedLinkages = 0;
+    for (int i = linkages.size() - 1; i >= 0; --i)
+    {
+        const NodeLinkage &linkage = linkages.at(i);
+        if (linkage.networkName == network
+            && terminalBelongsToRegion(*this, linkage.terminalId, region))
+        {
+            const QString terminalId = linkage.terminalId;
+            const int nodeId = linkage.nodeId;
+            linkages.removeAt(i);
+            ++removedLinkages;
+            emit linkageRemoved(terminalId, network, nodeId);
+        }
+    }
+
     r.networks.remove(network);
+    qCDebug(lcScenario)
+        << "ScenarioDocument::removeNetwork: cascaded"
+        << removedLinkages << "linkage(s)";
     emit networkRemoved(region, network);
     return true;
 }
@@ -491,6 +642,24 @@ bool ScenarioDocument::renameNetwork(const QString &region,
     NetworkSpec spec = r.networks.take(oldName);
     spec.name        = newName;
     r.networks.insert(newName, spec);
+
+    int reanchoredLinkages = 0;
+    for (NodeLinkage &linkage : linkages)
+    {
+        if (linkage.networkName == oldName
+            && terminalBelongsToRegion(*this, linkage.terminalId, region))
+        {
+            const QString terminalId = linkage.terminalId;
+            const int nodeId = linkage.nodeId;
+            linkage.networkName = newName;
+            ++reanchoredLinkages;
+            emit linkageChanged(terminalId, newName, nodeId);
+        }
+    }
+
+    qCDebug(lcScenario)
+        << "ScenarioDocument::renameNetwork: reanchored"
+        << reanchoredLinkages << "linkage(s)";
     emit networkRenamed(region, oldName, newName);
     return true;
 }
@@ -501,6 +670,17 @@ bool ScenarioDocument::addLinkage(const NodeLinkage &l)
                         << "network:" << l.networkName << "node:" << l.nodeId;
     if (l.terminalId.isEmpty())                 return false;
     if (!terminals.contains(l.terminalId))      return false;
+    for (const NodeLinkage &existing : linkages)
+    {
+        if (linkageIdentityMatches(existing, l.terminalId,
+                                   l.networkName, l.nodeId))
+        {
+            qCWarning(lcScenario)
+                << "ScenarioDocument::addLinkage: duplicate linkage rejected"
+                << l.terminalId << l.networkName << "node=" << l.nodeId;
+            return false;
+        }
+    }
     linkages.append(l);
     emit linkageAdded(l);
     return true;
@@ -669,6 +849,14 @@ bool ScenarioDocument::updateConnection(
     const int i = findConnectionIndex(fromId, toId, mode);
     if (i >= 0)
     {
+        if (!connectionIdentityMatches(updated, fromId, toId, mode))
+        {
+            qCWarning(lcScenario)
+                << "ScenarioDocument::updateConnection:"
+                << "route identity changes are not allowed; use"
+                << "removeConnection/addConnection";
+            return false;
+        }
         connections[i] = updated;
         emit connectionChanged(fromId, toId, mode);
         return true;
@@ -689,6 +877,14 @@ bool ScenarioDocument::updateGlobalLink(
     const int i = findGlobalLinkIndex(fromId, toId, mode);
     if (i >= 0)
     {
+        if (!globalLinkIdentityMatches(updated, fromId, toId, mode))
+        {
+            qCWarning(lcScenario)
+                << "ScenarioDocument::updateGlobalLink:"
+                << "route identity changes are not allowed; use"
+                << "removeGlobalLink/addGlobalLink";
+            return false;
+        }
         globalLinks[i] = updated;
         emit globalLinkChanged(fromId, toId, mode);
         return true;
@@ -712,6 +908,15 @@ bool ScenarioDocument::updateLinkage(
             && l.networkName == networkName
             && l.nodeId      == nodeId)
         {
+            if (!linkageIdentityMatches(updated, terminalId,
+                                        networkName, nodeId))
+            {
+                qCWarning(lcScenario)
+                    << "ScenarioDocument::updateLinkage:"
+                    << "linkage identity changes are not allowed; use"
+                    << "removeLinkage/addLinkage";
+                return false;
+            }
             linkages[i] = updated;
             emit linkageChanged(terminalId, networkName, nodeId);
             return true;
