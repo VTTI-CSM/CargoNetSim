@@ -140,8 +140,9 @@ public:
     /**
      * @brief Get the terminal's scenario role.
      *
-     * Returns the placement's role when bound, or Transit (default)
-     * when unbound (legacy mode).
+     * Returns the placement's role when bound, or Transit (default) when
+     * unbound. Production mutators require a bound placement; the default is
+     * only for safe rendering of isolated view/test items.
      */
     Backend::Scenario::TerminalPlacement::TerminalRole
     getRole() const
@@ -264,16 +265,17 @@ public:
      */
     void setPlacement(Backend::Scenario::TerminalPlacement *placement);
 
-    /// Non-owning placement pointer, or nullptr for legacy mode.
+    /// Non-owning placement pointer, or nullptr for isolated view tests or
+    /// transient items that have not been committed to a ScenarioDocument.
     Backend::Scenario::TerminalPlacement *placement() const
     {
         return m_placement;
     }
 
-    /// Domain id: the bound TerminalPlacement::id, or empty when unbound
-    /// (legacy pre-scenario flow). Callers that need a document-addressable
-    /// terminal id (mutator args, backend server requests) read this; no
-    /// fallback to UUID — empty is a meaningful "unbound" signal.
+    /// Domain id: the bound TerminalPlacement::id, or empty when unbound.
+    /// Callers that need a document-addressable terminal id (mutator args,
+    /// backend server requests) read this; no fallback to UUID — empty is a
+    /// meaningful "unbound" signal.
     /// Implementation in .cpp (needs TerminalPlacement's full definition).
     QString getTerminalId() const;
 

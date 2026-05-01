@@ -307,50 +307,38 @@ void RegionCenterPoint::onDragEnd(
         << "RegionCenterPoint::onDragEnd; pos =" << finalPos
         << "region=" << properties.value("Region").toString();
 
-    // Port legacy itemChange side effects: refresh coordinate
-    // strings from the new scene position, then notify listeners.
-    updateCoordinatesFromPosition();
-    emit positionChanged(finalPos);
-
-    // Persist coordinates to backend. Prefer ctx.document; fall
-    // back to the view-derived runtime document only if missing.
     if (getRegion().isEmpty())
     {
         return;
     }
 
-    Backend::Scenario::ScenarioDocument *doc = nullptr;
-    if (ctx.document)
-    {
-        doc = ctx.document.data();
-    }
-    else
+    if (!ctx.document || !ctx.commandBus || !ctx.view)
     {
         qCWarning(lcGuiInputItem)
-            << "RegionCenterPoint: drag end with null document";
+            << "RegionCenterPoint: missing backend drag dependencies"
+            << "hasDocument=" << static_cast<bool>(ctx.document)
+            << "hasCommandBus=" << (ctx.commandBus != nullptr)
+            << "hasView=" << static_cast<bool>(ctx.view);
         return;
     }
 
-    QPointF latLon;
-    if (ctx.view)
-    {
-        latLon = ctx.view->sceneToWGS84(pos());
-    }
-    else
-    {
-        // No view in context — reconstruct from the updated
-        // property strings written by updateCoordinatesFromPosition.
-        latLon = QPointF(
-            properties.value("Longitude").toString().toDouble(),
-            properties.value("Latitude").toString().toDouble());
-    }
-
-    if (ctx.commandBus)
-    {
+    Backend::Scenario::ScenarioDocument *doc = ctx.document.data();
+    const QPointF latLon = ctx.view->sceneToWGS84(pos());
+    const bool submitted =
         ctx.commandBus->submit(
             std::make_unique<Input::UpdateRegionLocalOriginCommand>(
                 doc, getRegion(), latLon));
+    if (!submitted)
+    {
+        qCWarning(lcGuiInputItem)
+            << "RegionCenterPoint: failed to persist coordinates"
+            << getRegion() << "lat=" << latLon.y()
+            << "lon=" << latLon.x();
+        return;
     }
+
+    updateCoordinatesFromPosition();
+    emit positionChanged(finalPos);
 
     qCDebug(lcGuiInputItem)
         << "RegionCenterPoint: persisted coordinates"

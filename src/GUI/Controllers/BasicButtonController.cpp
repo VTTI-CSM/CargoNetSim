@@ -18,6 +18,7 @@
 #include "../Widgets/GraphicsView.h"
 #include "../Widgets/SetCoordinatesDialog.h"
 
+#include "../Controllers/ConnectionController.h"
 #include "../Controllers/NetworkController.h"
 #include "../Controllers/UtilityFunctions.h"
 #include "../Widgets/ShipManagerDialog.h"
@@ -385,7 +386,14 @@ void BasicButtonController::disconnectAllTerminals(
 {
     try
     {
-        QList<GraphicsObjectBase *> itemsToRemove;
+        if (!mainWindow || !scene || !mainWindow->connectionCtrl())
+        {
+            qCWarning(lcGuiButton)
+                << "disconnectAllTerminals: missing MainWindow, scene, or ConnectionController";
+            return;
+        }
+
+        QList<ConnectionLine *> itemsToRemove;
 
         auto itemsToCheck =
             scene->getItemsByType<ConnectionLine>();
@@ -401,19 +409,16 @@ void BasicButtonController::disconnectAllTerminals(
             }
         }
 
-        // Remove items separately to avoid modifying
-        // collection during iteration
-        for (GraphicsObjectBase *item : itemsToRemove)
+        int removedCount = 0;
+        for (ConnectionLine *item : itemsToRemove)
         {
-            scene->removeItemWithId<ConnectionLine>(
-                item->sceneRegistryKey());
+            if (mainWindow->connectionCtrl()->removeConnectionLine(item))
+                ++removedCount;
         }
 
-        if (mainWindow)
-        {
-            mainWindow->showStatusBarMessage(
-                "All terminals disconnected", 2000);
-        }
+        mainWindow->showStatusBarMessage(
+            QString("Disconnected %1 connection(s).").arg(removedCount),
+            2000);
     }
     catch (const std::exception &e)
     {

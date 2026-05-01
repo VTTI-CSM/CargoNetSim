@@ -53,23 +53,38 @@ Handled UnlinkTerminalMode::onPress(const PressEvent& e, const ClickContext& ctx
 
     qCInfo(lcGuiInputMode) << "UnlinkTerminalMode: unlinking MapPoint" << mp;
 
-    // Mutate the document via command when a canonical linkage is bound.
-    if (ctx.document && ctx.commandBus) {
-        if (auto* linkage = mp->linkageModel()) {
-            ctx.commandBus->submit(std::make_unique<UnlinkTerminalCommand>(
-                ctx.document.data(),
-                linkage->terminalId,
-                linkage->networkName,
-                linkage->nodeId));
-        } else {
-            qCWarning(lcGuiInputMode)
-                << "UnlinkTerminalMode: MapPoint has no bound NodeLinkage;"
-                << "performing view-only unlink.";
+    auto* linkage = mp->linkageModel();
+    if (!ctx.document || !ctx.commandBus || !linkage) {
+        qCWarning(lcGuiInputMode)
+            << "UnlinkTerminalMode: missing backend binding;"
+            << "refusing view-only unlink"
+            << "hasDocument=" << static_cast<bool>(ctx.document)
+            << "hasCommandBus=" << (ctx.commandBus != nullptr)
+            << "hasLinkage=" << (linkage != nullptr);
+        if (ctx.mainWindow) {
+            if (auto* sb = ctx.mainWindow->statusBar()) {
+                sb->showMessage(QStringLiteral("Cannot unlink an unbound network node."), 3000);
+            }
         }
+        ctx.controller->setMode<NormalMode>();
+        return Handled::Yes;
     }
 
-    mp->setLinkedTerminal(nullptr);
-    mp->update();
+    const bool submitted =
+        ctx.commandBus->submit(std::make_unique<UnlinkTerminalCommand>(
+            ctx.document.data(),
+            linkage->terminalId,
+            linkage->networkName,
+            linkage->nodeId));
+    if (submitted) {
+        // Immediate view-cache reconciliation after the document mutation.
+        mp->setLinkedTerminal(nullptr);
+        mp->update();
+    } else if (ctx.mainWindow) {
+        if (auto* sb = ctx.mainWindow->statusBar()) {
+            sb->showMessage(QStringLiteral("Failed to unlink terminal from node."), 3000);
+        }
+    }
 
     ctx.controller->setMode<NormalMode>();
     return Handled::Yes;

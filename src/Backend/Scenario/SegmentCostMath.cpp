@@ -1,8 +1,9 @@
 #include "SegmentCostMath.h"
 
+#include <algorithm>
+
 #include <QJsonObject>
 #include <QList>
-#include <QMap>
 #include <QString>
 #include <QStringList>
 
@@ -46,8 +47,6 @@ struct ComputedSegmentData
 {
     PathSegment::SegmentMetricSnapshot actualMetrics;
     PathSegment::SegmentCostSnapshot   actualCosts;
-    QVariantMap                        rawActualValues;
-    QMap<QString, double>              rawActualCosts;
 };
 
 // Post-aggregation work shared by ship and train segment cost — compute
@@ -61,8 +60,18 @@ ComputedSegmentData computeVehicleSegmentData(
     int                                vehicleCapacity)
 {
     ComputedSegmentData out;
-    if (m.vehicleCount == 0)
+    if (m.vehicleCount == 0 || containerCount <= 0)
         return out;
+
+    const int effectiveVehicleCapacity =
+        std::max(vehicleCapacity, 1);
+    if (vehicleCapacity <= 0)
+    {
+        qCWarning(lcScenario)
+            << "SegmentCostMath::computeVehicleSegmentData:"
+            << "invalid vehicle capacity" << vehicleCapacity
+            << "using" << effectiveVehicleCapacity;
+    }
 
     // Calculate containers per vehicle
     double containersPerVehicle =
@@ -71,89 +80,39 @@ ComputedSegmentData computeVehicleSegmentData(
     // Calculate container-to-capacity ratio (how full is
     // each vehicle)
     double containerToCapacityRatio =
-        containersPerVehicle / vehicleCapacity;
+        containersPerVehicle / effectiveVehicleCapacity;
 
     // Adjust metrics by ratio
     m.carbonEmissions *= containerToCapacityRatio;
     m.energyConsumption *= containerToCapacityRatio;
 
-    // Apply weights to metrics
-    QMap<QString, double> simulatedValues;
-    QMap<QString, double> simulatedCost;
-    simulatedValues[PK::Segment::TravelTime]        = m.travelTime;
-    simulatedValues[PK::Segment::Distance]          = m.distance;
-    simulatedValues[PK::Segment::CarbonEmissions]   = m.carbonEmissions;
-    simulatedValues[PK::Segment::EnergyConsumption] =
-        m.energyConsumption;
-    simulatedValues[PK::Segment::Risk] = m.risk;
-
-    simulatedCost[PK::Segment::TravelTime] =
-        m.travelTime * modeWeights[PK::Segment::TravelTime].toDouble();
-    simulatedCost[PK::Segment::Distance] =
-        m.distance * modeWeights[PK::Segment::Distance].toDouble();
-    simulatedCost[PK::Segment::CarbonEmissions] =
-        m.carbonEmissions
-        * modeWeights[PK::Segment::CarbonEmissions].toDouble(); // tonnes
-    simulatedCost[PK::Segment::EnergyConsumption] =
-        m.energyConsumption
-        * modeWeights[PK::Segment::EnergyConsumption]
-              .toDouble(); // kWh
-    simulatedCost[PK::Segment::Risk] =
-        m.risk * modeWeights[PK::Segment::Risk].toDouble();
-    simulatedCost[PK::Segment::Cost] = 0.0;
-
     out.actualMetrics.available = true;
-    out.actualMetrics.travelTime =
-        simulatedValues[PK::Segment::TravelTime];
-    out.actualMetrics.distance =
-        simulatedValues[PK::Segment::Distance];
-    out.actualMetrics.carbonEmissions =
-        simulatedValues[PK::Segment::CarbonEmissions];
-    out.actualMetrics.energyConsumption =
-        simulatedValues[PK::Segment::EnergyConsumption];
-    out.actualMetrics.risk =
-        simulatedValues[PK::Segment::Risk];
+    out.actualMetrics.travelTime = m.travelTime;
+    out.actualMetrics.distance = m.distance;
+    out.actualMetrics.carbonEmissions = m.carbonEmissions;
+    out.actualMetrics.energyConsumption = m.energyConsumption;
+    out.actualMetrics.risk = m.risk;
 
     out.actualCosts.available = true;
     out.actualCosts.travelTime =
-        simulatedCost[PK::Segment::TravelTime];
+        m.travelTime * modeWeights[PK::Segment::TravelTime].toDouble();
     out.actualCosts.distance =
-        simulatedCost[PK::Segment::Distance];
+        m.distance * modeWeights[PK::Segment::Distance].toDouble();
     out.actualCosts.carbonEmissions =
-        simulatedCost[PK::Segment::CarbonEmissions];
+        m.carbonEmissions
+        * modeWeights[PK::Segment::CarbonEmissions].toDouble();
     out.actualCosts.energyConsumption =
-        simulatedCost[PK::Segment::EnergyConsumption];
+        m.energyConsumption
+        * modeWeights[PK::Segment::EnergyConsumption].toDouble();
     out.actualCosts.risk =
-        simulatedCost[PK::Segment::Risk];
-    out.actualCosts.directCost =
-        simulatedCost[PK::Segment::Cost];
-
-    for (auto it = simulatedValues.constBegin();
-         it != simulatedValues.constEnd(); ++it)
-    {
-        out.rawActualValues.insert(it.key(), it.value());
-    }
-    out.rawActualCosts = simulatedCost;
+        m.risk * modeWeights[PK::Segment::Risk].toDouble();
+    out.actualCosts.directCost = 0.0;
     return out;
 }
 
 double totalCost(const ComputedSegmentData &data)
 {
     return data.actualCosts.total();
-}
-
-void writeActualSegmentData(PathSegment               *segment,
-                            const ComputedSegmentData &data)
-{
-    if (!segment || !data.actualMetrics.available)
-        return;
-
-    segment->clearActual();
-    SegmentCostMath::deleteActualDetails(
-        segment, PK::Segment::ActualCost);
-    segment->setActualValues(data.rawActualValues);
-    SegmentCostMath::setActualDetails(
-        segment, data.rawActualCosts, PK::Segment::ActualCost);
 }
 
 ComputedSegmentData computeShipSegmentData(
@@ -294,15 +253,17 @@ ComputedSegmentData computeTruckSegmentData(
         transportModes.value(transportationModeToString(Mode::Truck)).toMap();
     const int truckCapacity =
         truckData.value(PK::Mode::AverageContainerNumber, 1).toInt();
+    const int effectiveTruckCapacity = std::max(truckCapacity, 1);
 
     metrics.vehicleCount =
-        (containerCount + std::max(truckCapacity, 1) - 1)
-        / std::max(truckCapacity, 1);
+        (containerCount + effectiveTruckCapacity - 1)
+        / effectiveTruckCapacity;
     metrics.risk =
         truckData.value(PK::Mode::RiskFactor, 0.012).toDouble();
 
     return computeVehicleSegmentData(metrics, modeWeights,
-                                     containerCount, truckCapacity);
+                                     containerCount,
+                                     truckCapacity);
 }
 
 } // namespace
@@ -311,7 +272,7 @@ namespace SegmentCostMath
 {
 
 // Per-mode aggregation is mode-specific (ShipState / TrainState APIs differ);
-// the post-aggregation math is shared via applyVehicleMetricsAndWriteback.
+// the post-aggregation math is shared and returns typed execution data.
 // Null-client/path/segment guards tolerate uninitialized extractors.
 double shipSegmentCost(
     CargoNetSim::Backend::ShipClient::ShipSimulationClient *shipClient,
@@ -332,7 +293,6 @@ double shipSegmentCost(
     const auto data = computeShipSegmentData(
         shipClient, path, segment, segmentCounter, modeWeights,
         transportModes, containerCount);
-    writeActualSegmentData(segment, data);
     const double cost = totalCost(data);
 
     qCDebug(lcScenario) << "SegmentCostMath::shipSegmentCost:"
@@ -364,7 +324,6 @@ double trainSegmentCost(
     const auto data = computeTrainSegmentData(
         trainClient, path, segment, segmentCounter, modeWeights,
         transportModes, containerCount);
-    writeActualSegmentData(segment, data);
     const double cost = totalCost(data);
 
     qCDebug(lcScenario) << "SegmentCostMath::trainSegmentCost:"
@@ -401,7 +360,6 @@ double truckSegmentCost(
     const auto data = computeTruckSegmentData(
         truckManager, path, segment, segmentCounter, modeWeights,
         transportModes, containerCount);
-    writeActualSegmentData(segment, data);
     const double cost = totalCost(data);
 
     qCDebug(lcScenario) << "SegmentCostMath::truckSegmentCost:"
@@ -488,80 +446,6 @@ double edgeCosts(
                         << "total edge cost =" << totalEdgeCosts;
 
     return totalEdgeCosts;
-}
-
-// Accumulates per-key values under attributes[underlyingKey]; existing keys
-// are summed.
-void setActualDetails(
-    CargoNetSim::Backend::PathSegment *segment,
-    const QMap<QString, double>       &details,
-    const QString                     &underlyingKey)
-{
-    if (!segment)
-    {
-        return;
-    }
-    // Get current attributes
-    QJsonObject currentAttributes =
-        segment->getAttributes();
-    // Create or get the underlying object
-    QJsonObject underlyingObject;
-    if (currentAttributes.contains(underlyingKey)
-        && currentAttributes[underlyingKey].isObject())
-    {
-        underlyingObject =
-            currentAttributes[underlyingKey].toObject();
-    }
-    // Set the segment details
-    for (auto it = details.constBegin();
-         it != details.constEnd(); ++it)
-    {
-        // Check if the key already exists in the underlying
-        // object
-        if (underlyingObject.contains(it.key()))
-        {
-            // Add the old value to the new value
-            double oldValue =
-                underlyingObject[it.key()].toDouble();
-            underlyingObject[it.key()] =
-                oldValue + it.value();
-        }
-        else
-        {
-            // Set the new value directly if key doesn't
-            // exist
-            underlyingObject[it.key()] = it.value();
-        }
-    }
-    // Update the attributes with the modified object
-    currentAttributes[underlyingKey] = underlyingObject;
-    // Set the updated attributes back to the segment
-    segment->setAttributes(currentAttributes);
-}
-
-// Removes the underlyingKey and all nested values from the segment attributes.
-void deleteActualDetails(
-    CargoNetSim::Backend::PathSegment *segment,
-    const QString                     &underlyingKey)
-{
-    if (!segment)
-    {
-        return;
-    }
-
-    // Get current attributes
-    QJsonObject currentAttributes =
-        segment->getAttributes();
-
-    // Check if the underlyingKey exists in the attributes
-    if (currentAttributes.contains(underlyingKey))
-    {
-        // Remove the underlyingKey and all values below it
-        currentAttributes.remove(underlyingKey);
-
-        // Set the updated attributes back to the segment
-        segment->setAttributes(currentAttributes);
-    }
 }
 
 CargoNetSim::Backend::Scenario::PathExecutionResult

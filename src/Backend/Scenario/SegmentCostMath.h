@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QList>
-#include <QMap>
 #include <QString>
 #include <QVariantMap>
 
@@ -30,7 +29,7 @@ namespace Scenario
 {
 
 /**
- * @brief Per-mode segment cost math + segment-attribute writeback.
+ * @brief Per-mode segment cost math for typed execution results.
  *
  * This namespace exists for **separation of concerns**, not for
  * multi-consumer DRY:
@@ -50,10 +49,8 @@ namespace Scenario
  * passed as raw non-owning pointers per call so the functions stay
  * pure of object-graph ownership concerns.
  *
- * Active consumer: `ResultsExtractor`. Per-function bodies are extracted
- * verbatim from the pre-Plan-3 simulation driver; the only active
- * change was null-client guards at the top of each per-mode function
- * so they fail safely instead of crashing.
+ * Active consumer: `ResultsExtractor`. Segment actuals are returned through
+ * `ScenarioExecutionResult`; prepared `PathSegment` objects are not mutated.
  */
 namespace SegmentCostMath
 {
@@ -61,9 +58,8 @@ namespace SegmentCostMath
 /**
  * @brief Per-segment ship cost. Pulls ship state from @p shipClient,
  *        filters to ships belonging to (path.pathId, segmentCounter),
- *        aggregates BPR-style metrics, applies @p modeWeights, writes
- *        the per-metric actual_values and actual_cost back onto
- *        @p segment, and returns the segment cost scalar.
+ *        aggregates BPR-style metrics, applies @p modeWeights, and returns
+ *        the segment cost scalar without mutating @p segment.
  *
  * Guards: returns 0.0 if any of @p shipClient, @p path, @p segment are
  * null, or if no matching ships are found.
@@ -105,9 +101,8 @@ double trainSegmentCost(
  * but is not used until the truck simulator exposes per-trip actuals.
  * All metrics except risk remain zero in the current implementation.
  *
- * The weight application uses different unit conversions than ship/train
- * (travelTime divided by 3600, distance divided by 1000) to match the
- * existing truck-cost formula.
+ * The shared typed-result path keeps metric units canonical
+ * (seconds/metres/tonnes/kWh) for truck as well as ship/train.
  */
 double truckSegmentCost(
     CargoNetSim::Backend::TruckClient::TruckSimulationManager *truckManager,
@@ -140,26 +135,8 @@ double edgeCosts(
     int                                                        containerCount);
 
 /**
- * @brief Accumulates @p details under `attributes[underlyingKey]` on
- *        @p segment. Existing keys are additively merged; new keys are
- *        inserted. Null segment is a no-op.
- */
-void setActualDetails(
-    CargoNetSim::Backend::PathSegment *segment,
-    const QMap<QString, double>       &details,
-    const QString                     &underlyingKey);
-
-/**
- * @brief Removes `attributes[underlyingKey]` from @p segment (and all
- *        nested values). Null segment is a no-op. Missing key is a no-op.
- */
-void deleteActualDetails(
-    CargoNetSim::Backend::PathSegment *segment,
-    const QString                     &underlyingKey);
-
-/**
  * @brief Computes the full typed execution result for a path without
- *        mutating PathSegment actual attributes.
+ *        mutating PathSegment attributes.
  */
 CargoNetSim::Backend::Scenario::PathExecutionResult
 computePathExecutionResult(

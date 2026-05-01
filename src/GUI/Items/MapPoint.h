@@ -95,11 +95,11 @@ public:
      * the backend editing service can read the linkage
      * directly instead of pulling values from m_properties.
      *
-     * This is a view-only binding. `setLinkedTerminal` remains a pure
-     * view call (it updates the `m_terminal` pointer + property cache
-     * only); user-driven linking/unlinking that must mutate the document
-     * routes through `ScenarioEditService::linkTerminalToNode` at the
-     * ViewController layer (Task 16), not here.
+     * This is a view binding over a backend linkage. `setLinkedTerminal`
+     * remains a pure view-cache call (it updates the `m_terminal` pointer
+     * + property cache only); user-driven linking/unlinking mutates the
+     * document through `ScenarioEditService::linkTerminalToNode` via
+     * CommandBus commands, not here.
      *
      * Passing nullptr unbinds.
      */
@@ -108,7 +108,9 @@ public:
         m_linkage = linkage;
     }
 
-    /// Non-owning linkage pointer, or nullptr for legacy mode.
+    /// Non-owning linkage pointer, or nullptr when no canonical linkage is
+    /// bound yet (for example an unlinked network node or a view-only test
+    /// fixture).
     Backend::Scenario::NodeLinkage *linkageModel() const
     {
         return m_linkage;
@@ -320,7 +322,8 @@ private:
     QObject                *m_referenceNetwork;
 
     /// Non-owning pointer into ScenarioDocument::linkages. When non-null
-    /// this point is a VIEW of the linkage; null → legacy mode.
+    /// this point is a view of that linkage; null means no backend linkage
+    /// is currently bound.
     Backend::Scenario::NodeLinkage *m_linkage = nullptr;
 };
 

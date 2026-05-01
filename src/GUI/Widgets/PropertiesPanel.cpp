@@ -1525,7 +1525,7 @@ void PropertiesPanel::saveTerminalProperties(
     // like "cost.fixed_fees", "dwell_time.parameters.mean").
     processEditFields(newProperties);
 
-    // Route through backend if bound to ScenarioDocument.
+    // Route through backend when bound to ScenarioDocument.
     // Merge only CHANGED keys on top of backend truth —
     // avoids losing properties added by CLI or other
     // mutations. Single updateTerminal call for all
@@ -1611,8 +1611,16 @@ void PropertiesPanel::saveTerminalProperties(
     }
     else
     {
-        // Legacy fallback — no backend binding
-        terminal->updateProperties(newProperties);
+        qCWarning(lcGuiUtil)
+            << "saveTerminalProperties: terminal is not backend-bound;"
+            << "refusing view-only mutation"
+            << "id=" << terminal->getTerminalId()
+            << "hasPlacement=" << (terminal->placement() != nullptr)
+            << "hasRuntime=" << (mainWindow && mainWindow->runtime());
+        if (mainWindow)
+            mainWindow->showStatusBarMessage(
+                tr("Cannot save an unbound terminal."), 3000);
+        return;
     }
 
     // Update the visibility of the global terminal
@@ -1678,17 +1686,29 @@ void PropertiesPanel::saveBackgroundPhotoProperties(
 
     if (mainWindow && mainWindow->commandBus())
     {
-        mainWindow->commandBus()->submit(
+        const bool submitted = mainWindow->commandBus()->submit(
             std::make_unique<Input::ApplyBackgroundPhotoEditCommand>(
                 background, std::move(before), std::move(after)));
+        if (!submitted)
+        {
+            qCWarning(lcGuiScene)
+                << "PropertiesPanel::saveBackgroundPhotoProperties:"
+                << "background edit command failed";
+            mainWindow->showStatusBarMessage(
+                tr("Failed to save background photo."), 3000);
+            return;
+        }
     }
     else
     {
-        // Headless / early-startup fallback: mutate directly. Keeps tests
-        // green when no CommandBus is wired.
-        background->updateProperties(newProperties);
-        background->setScale(static_cast<float>(newScale));
-        background->setPos(newScenePos);
+        qCWarning(lcGuiScene)
+            << "PropertiesPanel::saveBackgroundPhotoProperties:"
+            << "no CommandBus; refusing direct mutation";
+        if (mainWindow)
+            mainWindow->showStatusBarMessage(
+                tr("Cannot save background photo without an active command bus."),
+                3000);
+        return;
     }
 
     emit propertiesChanged(background, newProperties);
@@ -1750,6 +1770,7 @@ void PropertiesPanel::saveRegionCenterProperties(
             if (bundle)
                 mainWindow->commandBus()->beginMacro(
                     tr("Edit region %1 coordinates").arg(region));
+            bool submitted = true;
 
             if (localChanged)
             {
@@ -1757,10 +1778,12 @@ void PropertiesPanel::saveRegionCenterProperties(
                     << "saveRegionCenterProperties: local origin changed"
                     << "lat:" << oldLat << "->" << newLat
                     << "lon:" << oldLon << "->" << newLon;
-                mainWindow->commandBus()->submit(
-                    std::make_unique<
-                        Input::UpdateRegionLocalOriginCommand>(
-                        doc, region, QPointF(newLon, newLat)));
+                submitted =
+                    mainWindow->commandBus()->submit(
+                        std::make_unique<
+                            Input::UpdateRegionLocalOriginCommand>(
+                            doc, region, QPointF(newLon, newLat)))
+                    && submitted;
             }
             if (globalChanged)
             {
@@ -1768,19 +1791,35 @@ void PropertiesPanel::saveRegionCenterProperties(
                     << "saveRegionCenterProperties: global position changed"
                     << "lat:" << oldSLat << "->" << newSLat
                     << "lon:" << oldSLon << "->" << newSLon;
-                mainWindow->commandBus()->submit(
-                    std::make_unique<
-                        Input::UpdateRegionGlobalPositionCommand>(
-                        doc, region, QPointF(newSLon, newSLat)));
+                submitted =
+                    mainWindow->commandBus()->submit(
+                        std::make_unique<
+                            Input::UpdateRegionGlobalPositionCommand>(
+                            doc, region, QPointF(newSLon, newSLat)))
+                    && submitted;
             }
 
             if (bundle) mainWindow->commandBus()->endMacro();
+            if (!submitted)
+            {
+                mainWindow->showStatusBarMessage(
+                    tr("Failed to save region coordinates."), 3000);
+                return;
+            }
         }
     }
     else
     {
-        // Headless / early-startup fallback: mutate the item directly.
-        regionCenter->updateProperties(newProperties);
+        qCWarning(lcGuiUtil)
+            << "saveRegionCenterProperties: region center is not backend-bound;"
+            << "refusing view-only mutation"
+            << "region=" << regionCenter->getRegion()
+            << "hasRuntime=" << (mainWindow && mainWindow->runtime())
+            << "hasCommandBus=" << (mainWindow && mainWindow->commandBus());
+        if (mainWindow)
+            mainWindow->showStatusBarMessage(
+                tr("Cannot save an unbound region center."), 3000);
+        return;
     }
 
     emit propertiesChanged(
@@ -1854,16 +1893,39 @@ void PropertiesPanel::saveConnectionProperties(
             if (connection->getProperties().value(it.key())
                 != it.value())
             {
-                routeAuthoringService.setConnectionProperty(
-                    *doc, fromId, toId, mode,
-                    it.key(), it.value());
+                const auto result =
+                    routeAuthoringService.setConnectionProperty(
+                        *doc, fromId, toId, mode,
+                        it.key(), it.value());
+                if (!result.succeeded())
+                {
+                    qCWarning(lcGuiUtil)
+                        << "saveConnectionProperties: failed to persist"
+                        << it.key() << "for" << fromId << "->" << toId
+                        << "mode=" << static_cast<int>(mode)
+                        << "message=" << result.message;
+                    if (mainWindow)
+                        mainWindow->showStatusBarMessage(
+                            result.message.isEmpty()
+                                ? tr("Failed to save connection properties.")
+                                : result.message,
+                            3000);
+                    return;
+                }
             }
         }
     }
     else
     {
-        // Legacy fallback — update item directly
-        connection->updateProperties(newProperties);
+        qCWarning(lcGuiUtil)
+            << "saveConnectionProperties: connection is not backend-bound;"
+            << "refusing view-only mutation"
+            << "hasBacking=" << hasBacking
+            << "hasRuntime=" << (mainWindow && mainWindow->runtime());
+        if (mainWindow)
+            mainWindow->showStatusBarMessage(
+                tr("Cannot save an unbound connection."), 3000);
+        return;
     }
 
     emit propertiesChanged(connection, newProperties);

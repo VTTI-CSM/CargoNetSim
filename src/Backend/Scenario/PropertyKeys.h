@@ -21,6 +21,7 @@ namespace Mode {
     inline const QString AverageSpeed            = QStringLiteral("average_speed");
     inline const QString AverageFuelConsumption  = QStringLiteral("average_fuel_consumption");
     inline const QString AverageContainerNumber  = QStringLiteral("average_container_number");
+    inline const QString AverageLocomotiveCount  = QStringLiteral("average_locomotive_count");
     inline const QString RiskFactor              = QStringLiteral("risk_factor");
     inline const QString FuelType                = QStringLiteral("fuel_type");
     inline const QString UseNetwork              = QStringLiteral("use_network");
@@ -39,10 +40,6 @@ namespace Segment {
     // Sub-object container names
     inline const QString Estimated               = QStringLiteral("estimated");
     inline const QString EstimatedCost           = QStringLiteral("estimated_cost");
-    /// Preserved as "actual_values" (not "actual") for backward compat
-    /// with raw-read sites in PathComparisonDialog / PathReportGenerator.
-    inline const QString ActualValues            = QStringLiteral("actual_values");
-    inline const QString ActualCost              = QStringLiteral("actual_cost");
 
     // Metric keys inside the sub-objects
     inline const QString TravelTime              = QStringLiteral("travelTime");

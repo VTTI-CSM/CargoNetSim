@@ -12,7 +12,6 @@
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ConnectionLineFactory.h"
-#include "GUI/Scenario/ItemEventBinder.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
 #include "GUI/Widgets/InterfaceSelectionDialog.h"
@@ -171,20 +170,16 @@ ConnectionLine *ConnectionController::createConnectionLine(
             << "null argument, returning nullptr";
         return nullptr;
     }
-    // No scenario runtime -> no document to mutate. Use the
-    // ad-hoc legacy path; the line lives in the scene only.
     if (!m_runtime)
     {
-        if (checkExistingConnection(startItem, endItem,
-                                    connectionType))
-        {
-            qCDebug(lcGuiView)
-                << "ConnectionController::createConnectionLine:"
-                << "legacy scene connection already exists, returning nullptr";
-            return nullptr;
-        }
-        return createConnectionLineLegacy(startItem, endItem,
-                                          connectionType);
+        qCWarning(lcGuiView)
+            << "ConnectionController::createConnectionLine:"
+            << "no ScenarioRuntime; refusing unbound connection";
+        if (m_status)
+            m_status->showError(
+                QStringLiteral("Cannot create an unbound connection."),
+                3000);
+        return nullptr;
     }
 
     auto *doc         = &m_runtime->document();
@@ -204,9 +199,16 @@ ConnectionLine *ConnectionController::createConnectionLine(
         Backend::Application::RouteAuthoringService routeAuthoringService(
             &controller);
         if (sId.isEmpty() || eId.isEmpty())
-            return createConnectionLineLegacy(startItem,
-                                              endItem,
-                                              connectionType);
+        {
+            qCWarning(lcGuiView)
+                << "createConnectionLine: same-region endpoint is unbound"
+                << "sId=" << sId << "eId=" << eId;
+            if (m_status)
+                m_status->showError(
+                    QStringLiteral("Cannot create a connection for an unbound terminal."),
+                    3000);
+            return nullptr;
+        }
         if (auto *existingLine =
                 Scenario::ConnectionLineFactory::findRegionConnection(
                     m_regionScene, sId, eId, connectionType))
@@ -275,13 +277,17 @@ ConnectionLine *ConnectionController::createConnectionLine(
         return line;
     }
 
-    // Case 2: two region-view TerminalItems in different
-    // regions -> fall to legacy.
+    // Case 2: two region-view TerminalItems in different regions are invalid
+    // in region view; cross-region routes are authored from the global map.
     if (SP && EP && SP->getRegion() != EP->getRegion())
     {
-        qCDebug(lcGuiView) << "createConnectionLine: Case2 cross-region legacy";
-        return createConnectionLineLegacy(startItem, endItem,
-                                          connectionType);
+        qCWarning(lcGuiView)
+            << "createConnectionLine: cross-region connection requested in region view";
+        if (m_status)
+            m_status->showError(
+                QStringLiteral("Cannot create a connection between two different regions in region view."),
+                3000);
+        return nullptr;
     }
 
     // Case 3: two GlobalTerminalItems -> cross-region
@@ -294,27 +300,46 @@ ConnectionLine *ConnectionController::createConnectionLine(
         auto *sTerm = SPG->getLinkedTerminalItem();
         auto *eTerm = EPG->getLinkedTerminalItem();
         qCDebug(lcGuiView) << "createConnectionLine: Case3 sTerm=" << sTerm << "eTerm=" << eTerm;
-        if (!sTerm || !eTerm) return nullptr;
+        if (!sTerm || !eTerm)
+        {
+            qCWarning(lcGuiView)
+                << "createConnectionLine: global terminal has no linked regional terminal";
+            if (m_status)
+                m_status->showError(
+                    QStringLiteral("Cannot create a route for an unbound global terminal."),
+                    3000);
+            return nullptr;
+        }
         qCDebug(lcGuiView) << "createConnectionLine: Case3 sRegion=" << sTerm->getRegion() << "eRegion=" << eTerm->getRegion();
         if (sTerm->getRegion() == eTerm->getRegion())
         {
-            qCDebug(lcGuiView) << "createConnectionLine: Case3 same-region -> legacy";
-            return createConnectionLineLegacy(startItem,
-                                              endItem,
-                                              connectionType);
+            qCWarning(lcGuiView)
+                << "createConnectionLine: same-region global terminals are invalid";
+            if (m_status)
+                m_status->showError(
+                    QStringLiteral("Cannot link terminals in the same region in global map."),
+                    3000);
+            return nullptr;
         }
 
         const QString sId = sTerm->getTerminalId();
         const QString eId = eTerm->getTerminalId();
-    auto &controller =
-        CargoNetSim::CargoNetSimController::getInstance();
-    Backend::Application::RouteAuthoringService routeAuthoringService(
-        &controller);
+        auto &controller =
+            CargoNetSim::CargoNetSimController::getInstance();
+        Backend::Application::RouteAuthoringService routeAuthoringService(
+            &controller);
         qCDebug(lcGuiView) << "createConnectionLine: Case3 diff-region sId=" << sId << "eId=" << eId;
         if (sId.isEmpty() || eId.isEmpty())
-            return createConnectionLineLegacy(startItem,
-                                              endItem,
-                                              connectionType);
+        {
+            qCWarning(lcGuiView)
+                << "createConnectionLine: global endpoint is unbound"
+                << "sId=" << sId << "eId=" << eId;
+            if (m_status)
+                m_status->showError(
+                    QStringLiteral("Cannot create a global route for an unbound terminal."),
+                    3000);
+            return nullptr;
+        }
         if (auto *existingLine =
                 Scenario::ConnectionLineFactory::findGlobalLink(
                     m_globalMapScene, sId, eId, connectionType))
@@ -384,98 +409,20 @@ ConnectionLine *ConnectionController::createConnectionLine(
         return found;
     }
 
-    qCDebug(lcGuiView) << "createConnectionLine: mixed/unknown -> legacy";
-    // Mixed types / self-link / unknown — legacy path emits
-    // the appropriate error message (or returns nullptr).
-    return createConnectionLineLegacy(startItem, endItem,
-                                      connectionType);
-}
-
-// ── createConnectionLineLegacy ───────────────────────────
-
-ConnectionLine *
-ConnectionController::createConnectionLineLegacy(
-    QGraphicsItem *startItem,
-    QGraphicsItem *endItem,
-    Backend::TransportationTypes::TransportationMode
-        connectionType)
-{
-    qCDebug(lcGuiView)
-        << "ConnectionController::createConnectionLineLegacy:"
-        << "enter";
-
-    auto SP = dynamic_cast<TerminalItem *>(startItem);
-    auto EP = dynamic_cast<TerminalItem *>(endItem);
-
-    if (SP && EP && SP->getRegion() == EP->getRegion())
+    if (SPG && EPG && SPG == EPG)
     {
-        auto line = new ConnectionLine(
-            SP, EP, connectionType, {}, SP->getRegion());
-        m_regionScene->addItemWithId(
-            line, line->sceneRegistryKey());
-
-        Scenario::ItemEventBinder::bindConnectionLine(
-            line, m_mainWindow);
-
-        return line;
-    }
-    else if (SP && EP
-             && SP->getRegion() != EP->getRegion())
-    {
-        m_status->showError(
-            "Cannot create a connection between two "
-            "different regions in region view.",
-            3000);
-        return nullptr;
-    }
-    else if (!SP && !EP)
-    {
-        auto SPG =
-            dynamic_cast<GlobalTerminalItem *>(startItem);
-        auto EPG =
-            dynamic_cast<GlobalTerminalItem *>(endItem);
-
-        if (SPG && EPG && SPG != EPG)
-        {
-            auto *sLink = SPG->getLinkedTerminalItem();
-            auto *eLink = EPG->getLinkedTerminalItem();
-            qCDebug(lcGuiView)
-                << "createConnectionLineLegacy:"
-                << "global sLink=" << sLink
-                << "eLink=" << eLink;
-            if (!sLink || !eLink)
-            {
-                qCWarning(lcGuiView)
-                    << "createConnectionLineLegacy:"
-                    << "null linked terminal in GlobalTerminalItem";
-                return nullptr;
-            }
-            if (sLink->getRegion() == eLink->getRegion())
-            {
-                m_status->showError(
-                    "Cannot link terminals in the same "
-                    "region in global map.",
-                    3000);
-                return nullptr;
-            }
-
-            auto line = new ConnectionLine(
-                SPG, EPG, connectionType, {}, "Global");
-            m_globalMapScene->addItemWithId(
-                line, line->sceneRegistryKey());
-
-            Scenario::ItemEventBinder::bindConnectionLine(
-                line, m_mainWindow);
-
-            return line;
-        }
-        else if (SPG && EPG && SPG == EPG)
-        {
+        if (m_status)
             m_status->showError(
                 "Cannot link a terminal to itself.", 3000);
-        }
+        return nullptr;
     }
 
+    qCWarning(lcGuiView)
+        << "createConnectionLine: unsupported or unbound endpoint combination";
+    if (m_status)
+        m_status->showError(
+            QStringLiteral("Cannot create a route from these endpoints."),
+            3000);
     return nullptr;
 }
 
@@ -493,6 +440,18 @@ bool ConnectionController::removeConnectionLine(
         qCDebug(lcGuiView)
             << "ConnectionController::removeConnectionLine:"
             << "null argument, returning false";
+        return false;
+    }
+
+    if (!m_runtime)
+    {
+        qCWarning(lcGuiView)
+            << "ConnectionController::removeConnectionLine:"
+            << "no ScenarioRuntime; refusing scene-only removal";
+        if (m_status)
+            m_status->showError(
+                QStringLiteral("Cannot remove an unbound connection."),
+                3000);
         return false;
     }
 
@@ -549,49 +508,14 @@ bool ConnectionController::removeConnectionLine(
             return removeResult.succeeded();
         }
 
-        // Determine which scene the connection belongs to
-        GraphicsScene *scene = nullptr;
-
-        if (connectionLine->getRegion() != "Global")
-        {
-            scene = m_regionScene;
-        }
-        else
-        {
-            scene = m_globalMapScene;
-        }
-
-        if (!scene)
-        {
-            qCWarning(lcGuiView)
-                << "ConnectionController::removeConnectionLine:"
-                << "scene is null";
-            return false;
-        }
-
-        QString connectionID =
-            connectionLine->sceneRegistryKey();
-
-        if (scene->removeItemWithId<ConnectionLine>(
-                connectionID))
-        {
-            m_status->showMessage(
-                QString("Connection removed successfully."),
-                2000);
-
-            // Signal the panel to clear if it was showing
-            // this connection
-            emit connectionRemoved(connectionLine);
-
-            return true;
-        }
-        else
-        {
+        qCWarning(lcGuiView)
+            << "ConnectionController::removeConnectionLine:"
+            << "connection line has no backend binding";
+        if (m_status)
             m_status->showError(
-                QString("Failed to remove connection."),
+                QStringLiteral("Cannot remove an unbound connection line."),
                 3000);
-            return false;
-        }
+        return false;
     }
     catch (const std::exception &e)
     {

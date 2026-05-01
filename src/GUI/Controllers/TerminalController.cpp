@@ -655,9 +655,6 @@ bool TerminalController::linkTerminalToClosestNetworkPoint(
 
     if (closestPoint)
     {
-        UtilitiesFunctions::linkMapPointToTerminal(
-            m_mainWindow, closestPoint, terminal);
-
         Backend::Application::NetworkViewService networkView;
         Backend::NetworkKind networkKind{};
         QString              networkName =
@@ -677,16 +674,49 @@ bool TerminalController::linkTerminalToClosestNetworkPoint(
                     : "truck";
         }
 
-        if (m_runtime && networkName != "Unknown Network")
+        const QString terminalId = terminal->getTerminalId();
+        if (!m_runtime || terminalId.isEmpty()
+            || networkName == "Unknown Network")
         {
-            const int nodeId = closestPoint
-                                   ->getReferencedNetworkNodeID()
-                                   .toInt();
+            qCWarning(lcGuiView)
+                << "linkTerminalToNetwork:"
+                << "missing backend binding"
+                << "terminalId=" << terminalId
+                << "networkName=" << networkName
+                << "hasRuntime=" << (m_runtime != nullptr);
+            m_status->showError(
+                QString("Cannot link unbound terminal '%1'.")
+                    .arg(terminal->getProperty("Name").toString()),
+                3000);
+            return false;
+        }
+
+        const int nodeId = closestPoint
+                               ->getReferencedNetworkNodeID()
+                               .toInt();
+        const bool linked =
             Backend::Application::ScenarioEditService::linkTerminalToNode(
                 &m_runtime->document(),
-                terminal->getTerminalId(), networkName, nodeId,
+                terminalId, networkName, nodeId,
                 Backend::Scenario::LinkageSource::Manual);
+        if (!linked)
+        {
+            qCWarning(lcGuiView)
+                << "linkTerminalToNetwork:"
+                << "backend link failed"
+                << "terminalId=" << terminalId
+                << "networkName=" << networkName
+                << "nodeId=" << nodeId;
+            m_status->showError(
+                QString("Failed to link terminal '%1' to network '%2'.")
+                    .arg(terminal->getProperty("Name").toString())
+                    .arg(networkName),
+                3000);
+            return false;
         }
+
+        UtilitiesFunctions::linkMapPointToTerminal(
+            m_mainWindow, closestPoint, terminal);
 
         m_status->showMessage(
             QString("Terminal '%1' successfully linked to "
@@ -934,19 +964,48 @@ bool TerminalController::unlinkTerminalFromNetworkPoints(
     }
 
     int unlinkCount = 0;
+    const QString terminalId = terminal->getTerminalId();
+    if (!m_runtime || terminalId.isEmpty())
+    {
+        qCWarning(lcGuiView)
+            << "unlinkTerminalFromNetworks:"
+            << "terminal is not backend-bound"
+            << "terminalId=" << terminalId
+            << "hasRuntime=" << (m_runtime != nullptr);
+        m_status->showError(
+            QString("Cannot unlink unbound terminal '%1'.")
+                .arg(terminal->getProperty("Name").toString()),
+            3000);
+        return false;
+    }
+
     for (MapPoint *point : linkedPoints)
     {
+        auto *linkage = point->linkageModel();
+        if (!linkage || linkage->terminalId != terminalId)
+        {
+            qCWarning(lcGuiView)
+                << "unlinkTerminalFromNetworks:"
+                << "MapPoint has no matching backend linkage"
+                << "terminalId=" << terminalId
+                << "hasLinkage=" << (linkage != nullptr);
+            continue;
+        }
+
         Backend::Application::NetworkViewService networkView;
         Backend::NetworkKind networkKind{};
-        QString              networkName =
-            networkView.networkNameOf(
-                point->getReferenceNetwork(), &networkKind);
+        const QString canonicalNetworkName = linkage->networkName;
+        const int nodeId = linkage->nodeId;
+        QString displayNetworkName = canonicalNetworkName;
+        const bool recognisedNetwork =
+            !networkView.networkNameOf(
+                point->getReferenceNetwork(), &networkKind).isEmpty();
         QString networkTypeStr = "unknown";
-        if (networkName.isEmpty())
+        if (displayNetworkName.isEmpty())
         {
-            networkName = "Unknown Network";
+            displayNetworkName = "Unknown Network";
         }
-        else
+        else if (recognisedNetwork)
         {
             networkTypeStr =
                 networkKind == Backend::NetworkKind::Rail
@@ -954,17 +1013,23 @@ bool TerminalController::unlinkTerminalFromNetworkPoints(
                     : "truck";
         }
 
-        point->setLinkedTerminal(nullptr);
-
-        if (m_runtime && networkName != "Unknown Network")
+        const bool unlinked =
+            Backend::Application::ScenarioEditService::
+                unlinkTerminalFromNode(
+                    &m_runtime->document(),
+                    terminalId, canonicalNetworkName, nodeId);
+        if (!unlinked)
         {
-            const int nodeId =
-                point->getReferencedNetworkNodeID().toInt();
-            Backend::Application::ScenarioEditService::unlinkTerminalFromNode(
-                &m_runtime->document(),
-                terminal->getTerminalId(), networkName, nodeId);
+            qCWarning(lcGuiView)
+                << "unlinkTerminalFromNetworks:"
+                << "backend unlink failed"
+                << "terminalId=" << terminalId
+                << "network=" << canonicalNetworkName
+                << "nodeId=" << nodeId;
+            continue;
         }
 
+        point->setLinkedTerminal(nullptr);
         unlinkCount++;
 
         m_status->showMessage(
@@ -973,7 +1038,7 @@ bool TerminalController::unlinkTerminalFromNetworkPoints(
                 .arg(terminal->getProperty("Name")
                          .toString())
                 .arg(networkTypeStr)
-                .arg(networkName),
+                .arg(displayNetworkName),
             1500);
     }
 

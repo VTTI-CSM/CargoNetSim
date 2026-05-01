@@ -47,8 +47,8 @@ public:
 
     /**
      * @brief Creates a connection line between two terminals.
-     * Writes through the backend route-authoring service when a runtime is
-     * loaded, otherwise falls back to the legacy unbound path.
+     * Mutates the ScenarioDocument through the backend route-authoring
+     * service. Unbound view-only endpoints are rejected.
      */
     ConnectionLine *createConnectionLine(
         QGraphicsItem *startItem,
@@ -89,15 +89,6 @@ signals:
     void terminalUnlinked(QGraphicsItem *item);
 
 private:
-    /// Legacy fallback for createConnectionLine. Builds the
-    /// ConnectionLine directly in the scene when no
-    /// ScenarioRuntime is loaded.
-    ConnectionLine *createConnectionLineLegacy(
-        QGraphicsItem *startItem,
-        QGraphicsItem *endItem,
-        Backend::TransportationTypes::TransportationMode
-            connectionType);
-
     GraphicsScene  *m_regionScene;
     GraphicsScene  *m_globalMapScene;
     MainWindow     *m_mainWindow;

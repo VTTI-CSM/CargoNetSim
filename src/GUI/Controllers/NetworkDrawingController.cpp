@@ -397,21 +397,38 @@ void NetworkDrawingController::drawTrainNetwork(
                 << "[RailDraw]   createTerminalAtPoint returned"
                 << (terminal ? "terminal" : "null");
 
-            point->setLinkedTerminal(terminal);
             if (terminal && m_mainWindow->runtime())
             {
-                Backend::Application::ScenarioEditService::linkTerminalToNode(
-                    &m_mainWindow->runtime()->document(),
-                    terminal->sceneRegistryKey(),
-                    networkName,
-                    node->getUserId(),
-                    Backend::Scenario::LinkageSource::Manual);
-                qCDebug(lcRail) << "[RailDraw]   NodeLinkage written"
-                                << "terminal=" << terminal->sceneRegistryKey()
-                                << "nodeId="   << node->getUserId();
+                const QString terminalId = terminal->getTerminalId();
+                const bool linked =
+                    Backend::Application::ScenarioEditService::
+                        linkTerminalToNode(
+                            &m_mainWindow->runtime()->document(),
+                            terminalId,
+                            networkName,
+                            node->getUserId(),
+                            Backend::Scenario::LinkageSource::Manual);
+                if (linked)
+                {
+                    point->setLinkedTerminal(terminal);
+                    qCDebug(lcRail) << "[RailDraw]   NodeLinkage written"
+                                    << "terminal=" << terminalId
+                                    << "nodeId="   << node->getUserId();
+                }
+                else
+                {
+                    qCWarning(lcRail)
+                        << "[RailDraw]   NodeLinkage creation failed"
+                        << "terminal=" << terminalId
+                        << "nodeId=" << node->getUserId();
+                }
             }
-            qCDebug(lcRail)
-                << "[RailDraw]   setLinkedTerminal ok";
+            else if (terminal)
+            {
+                qCWarning(lcRail)
+                    << "[RailDraw]   terminal was created without runtime;"
+                    << "refusing view-only node link";
+            }
         }
         ++nodeIdx;
     }

@@ -2,7 +2,6 @@
 
 #include <QJsonObject>
 #include <QList>
-#include <QMap>
 #include <QObject>
 #include <QVector>
 #include <QString>
@@ -58,9 +57,9 @@ class ResultsExtractor : public QObject
 {
     Q_OBJECT
 
-    // Grants the test class access to private calculate*/setSegment*
-    // methods so the pure math is exercisable without wiring live
-    // RabbitMQ clients. Production code must not extend this list.
+    // Grants the test class access to private calculate* methods so the pure
+    // math is exercisable without wiring live RabbitMQ clients. Production
+    // code must not extend this list.
     friend class ::ResultsExtractorTest;
 
 public:
@@ -80,7 +79,7 @@ public:
 
     /**
      * @brief Computes typed execution results without mutating the input
-     *        paths' segment actual attributes.
+     *        paths' segment attributes.
      */
     ScenarioExecutionResultSet extractExecutionResults(
         const QList<CargoNetSim::Backend::Path *> &paths,
@@ -124,16 +123,6 @@ private:
         const QVariantMap                 &modeWeights,
         const QVariantMap                 &transportModes,
         int                                containerCount);
-
-    // Segment attribute writeback.
-    void setSegmentActualDetails(
-        CargoNetSim::Backend::PathSegment *segment,
-        const QMap<QString, double>       &details,
-        const QString                     &underlyingKey);
-
-    void deleteSegmentDetails(
-        CargoNetSim::Backend::PathSegment *segment,
-        const QString                     &underlyingKey);
 
     CargoNetSim::Backend::ShipClient::ShipSimulationClient    *m_shipClient;
     CargoNetSim::Backend::TrainClient::TrainSimulationClient  *m_trainClient;

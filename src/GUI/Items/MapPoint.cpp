@@ -363,26 +363,22 @@ void MapPoint::buildContextMenu(QMenu* menu, const Input::ClickContext& ctx)
         Backend::Scenario::NodeLinkage *linkage = self->linkageModel();
         if (doc && bus && linkage)
         {
-            bus->submit(std::make_unique<Input::UnlinkTerminalCommand>(
-                doc.data(),
-                linkage->terminalId,
-                linkage->networkName,
-                linkage->nodeId));
+            const bool submitted =
+                bus->submit(std::make_unique<Input::UnlinkTerminalCommand>(
+                    doc.data(),
+                    linkage->terminalId,
+                    linkage->networkName,
+                    linkage->nodeId));
+            if (submitted)
+                self->setLinkedTerminal(nullptr);
         }
         else
         {
-            // Legacy path: no linkage bound — no canonical (networkName,
-            // nodeId) pair available on MapPoint (only a Network_ID string
-            // whose mapping to networkName lives on the owning Network).
-            // Fall back to the view-only clear so the UI stays consistent.
             qCWarning(lcGuiInputItem)
                 << "MapPoint::buildContextMenu[Unlink]: no linkage model"
-                << " or command bus bound; performing view-only unlink."
+                << " or command bus bound; refusing view-only unlink."
                 << " id=" << self->m_id;
         }
-
-        // View clear so the point visually detaches regardless of path.
-        self->setLinkedTerminal(nullptr);
     });
 }
 

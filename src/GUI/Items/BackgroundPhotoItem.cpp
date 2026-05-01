@@ -323,27 +323,37 @@ void BackgroundPhotoItem::onDragEnd(
     const QPointF oldPos = m_preDragPos;
     m_dragInProgress     = false;
 
+    if (wasDrag && oldPos != finalPos
+        && (!ctx.commandBus || !ctx.view))
+    {
+        qCWarning(lcGuiInputItem)
+            << "BackgroundPhotoItem::onDragEnd:"
+            << "missing CommandBus or view; refusing direct mutation";
+        return;
+    }
+
     // Persist the move through CommandBus so scene-pos AND the Latitude /
     // Longitude property fields stay consistent across undo/redo. The
     // precomputed geo pair avoids the command depending on any view.
-    if (wasDrag && oldPos != finalPos && ctx.commandBus && ctx.view)
+    if (wasDrag && oldPos != finalPos)
     {
         const QPointF oldGeo = ctx.view->sceneToWGS84(oldPos);
         const QPointF newGeo = ctx.view->sceneToWGS84(finalPos);
-        ctx.commandBus->submit(
+        const bool submitted = ctx.commandBus->submit(
             std::make_unique<Input::UpdateBackgroundPhotoPositionCommand>(
                 this, oldPos, finalPos, oldGeo, newGeo));
+        if (!submitted)
+        {
+            qCWarning(lcGuiInputItem)
+                << "BackgroundPhotoItem::onDragEnd:"
+                << "position command failed";
+            return;
+        }
         // The command's redo emits positionChanged after applying state,
         // so skip the raw emission below to avoid duplicate notifications.
         return;
     }
 
-    // Headless / no-command-bus fallback: preserve the legacy side effect
-    // of refreshing the WGS84 property fields directly from the item.
-    if (scene())
-    {
-        updateCoordinates();
-    }
     emit positionChanged(finalPos);
 }
 

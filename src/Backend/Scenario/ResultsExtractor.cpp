@@ -425,26 +425,6 @@ double ResultsExtractor::calculateTruckSegmentCost(
         modeWeights, transportModes, containerCount);
 }
 
-// --- Segment attribute writeback (Task 21 helpers, used by ship above) ---
-
-void ResultsExtractor::setSegmentActualDetails(
-    CargoNetSim::Backend::PathSegment *segment,
-    const QMap<QString, double>       &details,
-    const QString                     &underlyingKey)
-{
-    SegmentCostMath::setActualDetails(segment, details,
-                                      underlyingKey);
-}
-
-void ResultsExtractor::deleteSegmentDetails(
-    CargoNetSim::Backend::PathSegment *segment,
-    const QString                     &underlyingKey)
-{
-    SegmentCostMath::deleteActualDetails(segment, underlyingKey);
-}
-
-// Remaining calculate* bodies (train, truck, edge dispatch) added in Tasks 19-21.
-
 } // namespace Scenario
 } // namespace Backend
 } // namespace CargoNetSim

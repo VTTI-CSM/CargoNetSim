@@ -79,6 +79,12 @@ Handled LinkTerminalMode::onPress(const PressEvent& e, const ClickContext& ctx)
         ctx.controller->setMode<NormalMode>();
         return Handled::Yes;
     }
+    if (!m_firstTerminal) {
+        qCWarning(lcGuiInputMode)
+            << "LinkTerminalMode: selected terminal was deleted before linking";
+        ctx.controller->setMode<NormalMode>();
+        return Handled::Yes;
+    }
 
     qCInfo(lcGuiInputMode) << "LinkTerminalMode: linking terminal"
                            << m_firstTerminal.data() << "to MapPoint" << mp;
@@ -90,31 +96,40 @@ Handled LinkTerminalMode::onPress(const PressEvent& e, const ClickContext& ctx)
         networkView.networkNameOf(mp->getReferenceNetwork());
     const int nodeId = mp->getReferencedNetworkNodeID().toInt();
 
-    if (!ctx.document || !ctx.commandBus || networkName.isEmpty()) {
+    const QString terminalId = m_firstTerminal->getTerminalId();
+    if (!ctx.document || !ctx.commandBus || networkName.isEmpty()
+        || terminalId.isEmpty()) {
         qCWarning(lcGuiInputMode)
-            << "LinkTerminalMode: missing document, commandBus, or networkName;"
-            << "falling back to view-only link"
-            << "networkName=" << networkName;
-        // Best-effort: still update the view so the click has a visible result.
-        UtilitiesFunctions::linkMapPointToTerminal(
-            ctx.mainWindow, mp, m_firstTerminal.data());
+            << "LinkTerminalMode: missing backend binding;"
+            << "refusing view-only link"
+            << "networkName=" << networkName
+            << "terminalId=" << terminalId
+            << "hasDocument=" << static_cast<bool>(ctx.document)
+            << "hasCommandBus=" << (ctx.commandBus != nullptr);
+        if (auto* sb = ctx.mainWindow->statusBar())
+            sb->showMessage(
+                QStringLiteral("Cannot link an unbound terminal or network node."),
+                3000);
         ctx.controller->setMode<NormalMode>();
         return Handled::Yes;
     }
 
-    // Preserve view-side linkage (icon / properties-panel) — the mutation
-    // below drives document state which in turn drives observers, but the
-    // MapPoint's direct pointer to TerminalItem is a legacy view cache that
-    // factories don't re-wire on linkageAdded today.
-    UtilitiesFunctions::linkMapPointToTerminal(
-        ctx.mainWindow, mp, m_firstTerminal.data());
-
-    ctx.commandBus->submit(std::make_unique<LinkTerminalToMapPointCommand>(
-        ctx.document.data(),
-        m_firstTerminal->getTerminalId(),
-        networkName,
-        nodeId,
-        Backend::Scenario::LinkageSource::Manual));
+    const bool submitted =
+        ctx.commandBus->submit(std::make_unique<LinkTerminalToMapPointCommand>(
+            ctx.document.data(),
+            terminalId,
+            networkName,
+            nodeId,
+            Backend::Scenario::LinkageSource::Manual));
+    if (submitted) {
+        // Keep the MapPoint's direct terminal pointer in sync immediately
+        // after the authoritative document mutation. The document linkage
+        // remains the source of truth for undo/redo and file persistence.
+        UtilitiesFunctions::linkMapPointToTerminal(
+            ctx.mainWindow, mp, m_firstTerminal.data());
+    } else if (auto* sb = ctx.mainWindow->statusBar()) {
+        sb->showMessage(QStringLiteral("Failed to link terminal to node."), 3000);
+    }
 
     ctx.controller->setMode<NormalMode>();
     return Handled::Yes;

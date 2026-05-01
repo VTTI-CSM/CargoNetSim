@@ -77,11 +77,6 @@ namespace Cli {
  * that is the caller's responsibility (see `RunCommand` Task 17 which
  * does `QDir().mkpath(outputDir)` before calling here).
  *
- * Per-segment `actual_values` / `actual_cost` are already written onto
- * each `Path`'s segments by `ResultsExtractor` (Plan 3); reading them
- * back into the JSON output is a future extension and intentionally
- * out of scope for this task.
- *
  * The optional `metrics` and `origin`/`destination`/`rank` fields are
  * emitted when the caller passes populated `metrics` / `keys` maps
  * keyed by canonical path key. This avoids collisions when

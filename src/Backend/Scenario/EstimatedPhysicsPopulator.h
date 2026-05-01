@@ -29,7 +29,7 @@ class ScenarioDocument;
  *   PathDistancePopulator    -> adds estimatedDistance + estimatedTravelTime
  *   EstimatedPhysicsPopulator -> adds estimatedEnergy, estimatedCarbon,
  *                               estimatedRisk                          <- here
- *   [simulation]             -> SegmentCostMath writes actual_values
+ *   [simulation]             -> ScenarioExecutionResult carries actuals
  *
  * Responsibilities
  * ----------------

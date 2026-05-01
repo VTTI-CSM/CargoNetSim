@@ -1,6 +1,5 @@
 #include "PathSegment.h"
 #include "Backend/Commons/LogCategories.h"
-#include "Backend/Commons/Units.h"
 #include <stdexcept>
 
 #include "Backend/Scenario/PropertyKeys.h"
@@ -23,8 +22,7 @@ double subValue(const QJsonObject &attrs,
 }
 
 PathSegment::SegmentMetricSnapshot metricSnapshot(
-    const QJsonObject &attrs, const QString &subObject,
-    bool normalizeDistanceAndTimeToSi)
+    const QJsonObject &attrs, const QString &subObject)
 {
     PathSegment::SegmentMetricSnapshot out;
     if (!attrs.contains(subObject)
@@ -36,13 +34,6 @@ PathSegment::SegmentMetricSnapshot metricSnapshot(
     out.available = true;
     out.travelTime = subValue(attrs, subObject, PK::Segment::TravelTime);
     out.distance = subValue(attrs, subObject, PK::Segment::Distance);
-    if (normalizeDistanceAndTimeToSi)
-    {
-        out.travelTime =
-            Units::toSeconds(Units::hours(out.travelTime)).value();
-        out.distance =
-            Units::toMeters(Units::kilometers(out.distance)).value();
-    }
     out.carbonEmissions =
         subValue(attrs, subObject, PK::Segment::CarbonEmissions);
     out.energyConsumption =
@@ -73,6 +64,15 @@ PathSegment::SegmentCostSnapshot costSnapshot(
     return out;
 }
 
+QJsonObject scenarioSegmentAttributes(QJsonObject attributes)
+{
+    // PathSegment is scenario-definition data; runtime actuals live in
+    // ScenarioExecutionResult and must not persist in segment attributes.
+    attributes.remove(QStringLiteral("actual_values"));
+    attributes.remove(QStringLiteral("actual_cost"));
+    return attributes;
+}
+
 } // namespace
 
 // PathSegment constructor
@@ -86,7 +86,7 @@ PathSegment::PathSegment(
     , m_start(start)
     , m_end(end)
     , m_mode(mode)
-    , m_attributes(attributes)
+    , m_attributes(scenarioSegmentAttributes(attributes))
 {
     // Validate input parameters for construction
     if (pathSegmentId.isEmpty() || start.isEmpty()
@@ -151,7 +151,8 @@ PathSegment::PathSegment(const QJsonObject &json,
     if (json.contains("attributes")
         && json["attributes"].isObject())
     {
-        m_attributes = json["attributes"].toObject();
+        m_attributes = scenarioSegmentAttributes(
+            json["attributes"].toObject());
     }
 
     if (json.contains("sequence_index")
@@ -253,7 +254,7 @@ void PathSegment::setAttributes(
                      << m_pathSegmentId
                      << "keys=" << attributes.keys().size();
     // Set the attributes of the path segment
-    m_attributes = attributes;
+    m_attributes = scenarioSegmentAttributes(attributes);
 }
 
 double PathSegment::estimatedDistance() const
@@ -264,22 +265,12 @@ double PathSegment::estimatedTravelTime() const
 
 PathSegment::SegmentMetricSnapshot PathSegment::estimatedValues() const
 {
-    return metricSnapshot(m_attributes, PK::Segment::Estimated, false);
-}
-
-PathSegment::SegmentMetricSnapshot PathSegment::actualValues() const
-{
-    return metricSnapshot(m_attributes, PK::Segment::ActualValues, true);
+    return metricSnapshot(m_attributes, PK::Segment::Estimated);
 }
 
 PathSegment::SegmentCostSnapshot PathSegment::estimatedCosts() const
 {
     return costSnapshot(m_attributes, PK::Segment::EstimatedCost);
-}
-
-PathSegment::SegmentCostSnapshot PathSegment::actualCosts() const
-{
-    return costSnapshot(m_attributes, PK::Segment::ActualCost);
 }
 
 void PathSegment::setEstimatedDistanceAndTravelTime(
@@ -289,23 +280,6 @@ void PathSegment::setEstimatedDistanceAndTravelTime(
     est[PK::Segment::Distance]   = distanceMeters;
     est[PK::Segment::TravelTime] = travelTimeSeconds;
     m_attributes[PK::Segment::Estimated] = est;
-}
-
-void PathSegment::setActualValues(const QVariantMap &values)
-{
-    QJsonObject act = m_attributes.value(PK::Segment::ActualValues).toObject();
-    for (auto it = values.constBegin(); it != values.constEnd(); ++it)
-    {
-        const QVariant &v = it.value();
-        if (v.canConvert<double>())
-            act[it.key()] = v.toDouble();
-    }
-    m_attributes[PK::Segment::ActualValues] = act;
-}
-
-void PathSegment::clearActual()
-{
-    m_attributes.remove(PK::Segment::ActualValues);
 }
 
 void PathSegment::setEstimatedPhysicalMetrics(

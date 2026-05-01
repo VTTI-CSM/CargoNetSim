@@ -148,8 +148,11 @@ public:
     GraphicsView *globalMapView() const { return globalMapView_; }
 
     /**
-     * @brief Gets the currently loaded ScenarioRuntime, or nullptr if
-     *        no scenario has been opened yet (legacy GUI mode).
+     * @brief Gets the currently loaded ScenarioRuntime.
+     *
+     * Normal GUI operation installs an empty ScenarioRuntime during
+     * construction. A null return is reserved for construction/teardown and
+     * focused tests that intentionally bypass MainWindow bootstrapping.
      *
      * Consumed by Tasks 14–16 (ViewController mutator delegations)
      * and Task 21 (document-signal observers).
@@ -372,8 +375,8 @@ private:
     /// comparison snapshots instead of a live prepared-path set.
     void refreshPreparedPathAvailability();
 
-    /// Owned ScenarioRuntime (null in legacy GUI mode — no scenario
-    /// opened). Lifetime tied to MainWindow. See Task 20 / Task 21.
+    /// Owned ScenarioRuntime. Normal operation keeps this populated after
+    /// MainWindow construction; tests/teardown may observe null.
     std::unique_ptr<Backend::Scenario::ScenarioRuntime> m_runtime;
 
     /// Subscribe this MainWindow to every ScenarioDocument signal on

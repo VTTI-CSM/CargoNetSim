@@ -48,8 +48,6 @@ QJsonObject filteredSegmentAttributes(
     QJsonObject filtered = attributes;
     filtered.remove(PK::Segment::Estimated);
     filtered.remove(PK::Segment::EstimatedCost);
-    filtered.remove(PK::Segment::ActualValues);
-    filtered.remove(PK::Segment::ActualCost);
     return filtered;
 }
 
@@ -348,6 +346,21 @@ const Scenario::PathExecutionResult *executionResultFor(
     return &pathData.executionResult.value();
 }
 
+const Scenario::SegmentExecutionResult *segmentResultFor(
+    const Scenario::PathExecutionResult &result,
+    int                                  segmentIndex)
+{
+    if (segmentIndex < 0)
+        return nullptr;
+
+    for (const auto &segmentResult : result.segmentResults)
+    {
+        if (segmentResult.segmentIndex == segmentIndex)
+            return &segmentResult;
+    }
+    return nullptr;
+}
+
 PathPresentationCostSnapshot costSnapshotFromSegmentCost(
     const Backend::PathSegment::SegmentCostSnapshot &snapshot)
 {
@@ -367,25 +380,11 @@ Backend::PathSegment::SegmentMetricSnapshot actualMetricsForSegment(
 {
     if (const auto *result = executionResultFor(pathData))
     {
-        if (segmentIndex >= 0
-            && segmentIndex < result->segmentResults.size())
-        {
-            return result->segmentResults[segmentIndex]
-                .actualMetrics;
-        }
+        if (const auto *segmentResult =
+                segmentResultFor(*result, segmentIndex))
+            return segmentResult->actualMetrics;
     }
-
-    const auto *path = pathData.path.get();
-    if (!path)
-        return {};
-
-    const auto &segments = path->getSegments();
-    if (segmentIndex < 0 || segmentIndex >= segments.size()
-        || !segments[segmentIndex])
-    {
-        return {};
-    }
-    return segments[segmentIndex]->actualValues();
+    return {};
 }
 
 Backend::PathSegment::SegmentCostSnapshot actualCostsForSegment(
@@ -393,25 +392,11 @@ Backend::PathSegment::SegmentCostSnapshot actualCostsForSegment(
 {
     if (const auto *result = executionResultFor(pathData))
     {
-        if (segmentIndex >= 0
-            && segmentIndex < result->segmentResults.size())
-        {
-            return result->segmentResults[segmentIndex]
-                .actualCosts;
-        }
+        if (const auto *segmentResult =
+                segmentResultFor(*result, segmentIndex))
+            return segmentResult->actualCosts;
     }
-
-    const auto *path = pathData.path.get();
-    if (!path)
-        return {};
-
-    const auto &segments = path->getSegments();
-    if (segmentIndex < 0 || segmentIndex >= segments.size()
-        || !segments[segmentIndex])
-    {
-        return {};
-    }
-    return segments[segmentIndex]->actualCosts();
+    return {};
 }
 
 const Scenario::TerminalExecutionResult *terminalResultFor(
@@ -478,8 +463,7 @@ PathPresentationCostSnapshot sumExecutionCosts(
 }
 
 PathPresentationCostSnapshot sumCostSnapshots(
-    const QList<Backend::PathSegment *> &segments,
-    bool useActualCosts)
+    const QList<Backend::PathSegment *> &segments)
 {
     PathPresentationCostSnapshot total;
     for (const auto *segment : segments)
@@ -487,9 +471,7 @@ PathPresentationCostSnapshot sumCostSnapshots(
         if (!segment)
             continue;
 
-        const auto snapshot =
-            useActualCosts ? segment->actualCosts()
-                           : segment->estimatedCosts();
+        const auto snapshot = segment->estimatedCosts();
         if (!snapshot.available)
             continue;
 
@@ -1121,11 +1103,9 @@ PathPresentationService::pathCostTotals(
         return out;
 
     const auto segments = path.path->getSegments();
-    out.predicted = sumCostSnapshots(segments, false);
+    out.predicted = sumCostSnapshots(segments);
     if (const auto *result = executionResultFor(path))
         out.actual = sumExecutionCosts(result->segmentResults);
-    else
-        out.actual = sumCostSnapshots(segments, true);
     return out;
 }
 
