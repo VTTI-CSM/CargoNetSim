@@ -1,21 +1,16 @@
 #include "GraphicsScene.h"
 
-#include <QApplication>
+#include <QGraphicsSceneContextMenuEvent>
+#include <QGraphicsSceneDragDropEvent>
 #include <QGraphicsSceneMouseEvent>
-#include <QGraphicsView>
-#include <QMessageBox>
-#include <QtGui/qevent.h>
+#include <QGraphicsSceneWheelEvent>
+#include <QKeyEvent>
 
-#include "../Controllers/UtilityFunctions.h"
-#include "../Controllers/ViewController.h"
-#include "../Items/ConnectionLine.h"
-#include "../Items/DistanceMeasurementTool.h"
-#include "../Items/GlobalTerminalItem.h"
-#include "../Items/TerminalItem.h"
-#include "../MainWindow.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "GUI/Controllers/BasicButtonController.h"
-#include "GUI/Widgets/GraphicsView.h"
+#include "Backend/Commons/LogCategories.h"
+
+#include "../Input/Handled.h"
+#include "../Input/InputEvent.h"
+#include "../Input/InteractionController.h"
 
 namespace CargoNetSim
 {
@@ -24,429 +19,225 @@ namespace GUI
 
 GraphicsScene::GraphicsScene(QObject *parent)
     : QGraphicsScene(parent)
-    , m_connectMode(false)
-    , m_linkTerminalMode(false)
-    , m_unlinkTerminalMode(false)
-    , m_measureMode(false)
-    , m_globalPositionMode(false)
-    , m_connectFirstItem(QVariant())
-    , m_measurementTool(nullptr)
 {
+}
+
+GraphicsScene::~GraphicsScene()
+{
+    // Tear down tracked items while the registry is still alive. If we
+    // let QGraphicsScene::~QGraphicsScene() delete items after the
+    // derived members are already gone, destroyed() callbacks would
+    // touch dead registry state.
+    clearAll();
 }
 
 void GraphicsScene::addItemWithId(GraphicsObjectBase *item,
                                   const QString      &id)
 {
-    // First add the item to the scene using the base class
-    // method
+    qCDebug(lcGuiScene) << "GraphicsScene::addItemWithId:"
+                        << "id=" << id
+                        << "type=" << typeid(*item).name();
     QGraphicsScene::addItem(item);
 
-    // Take ownership
-    item->setParent(this);
-
-    // Get the class key and store in type map
-    QString className = QString(typeid(*item).name());
-
-    // Initialize the inner map if needed
-    if (!itemsByType.contains(className))
-    {
-        itemsByType[className] =
-            QMap<QString, QGraphicsItem *>();
-    }
-
-    // Add to type-specific map
+    const QString className = QString(typeid(*item).name());
     itemsByType[className][id] = item;
+
+    // Self-healing registry invariant. Without this, any code path that
+    // destroys the item without calling removeItemWithId (raw `delete`,
+    // parent destruction, QGraphicsScene::clear(), re-entrant teardown)
+    // leaves a dangling pointer in itemsByType. Later observers — which
+    // lookup by (type, id) and then dereference — would crash on stale
+    // pointers. Connecting destroyed() makes the registry self-pruning:
+    // no matter who or how an item is deleted, its entry is erased
+    // synchronously during ~QObject, before anyone can observe the
+    // dangling state. className/id captured by value so the lambda
+    // remains valid past `item`'s destruction. Qt::DirectConnection
+    // (implicit — same thread) ensures synchronous execution.
+    connect(item, &QObject::destroyed, this,
+            [this, className, id](QObject *) {
+                auto bucket = itemsByType.find(className);
+                if (bucket == itemsByType.end())
+                    return;
+                bucket->remove(id);
+                if (bucket->isEmpty())
+                    itemsByType.erase(bucket);
+            });
+}
+
+void GraphicsScene::clearAll()
+{
+    qCInfo(lcGuiScene) << "GraphicsScene::clearAll:"
+                       << "typeCount=" << itemsByType.size()
+                       << "sceneItemCount=" << items().size();
+    // Drop registry references FIRST so the subsequent delete in
+    // QGraphicsScene::clear() cannot leave us with dangling pointers.
+    itemsByType.clear();
+    QGraphicsScene::clear();
 }
 
 void GraphicsScene::mousePressEvent(
     QGraphicsSceneMouseEvent *event)
 {
-    try
-    {
-        if (!parent())
-        {
+    if (m_inputController) {
+        Input::PressEvent ie{
+            event->button(), event->modifiers(),
+            event->scenePos(), event->screenPos()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
             return;
         }
-
-        MainWindow *mainWindowObj =
-            dynamic_cast<MainWindow *>(parent());
-
-        if (!mainWindowObj)
-        {
-            return;
-            qDebug() << "Could not extract "
-                        "MainWindow object from "
-                        "view parent";
-        }
-
-        // Handle global position setting mode
-        if (m_globalPositionMode)
-        {
-            QList<QGraphicsItem *> clickedItems =
-                items(event->scenePos());
-            bool terminalFound = false;
-
-            for (QGraphicsItem *item : clickedItems)
-            {
-                GlobalTerminalItem *globalTerminal =
-                    dynamic_cast<GlobalTerminalItem *>(
-                        item);
-                if (globalTerminal
-                    && globalTerminal
-                           ->getLinkedTerminalItem())
-                {
-                    if (views().isEmpty())
-                    {
-                        return;
-                    }
-
-                    // Call the set global position
-                    // method through the controller
-                    BasicButtonController::
-                        setTerminalGlobalPosition(
-                            mainWindowObj,
-                            globalTerminal
-                                ->getLinkedTerminalItem());
-
-                    terminalFound = true;
-                    break;
-                }
-            }
-
-            // Exit the mode if we successfully processed a
-            // terminal
-            if (terminalFound)
-            {
-                m_globalPositionMode = false;
-
-                // Get main window through the view's parent
-                // to uncheck the button
-                if (!views().isEmpty())
-                {
-                    QObject *mainWindowObj =
-                        views().first()->parent();
-                    if (mainWindowObj)
-                    {
-                        QObject *button =
-                            mainWindowObj
-                                ->findChild<QObject *>(
-                                    "set_global_position_"
-                                    "button");
-                        if (button)
-                        {
-                            button->setProperty("checked",
-                                                false);
-                        }
-                    }
-                }
-                return;
-            }
-        }
-        // Handle measurement mode
-        else if (m_measureMode)
-        {
-            QPointF scenePos = event->scenePos();
-
-            if (!m_measurementTool)
-            {
-                // First click - create measurement tool and
-                // set start point
-                if (!views().isEmpty())
-                {
-                    m_measurementTool =
-                        new DistanceMeasurementTool(
-                            dynamic_cast<GraphicsView *>(
-                                views().first()));
-                    addItemWithId(m_measurementTool,
-                                  m_measurementTool->getID());
-                    m_measurementTool->setStartPoint(
-                        scenePos);
-
-                    // Show status message if we can find
-                    // the main window
-                    if (!views().isEmpty())
-                    {
-                        QObject *mainWindowObj =
-                            views().first()->parent();
-                        if (mainWindowObj)
-                        {
-                            MainWindow *mainWin =
-                                dynamic_cast<MainWindow *>(
-                                    mainWindowObj);
-                            if (mainWin)
-                            {
-                                mainWin
-                                    ->showStatusBarMessage(
-                                        "Click again to "
-                                        "complete "
-                                        "measurement",
-                                        2000);
-                            }
-                        }
-                    }
-                }
-            }
-            else
-            {
-                // Second click - complete measurement and
-                // reset for next measurement
-                m_measurementTool->setEndPoint(scenePos);
-                m_measurementTool = nullptr;
-                m_measureMode     = false;
-
-                // Get main window through the view's parent
-                // to uncheck the button and show message
-                if (!views().isEmpty())
-                {
-
-                    QObject *button =
-                        mainWindowObj->findChild<QObject *>(
-                            "measure_action");
-                    if (button)
-                    {
-                        button->setProperty("checked",
-                                            false);
-                    }
-
-                    QGraphicsView *view = views().first();
-                    view->unsetCursor();
-
-                    QObject *statusBar =
-                        mainWindowObj->findChild<QObject *>(
-                            "statusBar");
-                    if (statusBar)
-                    {
-                        QMetaObject::invokeMethod(
-                            statusBar, "showMessage",
-                            Q_ARG(QString,
-                                  "Measurement complete"),
-                            Q_ARG(int, 2000));
-                    }
-                }
-                return;
-            }
-        }
-        // Handle connection mode
-        else if (m_connectMode)
-        {
-            // Get the current connection
-            // type and region
-            QString currentConnectionType =
-                mainWindowObj->getConnectionType();
-
-            QString currentRegion =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegion();
-
-            QList<QGraphicsItem *> clickedItems =
-                items(event->scenePos());
-            QVariant terminalVariant;
-
-            // Find a terminal item among clicked items
-            for (QGraphicsItem *item : clickedItems)
-            {
-                TerminalItem *terminal =
-                    dynamic_cast<TerminalItem *>(item);
-                if (terminal)
-                {
-                    terminalVariant =
-                        QVariant::fromValue(terminal);
-                    break;
-                }
-
-                GlobalTerminalItem *globalTerminal =
-                    dynamic_cast<GlobalTerminalItem *>(
-                        item);
-                if (globalTerminal)
-                {
-                    terminalVariant =
-                        QVariant::fromValue(globalTerminal);
-                    break;
-                }
-            }
-
-            if (!terminalVariant.isNull())
-            {
-                if (m_connectFirstItem.isNull())
-                {
-                    // First terminal selected
-                    m_connectFirstItem = terminalVariant;
-
-                    // Show status message
-
-                    mainWindowObj->showStatusBarMessage(
-                        QString("Selected first terminal. "
-                                "Click another terminal to "
-                                "create a %1 connection.")
-                            .arg(currentConnectionType),
-                        3000);
-                }
-                else
-                {
-                    // Compare against first item
-                    bool isSameItem = false;
-
-                    if (m_connectFirstItem
-                            .canConvert<TerminalItem *>()
-                        && terminalVariant.canConvert<
-                            TerminalItem *>())
-                    {
-                        isSameItem =
-                            m_connectFirstItem
-                                .value<TerminalItem *>()
-                            == terminalVariant
-                                   .value<TerminalItem *>();
-                    }
-                    else if (m_connectFirstItem.canConvert<
-                                 GlobalTerminalItem *>()
-                             && terminalVariant.canConvert<
-                                 GlobalTerminalItem *>())
-                    {
-                        isSameItem =
-                            m_connectFirstItem.value<
-                                GlobalTerminalItem *>()
-                            == terminalVariant.value<
-                                GlobalTerminalItem *>();
-                    }
-
-                    if (isSameItem)
-                    {
-                        m_connectFirstItem =
-                            QVariant(); // Reset to null
-
-                        // Show error message
-                        if (!views().isEmpty())
-                        {
-                            mainWindowObj
-                                ->showStatusBarMessage(
-                                    "Cannot connect "
-                                    "terminal to "
-                                    "itself.",
-                                    2000);
-                        }
-                        return;
-                    }
-
-                    // Create connection through utility
-                    // function
-
-                    // Get first terminal
-                    QGraphicsItem *firstItem = nullptr;
-                    if (m_connectFirstItem
-                            .canConvert<TerminalItem *>())
-                    {
-                        firstItem =
-                            m_connectFirstItem
-                                .value<TerminalItem *>();
-                    }
-                    else if (m_connectFirstItem.canConvert<
-                                 GlobalTerminalItem *>())
-                    {
-                        firstItem = m_connectFirstItem.value<
-                            GlobalTerminalItem *>();
-                    }
-
-                    // Get second terminal
-                    QGraphicsItem *secondItem = nullptr;
-                    if (terminalVariant
-                            .canConvert<TerminalItem *>())
-                    {
-                        secondItem =
-                            terminalVariant
-                                .value<TerminalItem *>();
-                    }
-                    else if (terminalVariant.canConvert<
-                                 GlobalTerminalItem *>())
-                    {
-                        secondItem = terminalVariant.value<
-                            GlobalTerminalItem *>();
-                    }
-
-                    // Call createConnectionLine utility
-                    // function
-                    ConnectionLine *connection =
-                        ViewController::
-                            createConnectionLine(
-                                mainWindowObj, firstItem,
-                                secondItem,
-                                currentConnectionType);
-
-                    if (connection)
-                    {
-                        mainWindowObj->showStatusBarMessage(
-                            "Connection created. "
-                            "Click another "
-                            "terminal to "
-                            "continue connecting.",
-                            2000);
-
-                        // Update scene visibility
-                        ViewController::
-                            updateSceneVisibility(
-                                mainWindowObj);
-
-                        // Set the second terminal
-                        // as the first for the next
-                        // connection
-                        m_connectFirstItem = terminalVariant;
-                    }
-                    else
-                    {
-                        // If connection failed,
-                        // reset first item
-                        m_connectFirstItem = QVariant();
-                    }
-
-                    return;
-                }
-            }
-        }
-        else
-        {
-            // Check if clicked on empty area
-            QList<QGraphicsItem *> clickedItems =
-                items(event->scenePos());
-            if (clickedItems.isEmpty()
-                && !views().isEmpty())
-            {
-                // Clear selection and hide properties
-                // panel
-                clearSelection();
-                UtilitiesFunctions::hidePropertiesPanel(
-                    mainWindowObj);
-            }
-
-            // Pass the event to the base class for normal
-            // handling
-            QGraphicsScene::mousePressEvent(event);
-        }
     }
-    catch (const std::exception &e)
-    {
-        qWarning() << "Exception in "
-                      "GraphicsScene::mousePressEvent:"
-                   << e.what();
-    }
-    catch (...)
-    {
-        qWarning() << "Unknown exception in "
-                      "GraphicsScene::mousePressEvent";
-    }
+    QGraphicsScene::mousePressEvent(event);
 }
 
 void GraphicsScene::keyPressEvent(QKeyEvent *event)
 {
-    // For Delete key, pass it up to MainWindow
-    if (event->key() == Qt::Key_Delete
-        || event->key() == Qt::Key_Backspace)
-    {
-        event->ignore();
-        return;
+    if (m_inputController) {
+        Input::KeyPressEvent ie{
+            event->key(), event->modifiers(),
+            event->text(), event->isAutoRepeat()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
     }
-
     QGraphicsScene::keyPressEvent(event);
+}
+
+void GraphicsScene::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
+{
+    // Move events are dispatched exclusively by GraphicsView::mouseMoveEvent
+    // (the Adapter for the view-level input source). Dispatching here again
+    // causes double-fire and, during scrollbar-driven panning, Qt synthesises
+    // additional scene-level move events whose screenPos is the original
+    // press location — they cancel the user's drag and freeze the pan.
+    QGraphicsScene::mouseMoveEvent(event);
+}
+
+void GraphicsScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
+{
+    if (m_inputController) {
+        Input::ReleaseEvent ie{
+            event->button(), event->modifiers(),
+            event->scenePos(), event->screenPos()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsScene::mouseReleaseEvent(event);
+}
+
+void GraphicsScene::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event)
+{
+    if (m_inputController) {
+        Input::DoubleClickEvent ie{
+            event->button(), event->modifiers(),
+            event->scenePos(), event->screenPos()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsScene::mouseDoubleClickEvent(event);
+}
+
+void GraphicsScene::contextMenuEvent(QGraphicsSceneContextMenuEvent *event)
+{
+    qCInfo(lcGuiScene)
+        << "GraphicsScene::contextMenuEvent: scenePos=" << event->scenePos()
+        << "hasController=" << (m_inputController != nullptr);
+    if (m_inputController) {
+        Input::ContextMenuRequest ie{
+            event->modifiers(), event->scenePos(), event->screenPos()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            qCInfo(lcGuiScene) << "  dispatched Handled::Yes";
+            event->accept();
+            return;
+        }
+        qCInfo(lcGuiScene) << "  dispatch returned PassThrough";
+    }
+    QGraphicsScene::contextMenuEvent(event);
+}
+
+void GraphicsScene::wheelEvent(QGraphicsSceneWheelEvent *event)
+{
+    if (m_inputController) {
+        Input::WheelEvent ie{
+            event->delta(), event->modifiers(),
+            event->scenePos(), event->screenPos()
+        };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsScene::wheelEvent(event);
+}
+
+void GraphicsScene::keyReleaseEvent(QKeyEvent *event)
+{
+    if (m_inputController) {
+        Input::KeyReleaseEvent ie{ event->key(), event->modifiers() };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsScene::keyReleaseEvent(event);
+}
+
+void GraphicsScene::dragEnterEvent(QGraphicsSceneDragDropEvent *event)
+{
+    if (m_inputController) {
+        Input::DragEnterEvent ie{ event->mimeData(), event->scenePos() };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsScene::dragEnterEvent(event);
+}
+
+void GraphicsScene::dragMoveEvent(QGraphicsSceneDragDropEvent *event)
+{
+    if (m_inputController) {
+        Input::DragMoveEvent ie{ event->mimeData(), event->scenePos() };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsScene::dragMoveEvent(event);
+}
+
+void GraphicsScene::dragLeaveEvent(QGraphicsSceneDragDropEvent *event)
+{
+    if (m_inputController) {
+        Input::DragLeaveEvent ie{};
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsScene::dragLeaveEvent(event);
+}
+
+void GraphicsScene::dropEvent(QGraphicsSceneDragDropEvent *event)
+{
+    if (m_inputController) {
+        Input::DropEvent ie{ event->mimeData(), event->scenePos() };
+        if (m_inputController->dispatch(ie) == Input::Handled::Yes) {
+            event->accept();
+            return;
+        }
+    }
+    QGraphicsScene::dropEvent(event);
 }
 
 } // namespace GUI

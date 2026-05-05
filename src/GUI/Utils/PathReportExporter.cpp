@@ -17,6 +17,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QtCore/QtCore>
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -29,16 +30,17 @@ PathReportExporter::PathReportExporter(QObject *parent)
 }
 
 bool PathReportExporter::exportSinglePath(
-    const ShortestPathsTable::PathData *pathData,
-    const QString                      &filePath)
+    const PathData *pathData, const QString &filePath)
 {
     if (!pathData || !pathData->path)
     {
+        qCWarning(lcGuiUtil) << "PathReportExporter::exportSinglePath:"
+                             << "null pathData or path";
         return false;
     }
 
     // Create a list with just the one path
-    QList<const ShortestPathsTable::PathData *> pathList;
+    QList<const PathData *> pathList;
     pathList.append(pathData);
 
     // Create the report generator
@@ -57,25 +59,26 @@ bool PathReportExporter::exportSinglePath(
         }
         catch (const std::exception &e)
         {
-            qWarning()
+            qCWarning(lcGuiUtil)
                 << "Failed to export report:" << e.what();
             return false;
         }
     }
     else
     {
-        qWarning() << "Failed to export report:";
+        qCWarning(lcGuiUtil) << "Failed to export report:";
         return false;
     }
 }
 
 bool PathReportExporter::exportMultiplePaths(
-    const QList<const ShortestPathsTable::PathData *>
-                  &pathData,
+    const QList<const PathData *> &pathData,
     const QString &filePath)
 {
     if (pathData.isEmpty())
     {
+        qCWarning(lcGuiUtil) << "PathReportExporter::exportMultiplePaths:"
+                             << "empty pathData list";
         return false;
     }
 
@@ -95,21 +98,20 @@ bool PathReportExporter::exportMultiplePaths(
         }
         catch (const std::exception &e)
         {
-            qWarning()
+            qCWarning(lcGuiUtil)
                 << "Failed to export report:" << e.what();
             return false;
         }
     }
     else
     {
-        qWarning() << "Failed to export report:";
+        qCWarning(lcGuiUtil) << "Failed to export report:";
         return false;
     }
 }
 
 bool PathReportExporter::exportPathsWithDialog(
-    const QList<const ShortestPathsTable::PathData *>
-            &pathData,
+    const QList<const PathData *> &pathData,
     QWidget *parent, const QString &defaultName)
 {
     if (pathData.isEmpty())
@@ -129,6 +131,8 @@ bool PathReportExporter::exportPathsWithDialog(
     if (filePath.isEmpty())
     {
         // User canceled
+        qCDebug(lcGuiUtil) << "PathReportExporter::exportPathsWithDialog:"
+                           << "user cancelled file dialog";
         return false;
     }
 
@@ -161,12 +165,13 @@ bool PathReportExporter::exportPathsWithDialog(
 }
 
 bool PathReportExporter::previewReport(
-    const QList<const ShortestPathsTable::PathData *>
-            &pathData,
+    const QList<const PathData *> &pathData,
     QWidget *parent)
 {
     if (pathData.isEmpty())
     {
+        qCWarning(lcGuiUtil) << "PathReportExporter::previewReport:"
+                             << "empty pathData list";
         QMessageBox::warning(
             parent, tr("Preview Error"),
             tr("No path data available to preview."));
@@ -183,6 +188,8 @@ bool PathReportExporter::previewReport(
 
         if (!tempFile.open())
         {
+            qCWarning(lcGuiUtil) << "PathReportExporter::previewReport:"
+                                 << "failed to create temp file";
             QMessageBox::critical(
                 parent, tr("Preview Error"),
                 tr("Failed to create temporary file for "
@@ -195,6 +202,8 @@ bool PathReportExporter::previewReport(
         auto report = generator.generateReport();
         if (!report)
         {
+            qCWarning(lcGuiUtil) << "PathReportExporter::previewReport:"
+                                 << "report generation returned null";
             QMessageBox::critical(
                 parent, tr("Preview Error"),
                 tr("Failed to generate report for "

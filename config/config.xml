@@ -2,7 +2,7 @@
     <!--Configuration parameters for CargoNetSim-->
     <simulation>
         <shortest_paths>10</shortest_paths>
-        <time_step>15</time_step>
+        <time_step>900</time_step>
         <time_value_of_money>24.080000</time_value_of_money>
         <use_mode_specific>false</use_mode_specific>
     </simulation>
@@ -24,7 +24,7 @@
     <carbon_taxes>
         <rate>65.000000</rate>
         <ship_multiplier>1.000000</ship_multiplier>
-        <train_multiplier>1.000000</train_multiplier>
+        <rail_multiplier>1.000000</rail_multiplier>
         <truck_multiplier>1.000000</truck_multiplier>
     </carbon_taxes>
     <transport_modes>
@@ -39,6 +39,7 @@
         <rail>
             <average_container_number>180</average_container_number>
             <average_fuel_consumption>5.500000</average_fuel_consumption>
+            <average_locomotive_count>1</average_locomotive_count>
             <average_speed>88.500000</average_speed>
             <fuel_type>diesel_1</fuel_type>
             <risk_factor>0.006000</risk_factor>

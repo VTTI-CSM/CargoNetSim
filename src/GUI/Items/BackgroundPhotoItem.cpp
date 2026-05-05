@@ -1,4 +1,9 @@
 #include "BackgroundPhotoItem.h"
+#include "Backend/Commons/LogCategories.h"
+#include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/CommandBus.h"
+#include "GUI/Input/Commands/DeleteItemCommand.h"
+#include "GUI/Input/Commands/UpdateBackgroundPhotoPositionCommand.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Widgets/GraphicsScene.h"
 #include "GUI/Widgets/GraphicsView.h"
@@ -9,8 +14,11 @@
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
+#include <QLoggingCategory>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
+
+#include <memory>
 
 namespace CargoNetSim
 {
@@ -23,6 +31,11 @@ BackgroundPhotoItem::BackgroundPhotoItem(
     : GraphicsObjectBase(parent)
     , m_pixmap(pixmap)
 {
+    qCInfo(lcGuiScene)
+        << "BackgroundPhotoItem::BackgroundPhotoItem:"
+        << "region=" << regionName
+        << "pixmap=" << pixmap.size();
+
     // Set a low Z-value to stay below other items
     setZValue(-1);
 
@@ -44,12 +57,19 @@ BackgroundPhotoItem::BackgroundPhotoItem(
 
 void BackgroundPhotoItem::updateCoordinates()
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::updateCoordinates:"
+        << "pos=" << pos();
+
     // Get scene and view
     QGraphicsView *graphicsScene = scene()->views().first();
     GraphicsView  *graphicsView =
         dynamic_cast<GraphicsView *>(graphicsScene);
     if (!graphicsView)
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::updateCoordinates:"
+            << "no GraphicsView available";
         return;
     }
 
@@ -60,20 +80,34 @@ void BackgroundPhotoItem::updateCoordinates()
                    QString::number(newPos.y(), 'f', 6));
     updateProperty("Longitude",
                    QString::number(newPos.x(), 'f', 6));
+
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::updateCoordinates:"
+        << "lat=" << newPos.y() << "lon=" << newPos.x();
 }
 
 void BackgroundPhotoItem::setFromWGS84(QPointF GeoPoint)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::setFromWGS84:"
+        << "geoPoint=" << GeoPoint;
+
     // Get scene and view
     QGraphicsScene *graphicsScene = scene();
     if (!graphicsScene || graphicsScene->views().isEmpty())
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::setFromWGS84:"
+            << "no scene or views";
         return;
     }
 
     QGraphicsView *view = graphicsScene->views().first();
     if (!view)
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::setFromWGS84:"
+            << "null view";
         return;
     }
 
@@ -81,6 +115,9 @@ void BackgroundPhotoItem::setFromWGS84(QPointF GeoPoint)
         dynamic_cast<GraphicsView *>(view);
     if (!gView)
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::setFromWGS84:"
+            << "view is not a GraphicsView";
         return;
     }
 
@@ -98,6 +135,10 @@ void BackgroundPhotoItem::setFromWGS84(QPointF GeoPoint)
     updateProperty(
         "Longitude",
         QString::number(GeoPoint.x(), 'f', 6).toDouble());
+
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::setFromWGS84:"
+        << "scenePos=" << scenePos;
 }
 
 QRectF BackgroundPhotoItem::boundingRect() const
@@ -109,6 +150,10 @@ QRectF BackgroundPhotoItem::boundingRect() const
 
 void BackgroundPhotoItem::updateScale()
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::updateScale:"
+        << "scale=" << getScale();
+
     prepareGeometryChange();
     update();
 
@@ -120,6 +165,10 @@ void BackgroundPhotoItem::setRegion(const QString &region)
 {
     if (m_properties["Region"] != region)
     {
+        qCDebug(lcGuiScene)
+            << "BackgroundPhotoItem::setRegion:"
+            << "old=" << m_properties["Region"].toString()
+            << "new=" << region;
         m_properties["Region"] = region;
         emit regionChanged(region);
     }
@@ -135,8 +184,17 @@ float BackgroundPhotoItem::getScale() const
 
 void BackgroundPhotoItem::setScale(float scale)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::setScale:"
+        << "requested=" << scale
+        << "current=" << getScale();
+
     if (scale <= 0.0f)
     {
+        qCWarning(lcGuiScene)
+            << "BackgroundPhotoItem::setScale:"
+            << "clamping non-positive scale" << scale
+            << "to 0.1";
         scale = 0.1f; // Minimum scale
     }
 
@@ -156,6 +214,10 @@ qreal BackgroundPhotoItem::opacity() const
 
 void BackgroundPhotoItem::setOpacity(qreal opacity)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::setOpacity:"
+        << "requested=" << opacity;
+
     opacity = qBound(0.0, opacity, 1.0);
 
     if (qAbs(opacity
@@ -180,6 +242,11 @@ void BackgroundPhotoItem::paint(
     QPainter                       *painter,
     const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::paint:"
+        << "pos=" << pos()
+        << "scale=" << getScale();
+
     // Get current scale from properties
     float scale = getScale();
 
@@ -202,74 +269,101 @@ void BackgroundPhotoItem::paint(
     }
 }
 
-void BackgroundPhotoItem::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled BackgroundPhotoItem::onLeftClick(
+    const Input::ClickContext &ctx)
 {
-    if (!m_properties["Locked"].toBool())
-    {
-        // Store drag offset for position adjustment
-        m_dragOffset = event->pos();
-
-        // Emit clicked signal
-        emit clicked(this);
-
-        // Call parent implementation to handle selection
-        QGraphicsObject::mousePressEvent(event);
-    }
-    else
-    {
-        // Still emit clicked signal when locked, but don't
-        // allow movement
-        emit clicked(this);
-        event->accept();
-    }
+    Q_UNUSED(ctx);
+    qCDebug(lcGuiInputItem)
+        << "BackgroundPhotoItem::onLeftClick; locked ="
+        << m_properties.value(QStringLiteral("Locked"))
+               .toBool();
+    return Input::Handled::PassThrough;
 }
 
-QVariant
-BackgroundPhotoItem::itemChange(GraphicsItemChange change,
-                                const QVariant    &value)
+bool BackgroundPhotoItem::canDrag(
+    const Input::ClickContext &ctx) const
 {
-    if (change == ItemPositionChange && scene())
+    Q_UNUSED(ctx);
+    return !m_properties.value(QStringLiteral("Locked"))
+                .toBool();
+}
+
+QPointF BackgroundPhotoItem::onDragUpdate(
+    const QPointF             &requested,
+    const Input::ClickContext &ctx)
+{
+    Q_UNUSED(ctx);
+    if (m_properties.value(QStringLiteral("Locked"))
+            .toBool())
     {
-        // If locked, prevent movement
-        if (m_properties["Locked"].toBool())
-        {
-            return pos();
-        }
-
-        // If dragging, adjust position based on drag offset
-        if (m_dragOffset != QPointF())
-        {
-            QPointF newPos = value.toPointF();
-
-            // If mouse grabber is this item, adjust by
-            // cursor position
-            if (scene()->mouseGrabberItem() == this)
-            {
-                QGraphicsView *view =
-                    scene()->views().first();
-                QPointF mousePos = view->mapToScene(
-                    view->mapFromGlobal(QCursor::pos()));
-                return mousePos - m_dragOffset;
-            }
-        }
-
-        return value;
+        qCDebug(lcGuiInputItem)
+            << "BackgroundPhotoItem: drag blocked (locked)";
+        return pos();
     }
-    else if (change == ItemPositionHasChanged && scene())
+    // Snapshot the pre-drag position exactly once per drag sequence. Qt
+    // delivers ItemPositionChange before applying the new pos, so pos()
+    // still reflects the old value on the first update of a gesture.
+    if (!m_dragInProgress)
     {
-        // Update coordinates and notify about position
-        // change
-        updateCoordinates();
-        emit positionChanged(pos());
+        m_dragInProgress = true;
+        m_preDragPos     = pos();
+    }
+    return requested;
+}
+
+void BackgroundPhotoItem::onDragEnd(
+    const QPointF             &finalPos,
+    const Input::ClickContext &ctx)
+{
+    qCDebug(lcGuiInputItem)
+        << "BackgroundPhotoItem::onDragEnd; pos ="
+        << finalPos;
+
+    const bool  wasDrag  = m_dragInProgress;
+    const QPointF oldPos = m_preDragPos;
+    m_dragInProgress     = false;
+
+    if (wasDrag && oldPos != finalPos
+        && (!ctx.commandBus || !ctx.view))
+    {
+        qCWarning(lcGuiInputItem)
+            << "BackgroundPhotoItem::onDragEnd:"
+            << "missing CommandBus or view; refusing direct mutation";
+        return;
     }
 
-    return QGraphicsObject::itemChange(change, value);
+    // Persist the move through CommandBus so scene-pos AND the Latitude /
+    // Longitude property fields stay consistent across undo/redo. The
+    // precomputed geo pair avoids the command depending on any view.
+    if (wasDrag && oldPos != finalPos)
+    {
+        const QPointF oldGeo = ctx.view->sceneToWGS84(oldPos);
+        const QPointF newGeo = ctx.view->sceneToWGS84(finalPos);
+        const bool submitted = ctx.commandBus->submit(
+            std::make_unique<Input::UpdateBackgroundPhotoPositionCommand>(
+                this, oldPos, finalPos, oldGeo, newGeo));
+        if (!submitted)
+        {
+            qCWarning(lcGuiInputItem)
+                << "BackgroundPhotoItem::onDragEnd:"
+                << "position command failed";
+            return;
+        }
+        // The command's redo emits positionChanged after applying state,
+        // so skip the raw emission below to avoid duplicate notifications.
+        return;
+    }
+
+    emit positionChanged(finalPos);
 }
 
 void BackgroundPhotoItem::updateProperties(
     const QMap<QString, QVariant> &newProperties)
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::updateProperties:"
+        << "count=" << newProperties.size();
+
     for (auto it = newProperties.constBegin();
          it != newProperties.constEnd(); ++it)
     {
@@ -284,13 +378,30 @@ void BackgroundPhotoItem::updateProperty(
     // Only update if value actually changes
     if (m_properties.value(key) != value)
     {
+        qCDebug(lcGuiScene)
+            << "BackgroundPhotoItem::updateProperty:"
+            << "key=" << key << "value=" << value;
         m_properties[key] = value;
         emit propertyChanged(key, value);
     }
 }
 
+std::unique_ptr<QUndoCommand> BackgroundPhotoItem::createDeleteCommand(
+    Backend::Scenario::ScenarioDocument* /*doc*/) const
+{
+    // Factory accepts a non-const pointer because the command mutates the item
+    // (removes it from the scene); the cast is safe — the scene already holds
+    // the item as non-const.
+    return Input::DeleteItemCommand::forBackgroundPhoto(
+        const_cast<BackgroundPhotoItem*>(this));
+}
+
 QMap<QString, QVariant> BackgroundPhotoItem::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "BackgroundPhotoItem::toDict:"
+        << "region=" << m_properties.value("Region").toString();
+
     QMap<QString, QVariant> data;
 
     // Store position
@@ -319,6 +430,10 @@ BackgroundPhotoItem *BackgroundPhotoItem::fromDict(
     const QMap<QString, QVariant> &data,
     QGraphicsItem                 *parent)
 {
+    qCInfo(lcGuiScene)
+        << "BackgroundPhotoItem::fromDict:"
+        << "deserializing background photo item";
+
     // Convert base64 back to pixmap
     QPixmap    pixmap;
     QByteArray imageData = QByteArray::fromBase64(

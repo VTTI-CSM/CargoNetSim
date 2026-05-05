@@ -1,5 +1,6 @@
 // NetworkController.cpp
 #include "NetworkController.h"
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -37,7 +38,7 @@ bool NetworkController::addTrainNetwork(
 {
     if (!network)
     {
-        qWarning() << "Attempted to add null train network:"
+        qCWarning(lcControllerNetwork) << "Attempted to add null train network:"
                    << name << "in region" << region;
         return false;
     }
@@ -49,7 +50,7 @@ bool NetworkController::addTrainNetwork(
     if (m_trainNetworks.contains(region)
         && m_trainNetworks[region].contains(name))
     {
-        qWarning() << "Train network with name" << name
+        qCWarning(lcControllerNetwork) << "Train network with name" << name
                    << "already exists in region" << region;
         return false;
     }
@@ -75,7 +76,7 @@ bool NetworkController::addTruckNetworkConfig(
 {
     if (!config)
     {
-        qWarning()
+        qCWarning(lcControllerNetwork)
             << "Attempted to add null truck network config:"
             << name << "in region" << region;
         return false;
@@ -88,7 +89,7 @@ bool NetworkController::addTruckNetworkConfig(
     if (m_truckNetworkConfigs.contains(region)
         && m_truckNetworkConfigs[region].contains(name))
     {
-        qWarning() << "Truck network config with name"
+        qCWarning(lcControllerNetwork) << "Truck network config with name"
                    << name << "already exists in region"
                    << region;
         return false;
@@ -241,7 +242,7 @@ bool NetworkController::renameTrainNetwork(
     if (!m_trainNetworks.contains(region)
         || !m_trainNetworks[region].contains(oldName))
     {
-        qWarning() << "Cannot rename train network: source"
+        qCWarning(lcControllerNetwork) << "Cannot rename train network: source"
                    << oldName << "not found in region"
                    << region;
         return false;
@@ -250,7 +251,7 @@ bool NetworkController::renameTrainNetwork(
     // Check if destination name already exists
     if (m_trainNetworks[region].contains(newName))
     {
-        qWarning()
+        qCWarning(lcControllerNetwork)
             << "Cannot rename train network: destination"
             << newName << "already exists in region"
             << region;
@@ -286,7 +287,7 @@ bool NetworkController::renameTruckNetworkConfig(
     if (!m_truckNetworkConfigs.contains(region)
         || !m_truckNetworkConfigs[region].contains(oldName))
     {
-        qWarning() << "Cannot rename truck network: source"
+        qCWarning(lcControllerNetwork) << "Cannot rename truck network: source"
                    << oldName << "not found in region"
                    << region;
         return false;
@@ -295,7 +296,7 @@ bool NetworkController::renameTruckNetworkConfig(
     // Check if destination name already exists
     if (m_truckNetworkConfigs[region].contains(newName))
     {
-        qWarning()
+        qCWarning(lcControllerNetwork)
             << "Cannot rename truck network: destination"
             << newName << "already exists in region"
             << region;
@@ -436,7 +437,7 @@ bool NetworkController::renameRegion(
     QStringList allRegions = regions();
     if (allRegions.contains(newRegion))
     {
-        qWarning()
+        qCWarning(lcControllerNetwork)
             << "Cannot rename region: destination region"
             << newRegion << "already exists";
         return false;

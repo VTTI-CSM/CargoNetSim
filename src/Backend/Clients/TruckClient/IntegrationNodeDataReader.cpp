@@ -11,6 +11,8 @@
 #include <QTextStream>
 #include <stdexcept>
 
+#include "Backend/Commons/LogCategories.h"
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -22,18 +24,24 @@ IntegrationNodeDataReader::IntegrationNodeDataReader(
     QObject *parent)
     : QObject(parent)
 {
+    qCDebug(lcClientTruck) << "IntegrationNodeDataReader::IntegrationNodeDataReader: constructed";
 }
 
 QVector<IntegrationNode *>
 IntegrationNodeDataReader::readNodesFile(
     const QString &filename, QObject *parent) const
 {
+    qCDebug(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                           << "filename=" << filename;
+
     try
     {
         QFile file(filename);
         if (!file.open(QIODevice::ReadOnly
                        | QIODevice::Text))
         {
+            qCCritical(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                                      << "cannot open file:" << filename;
             throw std::runtime_error(
                 QString("Cannot open file: %1")
                     .arg(filename)
@@ -56,9 +64,13 @@ IntegrationNodeDataReader::readNodesFile(
         }
 
         file.close();
+        qCDebug(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                               << "read" << lines.size() << "non-empty lines";
 
         if (lines.isEmpty())
         {
+            qCCritical(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                                      << "file is empty:" << filename;
             throw std::runtime_error("Nodes file is empty");
         }
 
@@ -67,6 +79,8 @@ IntegrationNodeDataReader::readNodesFile(
             QRegularExpression("\\s+"), Qt::SkipEmptyParts);
         if (scales.size() < 3)
         {
+            qCCritical(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                                      << "invalid scale line:" << lines[1];
             throw std::runtime_error(
                 "Bad nodes file structure: invalid scale "
                 "information");
@@ -76,6 +90,8 @@ IntegrationNodeDataReader::readNodesFile(
         float scaleX = scales[1].toFloat(&convOk);
         if (!convOk)
         {
+            qCCritical(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                                      << "invalid X scale:" << scales[1];
             throw std::runtime_error(
                 "Invalid X scale value");
         }
@@ -83,12 +99,18 @@ IntegrationNodeDataReader::readNodesFile(
         float scaleY = scales[2].toFloat(&convOk);
         if (!convOk)
         {
+            qCCritical(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                                      << "invalid Y scale:" << scales[2];
             throw std::runtime_error(
                 "Invalid Y scale value");
         }
 
+        qCDebug(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                               << "scaleX=" << scaleX << "scaleY=" << scaleY;
+
         // Process node records starting from line 3
         QVector<IntegrationNode *> nodes;
+        int skippedLines = 0;
         for (int i = 2; i < lines.size(); i++)
         {
             QStringList values =
@@ -98,6 +120,7 @@ IntegrationNodeDataReader::readNodesFile(
             {
                 // Ensure at least the required fields are
                 // present
+                ++skippedLines;
                 continue;
             }
 
@@ -150,13 +173,21 @@ IntegrationNodeDataReader::readNodesFile(
             nodes.append(node);
         }
 
+        if (skippedLines > 0)
+        {
+            qCWarning(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                                     << "skipped" << skippedLines << "lines with insufficient fields";
+        }
+
+        qCInfo(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                              << "parsed" << nodes.size() << "nodes from" << filename;
         return nodes;
     }
     catch (const std::exception &e)
     {
         // Clean up any created nodes before rethrowing
-        qCritical() << "Error reading nodes file:"
-                    << e.what();
+        qCCritical(lcClientTruck) << "IntegrationNodeDataReader::readNodesFile:"
+                                  << "error:" << e.what();
         throw;
     }
 }

@@ -1,4 +1,5 @@
 #include "SpinnerWidget.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QPainter>
 
 SpinnerWidget::SpinnerWidget(QWidget* parent)
@@ -9,6 +10,7 @@ SpinnerWidget::SpinnerWidget(QWidget* parent)
     , m_visibleWhenIdle(false)
     , m_spinnerColor(Qt::black)
 {
+    qCDebug(lcGuiUtil) << "SpinnerWidget::SpinnerWidget: creating";
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     setFocusPolicy(Qt::NoFocus);
 }
@@ -31,6 +33,7 @@ bool SpinnerWidget::isVisibleWhenIdle() const
 
 void SpinnerWidget::startSpinning()
 {
+    qCDebug(lcGuiUtil) << "SpinnerWidget::startSpinning: interval" << m_stepInterval << "ms";
     m_currentAngle = 0;
 
     if (m_timerId == -1)
@@ -39,6 +42,7 @@ void SpinnerWidget::startSpinning()
 
 void SpinnerWidget::stopSpinning()
 {
+    qCDebug(lcGuiUtil) << "SpinnerWidget::stopSpinning";
     if (m_timerId != -1)
         killTimer(m_timerId);
 
@@ -59,6 +63,7 @@ void SpinnerWidget::setStepInterval(int interval)
 
 void SpinnerWidget::setSpinnerColor(const QColor& color)
 {
+    qCDebug(lcGuiUtil) << "SpinnerWidget::setSpinnerColor:" << color.name();
     m_spinnerColor = color;
     update();
 }

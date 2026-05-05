@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QThread>
 #include <QTimer>
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -81,7 +82,11 @@ ApplicationLogger::ApplicationLogger()
 void ApplicationLogger::start()
 {
     if (m_isRunning)
+    {
+        qCDebug(lcGuiUtil) << "ApplicationLogger::start:"
+                           << "already running";
         return;
+    }
 
     m_isRunning = true;
 
@@ -97,11 +102,12 @@ void ApplicationLogger::start()
             &ApplicationLogger::processProgressQueue);
     progressTimer->start(100); // Process every 100 ms
 
-    qDebug() << "ApplicationLogger started";
+    qCInfo(lcGuiUtil) << "ApplicationLogger started";
 }
 
 void ApplicationLogger::stop()
 {
+    qCInfo(lcGuiUtil) << "ApplicationLogger::stop";
     m_isRunning = false;
 
     // Delete timers
@@ -193,6 +199,12 @@ void ApplicationLogger::processLogQueue()
         }
     }
 
+    if (!entries.isEmpty())
+    {
+        qCDebug(lcGuiUtil) << "ApplicationLogger::processLogQueue:"
+                           << "processing" << entries.size() << "entries";
+    }
+
     // Process each log entry
     foreach (const LogEntry &entry, entries)
     {
@@ -212,6 +224,12 @@ void ApplicationLogger::processProgressQueue()
         {
             updates.append(s_progressQueue.dequeue());
         }
+    }
+
+    if (!updates.isEmpty())
+    {
+        qCDebug(lcGuiUtil) << "ApplicationLogger::processProgressQueue:"
+                           << "processing" << updates.size() << "updates";
     }
 
     // Process each progress update
@@ -306,6 +324,8 @@ void ApplicationLogger::appendLogEntry(
 bool ApplicationLogger::saveLogsToFile(
     const QString &filePath)
 {
+    qCInfo(lcGuiUtil) << "ApplicationLogger::saveLogsToFile:"
+                      << "path=" << filePath;
     QFile file(filePath);
 
     // Ensure parent directory exists
@@ -314,6 +334,9 @@ bool ApplicationLogger::saveLogsToFile(
     {
         if (!parentDir.mkpath("."))
         {
+            qCWarning(lcGuiUtil) << "ApplicationLogger::saveLogsToFile:"
+                                 << "failed to create directory"
+                                 << parentDir.path();
             return false;
         }
     }
@@ -321,6 +344,9 @@ bool ApplicationLogger::saveLogsToFile(
     // Open file for writing
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
     {
+        qCWarning(lcGuiUtil) << "ApplicationLogger::saveLogsToFile:"
+                             << "failed to open file"
+                             << filePath << file.errorString();
         return false;
     }
 
@@ -364,6 +390,8 @@ bool ApplicationLogger::saveLogsToFile(
     }
 
     file.close();
+    qCDebug(lcGuiUtil) << "ApplicationLogger::saveLogsToFile:"
+                       << "successfully saved to" << filePath;
     return true;
 }
 

@@ -1,5 +1,6 @@
 #include "ColorPickerDialog.h"
 #include "../Utils/ColorPalette.h"
+#include "Backend/Commons/LogCategories.h"
 
 #include <QColorDialog>
 #include <QDialogButtonBox>
@@ -19,6 +20,8 @@ ColorPickerDialog::ColorPickerDialog(
     , currentColor(currentColor)
     , customColor(currentColor)
 {
+    qCInfo(lcGuiUtil) << "ColorPickerDialog::ColorPickerDialog: opening with currentColor"
+                      << currentColor.name();
     setWindowTitle(tr("Select Color"));
     setModal(true);
     setupUI();
@@ -34,19 +37,26 @@ QColor ColorPickerDialog::getSelectedColor() const
         if (item)
         {
             QString colorName = item->text();
-            return ColorPalette::getColor(colorName);
+            QColor  c         = ColorPalette::getColor(colorName);
+            qCDebug(lcGuiUtil) << "ColorPickerDialog::getSelectedColor: predefined"
+                               << colorName << c.name();
+            return c;
         }
     }
     else
     { // Custom color tab
+        qCDebug(lcGuiUtil) << "ColorPickerDialog::getSelectedColor: custom"
+                           << customColor.name();
         return customColor;
     }
 
+    qCWarning(lcGuiUtil) << "ColorPickerDialog::getSelectedColor: no color selected";
     return QColor(); // Invalid color if nothing selected
 }
 
 void ColorPickerDialog::openColorDialog()
 {
+    qCDebug(lcGuiUtil) << "ColorPickerDialog::openColorDialog: opening native color dialog";
     QColor initialColor =
         customColor.isValid() ? customColor : Qt::white;
     QColor color =
@@ -54,6 +64,8 @@ void ColorPickerDialog::openColorDialog()
 
     if (color.isValid())
     {
+        qCDebug(lcGuiUtil) << "ColorPickerDialog::openColorDialog: user picked"
+                           << color.name();
         customColor = color;
 
         // Update custom preview
@@ -82,6 +94,7 @@ void ColorPickerDialog::updatePreview(QListWidgetItem *item)
     }
 
     QString colorName = item->text();
+    qCDebug(lcGuiUtil) << "ColorPickerDialog::updatePreview:" << colorName;
     QColor  qcolor    = ColorPalette::getColor(colorName);
 
     QString styleSheet =
@@ -96,6 +109,7 @@ void ColorPickerDialog::updatePreview(QListWidgetItem *item)
 
 void ColorPickerDialog::onTabChanged(int index)
 {
+    qCDebug(lcGuiUtil) << "ColorPickerDialog::onTabChanged: index" << index;
     if (index == 0)
     { // Predefined colors tab
         if (colorList->currentItem())
@@ -122,6 +136,7 @@ void ColorPickerDialog::onTabChanged(int index)
 
 void ColorPickerDialog::setupUI()
 {
+    qCDebug(lcGuiUtil) << "ColorPickerDialog::setupUI: building UI";
     // Main layout
     QVBoxLayout *layout = new QVBoxLayout(this);
 

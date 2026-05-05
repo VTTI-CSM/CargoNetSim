@@ -11,6 +11,8 @@
 #include <QTextStream>
 #include <stdexcept>
 
+#include "Backend/Commons/LogCategories.h"
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -22,18 +24,29 @@ IntegrationLinkDataReader::IntegrationLinkDataReader(
     QObject *parent)
     : QObject(parent)
 {
+    qCDebug(lcClientTruck)
+        << "IntegrationLinkDataReader::IntegrationLinkDataReader:"
+        << "created";
 }
 
 QVector<IntegrationLink *>
 IntegrationLinkDataReader::readLinksFile(
     const QString &filename, QObject *parent) const
 {
+    qCInfo(lcClientTruck)
+        << "IntegrationLinkDataReader::readLinksFile:"
+        << "file=" << filename;
+
     try
     {
         QFile file(filename);
         if (!file.open(QIODevice::ReadOnly
                        | QIODevice::Text))
         {
+            qCCritical(lcClientTruck)
+                << "IntegrationLinkDataReader::readLinksFile:"
+                << "file not found or cannot open:"
+                << filename;
             throw std::runtime_error(
                 QString("Cannot open file: %1")
                     .arg(filename)
@@ -59,14 +72,25 @@ IntegrationLinkDataReader::readLinksFile(
 
         if (lines.isEmpty())
         {
+            qCWarning(lcClientTruck)
+                << "IntegrationLinkDataReader::readLinksFile:"
+                << "file is empty:" << filename;
             throw std::runtime_error("Links file is empty");
         }
+
+        qCDebug(lcClientTruck)
+            << "IntegrationLinkDataReader::readLinksFile:"
+            << "read" << lines.size() << "lines from file";
 
         // Parse scale information from second line
         QStringList scales = lines[1].split(
             QRegularExpression("\\s+"), Qt::SkipEmptyParts);
         if (scales.size() < 6)
         {
+            qCWarning(lcClientTruck)
+                << "IntegrationLinkDataReader::readLinksFile:"
+                << "invalid scale line, expected >=6 fields,"
+                << "got" << scales.size();
             throw std::runtime_error(
                 "Bad links file structure: invalid scale "
                 "information");
@@ -240,12 +264,17 @@ IntegrationLinkDataReader::readLinksFile(
             links.append(link);
         }
 
+        qCDebug(lcClientTruck)
+            << "IntegrationLinkDataReader::readLinksFile:"
+            << "parsed" << links.size() << "links from"
+            << filename;
+
         return links;
     }
     catch (const std::exception &e)
     {
         // Log error and rethrow
-        qCritical() << "Error reading links file:"
+        qCCritical(lcClientTruck) << "Error reading links file:"
                     << e.what();
         throw;
     }

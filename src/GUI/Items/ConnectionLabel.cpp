@@ -1,10 +1,12 @@
 #include "ConnectionLabel.h"
+#include "Backend/Commons/LogCategories.h"
+#include "GUI/Input/ClickContext.h"
+#include "GUI/Input/InteractionController.h"
 #include "GUI/Items/ConnectionLine.h"
 
 #include <QCursor>
 #include <QGraphicsScene>
-#include <QGraphicsSceneHoverEvent>
-#include <QGraphicsSceneMouseEvent>
+#include <QLoggingCategory>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 
@@ -21,6 +23,9 @@ ConnectionLabel::ConnectionLabel(QGraphicsItem *parent)
     , m_isSelected(false)
     , m_boundingRect(-16, -16, 32, 32) // Fixed size 32x32
 {
+    qCInfo(lcGuiScene)
+        << "ConnectionLabel::ConnectionLabel: created";
+
     // Set flags
     setFlag(QGraphicsItem::ItemIgnoresTransformations);
     setFlag(QGraphicsItem::ItemIsSelectable);
@@ -33,10 +38,25 @@ ConnectionLabel::ConnectionLabel(QGraphicsItem *parent)
     setZValue(5);
 }
 
+const GraphicsObjectBase* ConnectionLabel::deleteTarget() const
+{
+    // The label is a visual child of its ConnectionLine parent; removing the
+    // connection is the only meaningful "delete label" semantics. If the label
+    // is somehow orphaned, fall back to the default (self) so NormalMode will
+    // at least call createDeleteCommand() — which returns nullptr on base,
+    // i.e., a silent no-op rather than a crash.
+    if (auto* parent = dynamic_cast<const GraphicsObjectBase*>(parentItem()))
+        return parent;
+    return this;
+}
+
 void ConnectionLabel::setText(const QString &text)
 {
     if (m_text != text)
     {
+        qCDebug(lcGuiScene)
+            << "ConnectionLabel::setText:"
+            << "old=" << m_text << "new=" << text;
         m_text = text;
         update();
         emit textChanged(text);
@@ -47,6 +67,9 @@ void ConnectionLabel::setColor(const QColor &color)
 {
     if (m_color != color)
     {
+        qCDebug(lcGuiScene)
+            << "ConnectionLabel::setColor:"
+            << "color=" << color.name();
         m_color = color;
         update();
         emit colorChanged(color);
@@ -57,6 +80,9 @@ void ConnectionLabel::setSelected(bool selected)
 {
     if (m_isSelected != selected)
     {
+        qCDebug(lcGuiScene)
+            << "ConnectionLabel::setSelected:"
+            << "selected=" << selected;
         m_isSelected = selected;
         update();
         emit selectionChanged(selected);
@@ -72,6 +98,11 @@ void ConnectionLabel::paint(
     QPainter                       *painter,
     const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
+    qCDebug(lcGuiScene)
+        << "ConnectionLabel::paint:"
+        << "text=" << m_text
+        << "hovered=" << m_isHovered;
+
     // Draw label background
     if (m_isHovered)
     {
@@ -104,62 +135,48 @@ void ConnectionLabel::paint(
     // }
 }
 
-void ConnectionLabel::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled ConnectionLabel::onLeftClick(
+    const Input::ClickContext &ctx)
 {
-    if (event->button() == Qt::LeftButton)
+    qCDebug(lcGuiInputItem)
+        << "ConnectionLabel::onLeftClick; forwarding to "
+           "parent line";
+    auto *parentLine =
+        dynamic_cast<ConnectionLine *>(parentItem());
+    if (!parentLine)
     {
-        // Set the parent ConnectionLine as selected in the
-        // Qt selection system
-        if (ConnectionLine *parentLine =
-                dynamic_cast<ConnectionLine *>(
-                    parentItem()))
-        {
-            // Clear previous selections in the scene
-            if (scene())
-            {
-                scene()->clearSelection();
-            }
-
-            // Select the parent ConnectionLine in the Qt
-            // selection system
-            parentLine->QGraphicsItem::setSelected(true);
-
-            // Update our internal selection state
-            m_isSelected = true;
-            update();
-
-            // Emit clicked signal
-            emit clicked();
-        }
-        event->accept();
+        qCWarning(lcGuiInputItem)
+            << "ConnectionLabel: null parent ConnectionLine";
+        return Input::Handled::PassThrough;
     }
-    else
+    if (ctx.controller)
     {
-        QGraphicsObject::mousePressEvent(event);
+        ctx.controller->selectItem(parentLine,
+                                   /*exclusive*/ true);
     }
+    return Input::Handled::Yes;
 }
 
-void ConnectionLabel::hoverEnterEvent(
-    QGraphicsSceneHoverEvent *event)
+void ConnectionLabel::onHoverEnter(
+    const Input::ClickContext &)
 {
     m_isHovered = true;
-    setCursor(QCursor(Qt::PointingHandCursor));
     update();
-    QGraphicsObject::hoverEnterEvent(event);
 }
 
-void ConnectionLabel::hoverLeaveEvent(
-    QGraphicsSceneHoverEvent *event)
+void ConnectionLabel::onHoverLeave(
+    const Input::ClickContext &)
 {
     m_isHovered = false;
-    unsetCursor();
     update();
-    QGraphicsObject::hoverLeaveEvent(event);
 }
 
 QMap<QString, QVariant> ConnectionLabel::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "ConnectionLabel::toDict:"
+        << "text=" << m_text;
+
     QMap<QString, QVariant> data;
 
     data["text"]  = m_text;
@@ -181,6 +198,10 @@ ConnectionLabel *ConnectionLabel::fromDict(
     const QMap<QString, QVariant> &data,
     QGraphicsItem                 *parent)
 {
+    qCInfo(lcGuiScene)
+        << "ConnectionLabel::fromDict:"
+        << "text=" << data.value("text").toString();
+
     ConnectionLabel *instance = new ConnectionLabel(parent);
 
     // Set properties

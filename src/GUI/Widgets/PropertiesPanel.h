@@ -9,22 +9,28 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
+#include <QPointer>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QVariant>
 #include <QWidget>
+
+#include "../Input/PickSession.h"
 namespace CargoNetSim
 {
 namespace GUI
 {
 // Forward declarations
 class MainWindow;
+class GraphicsScene;
 class GraphicsView;
 class TerminalItem;
 class RegionCenterPoint;
 class ConnectionLine;
 class BackgroundPhotoItem;
 class MapPoint;
+class DestinationListEditor;
+namespace Input { class InteractionController; } // namespace Input
 class PropertiesPanel : public QWidget
 {
     Q_OBJECT
@@ -46,9 +52,25 @@ signals:
         QGraphicsItem                 *item,
         const QMap<QString, QVariant> &properties);
     void requestRefresh();
+public:
+    /// Register the two scenes the panel listens to. After Plan 3 the
+    /// panel reacts to `QGraphicsScene::selectionChanged` instead of
+    /// per-item `clicked` signals. Call once during construction.
+    void setScenes(GraphicsScene *regionScene,
+                   GraphicsScene *globalScene);
+
+    /// Called when the user switches tabs so the panel knows which
+    /// scene to prefer on `refreshFromSelection`.
+    void setActiveScene(GraphicsScene *activeScene);
+
 public slots:
+    void clearIfShowing(QGraphicsItem *item);
     void saveProperties();
-    void openContainerManager(TerminalItem *item);
+
+    /// Rebuild the panel from the current selection on the active
+    /// scene (falling back to the other scene if the active one has
+    /// nothing selected). Wired to both scenes' `selectionChanged`.
+    void refreshFromSelection();
 private slots:
     void onCoordSystemChanged(int index);
     void onDwellMethodChanged(const QString &method,
@@ -83,7 +105,14 @@ private:
     void addCostSection(TerminalItem *item);
     void addCustomsSection(TerminalItem *item);
     void addDwellTimeSection(TerminalItem *item);
-    void addContainerManagement(TerminalItem *item);
+
+    /// Plan 8: sole authoring surface for origin role + destination
+    /// routing. Always visible on every terminal — any physical kind
+    /// can become an origin by setting count > 0. Writes through
+    /// ScenarioEditService::setTerminalProperty so the typed store stays
+    /// consistent.
+    void addOriginConfigurationSection(TerminalItem *item);
+    void addRoleSection(TerminalItem *item);
     // Helper method for coordinate fields
     void addCoordinateField(const QString     &key,
                             const QVariant    &value,
@@ -114,15 +143,13 @@ private:
     void processNestedProperty(
         QMap<QString, QVariant> &properties,
         const QString &key, QWidget *widget);
-    void processInterfaceProperty(
-        QMap<QString, QVariant> &properties,
-        const QStringList &parts, QWidget *widget);
     void processSimpleProperty(
         QMap<QString, QVariant> &properties,
         const QString &key, QWidget *widget);
     QVariant getWidgetValue(QWidget *widget);
     void     handleRegionChange(TerminalItem  *terminal,
-                                const QString &newRegionName);
+                                const QString &newRegionName,
+                                const QString &oldRegionName);
     void     setExpandingWidgetPolicy(QWidget *widget);
     void     addDwellTimeParameterFields(
             QFormLayout *layout, const QString &method,
@@ -136,6 +163,27 @@ private:
     QPushButton             *saveButton;
     QGraphicsItem           *currentItem;
     QMap<QString, QWidget *> editFields;
+
+    /// When an Origin Configuration section is rendered, these track the
+    /// origin and its multi-destination editor so that PickCoordinator
+    /// resolutions can be routed to the right place by slot.
+    QString                  m_currentOriginId;
+    DestinationListEditor   *m_currentListEditor = nullptr;
+
+    /// True once we've subscribed to the coordinator's destinationResolved
+    /// signal. Subscription happens lazily (needs a valid MainWindow).
+    bool                     m_coordConnected = false;
+
+    QPointer<GraphicsScene>  m_regionScene;
+    QPointer<GraphicsScene>  m_globalScene;
+    QPointer<GraphicsScene>  m_activeScene;
+
+private slots:
+    /// Routes a pick result by PickSlot variant: primary -> direct mutator
+    /// write; multi-row -> forward to m_currentListEditor.
+    void onDestinationResolved(const Input::PickSession &session,
+                               const QString &terminalId,
+                               const QString &terminalName);
 };
 } // namespace GUI
 } // namespace CargoNetSim

@@ -1,9 +1,15 @@
 #include "GlobalTerminalItem.h"
+#include "Backend/Commons/LogCategories.h"
+#include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/CreateGlobalLinkCommand.h"
 #include "TerminalItem.h"
+
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
 
 #include <QCursor>
 #include <QGraphicsSceneHoverEvent>
 #include <QGraphicsSceneMouseEvent>
+#include <QLoggingCategory>
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 
@@ -19,6 +25,11 @@ GlobalTerminalItem::GlobalTerminalItem(
     , originalPixmap(pixmap)
     , linkedTerminalItem(terminalItem)
 {
+    qCInfo(lcGuiScene)
+        << "GlobalTerminalItem::GlobalTerminalItem:"
+        << "linked=" << (terminalItem ? "yes" : "no")
+        << "pixmap=" << pixmap.size();
+
     // Enable hover events
     setAcceptHoverEvents(true);
 
@@ -41,6 +52,11 @@ void GlobalTerminalItem::setLinkedTerminalItem(
 {
     if (linkedTerminalItem != terminalItem)
     {
+        qCDebug(lcGuiScene)
+            << "GlobalTerminalItem::setLinkedTerminalItem:"
+            << "old=" << (linkedTerminalItem ? "valid" : "null")
+            << "new=" << (terminalItem ? "valid" : "null");
+
         TerminalItem *oldTerminal = linkedTerminalItem;
         linkedTerminalItem        = terminalItem;
 
@@ -52,31 +68,56 @@ void GlobalTerminalItem::setLinkedTerminalItem(
     }
 }
 
+QString GlobalTerminalItem::getTerminalId() const
+{
+    return linkedTerminalItem ? linkedTerminalItem->getTerminalId()
+                              : QString();
+}
+
+std::unique_ptr<QUndoCommand> GlobalTerminalItem::createConnectCommandTo(
+    const GraphicsObjectBase*                        other,
+    Backend::TransportationTypes::TransportationMode mode,
+    Backend::Scenario::ScenarioDocument*             doc) const
+{
+    // GlobalLink lives between two GlobalTerminalItems. A TerminalItem
+    // partner is rejected — region Connections are a different entity,
+    // produced by TerminalItem::createConnectCommandTo.
+    auto* otherGlobal = dynamic_cast<const GlobalTerminalItem*>(other);
+    if (!otherGlobal || !doc) return nullptr;
+    const QString fromId = getTerminalId();
+    const QString toId   = otherGlobal->getTerminalId();
+    if (fromId.isEmpty() || toId.isEmpty()) return nullptr;
+    return std::make_unique<Input::CreateGlobalLinkCommand>(
+        doc, fromId, toId, mode);
+}
+
+Backend::Scenario::InterfaceConversion::InterfaceMap
+GlobalTerminalItem::availableInterfaces() const
+{
+    return linkedTerminalItem
+               ? linkedTerminalItem->availableInterfaces()
+               : Backend::Scenario::InterfaceConversion::InterfaceMap{};
+}
+
 void GlobalTerminalItem::updateFromLinkedTerminal()
 {
+    qCDebug(lcGuiScene)
+        << "GlobalTerminalItem::updateFromLinkedTerminal:"
+        << "linked=" << (linkedTerminalItem != nullptr);
+
     if (linkedTerminalItem)
     {
-        // Get terminal name for tooltip
         QString terminalName =
-            linkedTerminalItem->property("Name").toString();
+            linkedTerminalItem
+                ->getProperty(QStringLiteral("Name"),
+                              QStringLiteral("Terminal"));
         if (terminalName.isEmpty())
-        {
-            // Try to get name from properties if not
-            // available as property
-            QMap<QString, QVariant> props =
-                linkedTerminalItem->property("properties")
-                    .toMap();
-            terminalName =
-                props.value("Name", "Terminal").toString();
-        }
+            terminalName = QStringLiteral("Terminal");
 
-        // Update tooltip
         setToolTip(terminalName);
 
-        // Update pixmap if needed
-        QPixmap terminalPixmap =
-            linkedTerminalItem->property("pixmap")
-                .value<QPixmap>();
+        const QPixmap terminalPixmap =
+            linkedTerminalItem->getPixmap();
         if (!terminalPixmap.isNull()
             && terminalPixmap.cacheKey()
                    != originalPixmap.cacheKey())
@@ -107,6 +148,11 @@ void GlobalTerminalItem::paint(
     QPainter                       *painter,
     const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
+    qCDebug(lcGuiScene)
+        << "GlobalTerminalItem::paint:"
+        << "pos=" << pos()
+        << "tooltip=" << toolTip();
+
     // Draw the scaled pixmap centered on the pos
     painter->drawPixmap(-scaledPixmap.width() / 2,
                         -scaledPixmap.height() / 2,
@@ -121,49 +167,20 @@ void GlobalTerminalItem::paint(
     }
 }
 
-QVariant
-GlobalTerminalItem::itemChange(GraphicsItemChange change,
-                               const QVariant    &value)
+void GlobalTerminalItem::onDragEnd(const QPointF           &finalPos,
+                                   const Input::ClickContext &)
 {
-    // Emit position changed signal when position has
-    // changed
-    if (change == ItemPositionHasChanged)
-    {
-        emit positionChanged(pos());
-    }
-
-    return QGraphicsObject::itemChange(change, value);
-}
-
-void GlobalTerminalItem::hoverEnterEvent(
-    QGraphicsSceneHoverEvent *event)
-{
-    // Change cursor to hand pointer on hover
-    setCursor(QCursor(Qt::PointingHandCursor));
-    QGraphicsObject::hoverEnterEvent(event);
-}
-
-void GlobalTerminalItem::hoverLeaveEvent(
-    QGraphicsSceneHoverEvent *event)
-{
-    // Reset cursor when leaving
-    unsetCursor();
-    QGraphicsObject::hoverLeaveEvent(event);
-}
-
-void GlobalTerminalItem::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
-{
-    // Emit clicked signal
-    emit itemClicked(this);
-
-    // Call base class implementation to handle selection
-    // etc.
-    QGraphicsObject::mousePressEvent(event);
+    qCDebug(lcGuiInputItem)
+        << "GlobalTerminalItem::onDragEnd:" << finalPos;
+    emit positionChanged(finalPos);
 }
 
 QMap<QString, QVariant> GlobalTerminalItem::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "GlobalTerminalItem::toDict:"
+        << "tooltip=" << toolTip();
+
     QMap<QString, QVariant> data;
 
     // Store position
@@ -195,6 +212,10 @@ GlobalTerminalItem *GlobalTerminalItem::fromDict(
     const QMap<QString, QVariant> &data,
     const QPixmap &pixmap, QGraphicsItem *parent)
 {
+    qCInfo(lcGuiScene)
+        << "GlobalTerminalItem::fromDict:"
+        << "tooltip=" << data.value("tooltip").toString();
+
     // Create new instance with pixmap
     GlobalTerminalItem *instance =
         new GlobalTerminalItem(pixmap, nullptr, parent);
@@ -224,6 +245,15 @@ GlobalTerminalItem *GlobalTerminalItem::fromDict(
     // "linked_terminal_id" stored in the data
 
     return instance;
+}
+
+Input::Handled GlobalTerminalItem::onLeftClick(
+    const Input::ClickContext &)
+{
+    qCDebug(lcGuiInputItem)
+        << "GlobalTerminalItem::onLeftClick; linked ="
+        << linkedTerminalItem.data();
+    return Input::Handled::PassThrough;
 }
 
 } // namespace GUI

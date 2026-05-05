@@ -28,6 +28,10 @@ class DistanceMeasurementTool : public GraphicsObjectBase
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 9 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructor
      * @param view The graphics view this tool is associated

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "GraphicsObjectBase.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IDraggable.h"
 
 #include <QGraphicsObject>
 #include <QMap>
@@ -22,12 +24,18 @@ namespace GUI
  * properties and can be serialized/deserialized for project
  * saving.
  */
-class BackgroundPhotoItem : public GraphicsObjectBase
+class BackgroundPhotoItem : public GraphicsObjectBase,
+                            public Input::IClickable,
+                            public Input::IDraggable
 {
     Q_OBJECT
     Q_PROPERTY(qreal opacity READ opacity WRITE setOpacity)
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 8 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructor for BackgroundPhotoItem
      * @param pixmap The image to display
@@ -99,6 +107,16 @@ public:
     }
 
     /**
+     * @brief Access the underlying pixmap.
+     * @return The pixmap stored by this item.
+     *
+     * Exposed so commands that need to snapshot and later re-construct the
+     * image (e.g., undoable deletion) can capture the raw image without
+     * round-tripping through the serialized dict.
+     */
+    const QPixmap &pixmap() const { return m_pixmap; }
+
+    /**
      * @brief Get the current scale factor
      * @return The scale factor as a float
      */
@@ -134,13 +152,24 @@ public:
     fromDict(const QMap<QString, QVariant> &data,
              QGraphicsItem *parent = nullptr);
 
-signals:
-    /**
-     * @brief Signal emitted when the item is clicked
-     * @param item A pointer to this item
-     */
-    void clicked(BackgroundPhotoItem *item);
+    // Emit a command that removes this background image from its scene and
+    // the RegionDataController pointer slot, with undo that restores both.
+    // Ignores the `doc` pointer — backgrounds are GUI-only overlays.
+    std::unique_ptr<QUndoCommand> createDeleteCommand(
+        Backend::Scenario::ScenarioDocument* doc) const override;
 
+    // Input interface overrides
+    Input::Handled
+    onLeftClick(const Input::ClickContext &ctx) override;
+    bool
+    canDrag(const Input::ClickContext &ctx) const override;
+    QPointF
+    onDragUpdate(const QPointF            &requested,
+                 const Input::ClickContext &ctx) override;
+    void onDragEnd(const QPointF            &finalPos,
+                   const Input::ClickContext &ctx) override;
+
+signals:
     /**
      * @brief Signal emitted when the item's position
      * changes
@@ -179,12 +208,6 @@ signals:
     void propertyChanged(const QString  &key,
                          const QVariant &value);
 
-protected:
-    void mousePressEvent(
-        QGraphicsSceneMouseEvent *event) override;
-    QVariant itemChange(GraphicsItemChange change,
-                        const QVariant    &value) override;
-
 private:
     /**
      * @brief Update coordinate properties when position
@@ -194,8 +217,14 @@ private:
 
     QPixmap m_pixmap; ///< The image to display
     QMap<QString, QVariant>
-         m_properties; ///< Properties map
-    QPointF m_dragOffset;     ///< Offset for dragging
+        m_properties; ///< Properties map
+
+    /// Drag-start snapshot: at `ItemPositionChange` (where onDragUpdate fires)
+    /// pos() still returns the pre-drag value, so we capture it on the first
+    /// onDragUpdate of a sequence. onDragEnd uses it as the old-pos for the
+    /// CommandBus submission, producing a single undoable entry per drag.
+    bool    m_dragInProgress = false;
+    QPointF m_preDragPos;
 };
 
 } // namespace GUI

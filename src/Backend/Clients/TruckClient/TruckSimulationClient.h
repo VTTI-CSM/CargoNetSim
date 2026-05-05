@@ -110,6 +110,32 @@ public:
     bool runSimulator(const QStringList &networkNames);
 
     /**
+     * @brief Advance simulation by a specific time step
+     * @param networkNames Networks to advance
+     * @param deltaT Time step in seconds
+     * @return True if step completed successfully
+     */
+    Q_INVOKABLE bool advanceByTimeStep(
+        const QStringList& networkNames,
+        double deltaT);
+
+    /**
+     * @brief Notify about terminal closure for rerouting
+     * @param terminalId Closed terminal
+     * @param alternativeId Alternative terminal
+     */
+    Q_INVOKABLE void notifyTerminalClosure(
+        const QString& terminalId,
+        const QString& alternativeId);
+
+    /**
+     * @brief Notify about terminal reopening
+     * @param terminalId Reopened terminal
+     */
+    Q_INVOKABLE void notifyTerminalReopened(
+        const QString& terminalId);
+
+    /**
      * @brief Ends the simulator
      * @param networkNames List of network names to end
      * @return True if command was sent successfully

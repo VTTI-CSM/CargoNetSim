@@ -13,6 +13,8 @@
 #include <QVariant>
 #include <QWidget>
 
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+
 namespace CargoNetSim
 {
 namespace GUI
@@ -38,26 +40,15 @@ public:
      */
     explicit SettingsWidget(QWidget *parent = nullptr);
 
-    /**
-     * @brief Retrieves the current settings
-     * @return QMap<QString, QVariant> The current settings
-     * values
-     */
-    QMap<QString, QVariant> getSettings() const;
-
-signals:
-    /**
-     * @brief Signal emitted when settings are applied
-     * @param settings The new settings values
-     */
-    void settingsChanged(
-        const QMap<QString, QVariant> &settings);
-
 public slots:
     /**
      * @brief Applies current settings values
      */
     void applySettings();
+
+    /// Reload all spinboxes from ConfigController. Called via
+    /// SettingsController::configChanged() after scenario load or apply.
+    void refreshFromConfig();
 
 private slots:
     /**
@@ -108,12 +99,6 @@ private:
     void initUI();
 
     /**
-     * @brief Load settings from configuration
-     * @return bool True if settings loaded successfully
-     */
-    bool loadSettings();
-
-    /**
      * @brief Add a section for nested properties
      * @param item The item containing the properties
      * @param sectionName The section name
@@ -139,7 +124,6 @@ private:
     // UI Components
     QTableWidget   *fuelTable;
     QSpinBox       *timeStepSpin;
-    QDoubleSpinBox *timeValueOfMoneySpin;
     QSpinBox       *shortestPathsSpin;
     QDoubleSpinBox *carbonRateSpin;
     QDoubleSpinBox *shipMultiplierSpin;
@@ -161,6 +145,7 @@ private:
     QCheckBox      *trainUseNetwork;
     QComboBox      *trainFuelType;
     QDoubleSpinBox *trainFuelSpin;
+    QSpinBox       *trainLocomotives;
     QSpinBox       *trainContainers;
     QDoubleSpinBox *trainRiskSpin;
     QDoubleSpinBox *trainTimeValueSpin;
@@ -193,8 +178,6 @@ private:
     QMap<QString, QMap<QString, QVariant>> fuelTypes;
     QMap<QString, QVariant>                settings;
 
-    // Configuration
-    QObject *configLoader;
 };
 
 } // namespace GUI

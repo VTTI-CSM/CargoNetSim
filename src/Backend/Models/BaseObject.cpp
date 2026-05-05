@@ -5,7 +5,7 @@
  * @date 2025-03-24
  */
 
- #include "baseobject.h"
+#include "BaseObject.h"
 
  BaseObject::BaseObject(QObject* parent)
      : QObject(parent)

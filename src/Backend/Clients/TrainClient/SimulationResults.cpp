@@ -1,6 +1,8 @@
 #include "SimulationResults.h"
 #include <QJsonArray>
 
+#include "Backend/Commons/LogCategories.h"
+
 /**
  * @file SimulationResults.cpp
  * @brief Implementation of SimulationResults class
@@ -32,20 +34,26 @@ SimulationResults::SimulationResults(
     ,                                  // Init file name
     m_summaryFileName(summaryFileName) // Init summary name
 {
-    // Constructor initializes all member variables directly
-    // using the provided parameters, no additional logic
-    // needed
+    qCDebug(lcClientTrain) << "SimulationResults::SimulationResults:"
+                           << "summaryPairs=" << summaryData.size()
+                           << "trajectoryDataSize=" << trajectoryFileData.size()
+                           << "trajectoryFile=" << trajectoryFileName
+                           << "summaryFile=" << summaryFileName;
 }
 
 SimulationResults
 SimulationResults::fromJson(const QJsonObject &jsonObj)
 {
+    qCDebug(lcClientTrain) << "SimulationResults::fromJson: parsing JSON object"
+                           << "keys=" << jsonObj.keys();
+
     // Vector to store summary data as text-value pairs
     QVector<QPair<QString, QString>> summaryData;
 
     // Extract summary data array from JSON object
     QJsonArray summaryArray =
         jsonObj["summaryData"].toArray();
+    qCDebug(lcClientTrain) << "SimulationResults::fromJson: summaryArray size=" << summaryArray.size();
 
     // Iterate over each element in the summary array
     for (const QJsonValue &pairVal : summaryArray)
@@ -89,6 +97,12 @@ SimulationResults::fromJson(const QJsonObject &jsonObj)
         // Decode base64 string to raw byte data
         trajectoryFileData =
             QByteArray::fromBase64(base64Data.toUtf8());
+        qCDebug(lcClientTrain) << "SimulationResults::fromJson: decoded trajectory data"
+                               << "size=" << trajectoryFileData.size();
+    }
+    else
+    {
+        qCDebug(lcClientTrain) << "SimulationResults::fromJson: no trajectory data included";
     }
 
     // Extract trajectory file name from JSON, default to
@@ -100,6 +114,9 @@ SimulationResults::fromJson(const QJsonObject &jsonObj)
     QString summaryFileName =
         jsonObj["summaryFileName"].toString();
 
+    qCInfo(lcClientTrain) << "SimulationResults::fromJson: parsed"
+                          << summaryData.size() << "summary pairs";
+
     // Return a new instance with parsed data
     return SimulationResults(
         summaryData,        // Parsed summary data
@@ -110,25 +127,25 @@ SimulationResults::fromJson(const QJsonObject &jsonObj)
 
 SimulationSummaryData SimulationResults::summaryData() const
 {
-    // Return a copy of the stored summary data
+    qCDebug(lcClientTrain) << "SimulationResults::summaryData: returning summary data";
     return m_summaryData;
 }
 
 QByteArray SimulationResults::trajectoryFileData() const
 {
-    // Return a copy of the stored trajectory file data
+    qCDebug(lcClientTrain) << "SimulationResults::trajectoryFileData: size=" << m_trajectoryFileData.size();
     return m_trajectoryFileData;
 }
 
 QString SimulationResults::trajectoryFileName() const
 {
-    // Return the full trajectory file name with path
+    qCDebug(lcClientTrain) << "SimulationResults::trajectoryFileName:" << m_trajectoryFileName;
     return m_trajectoryFileName;
 }
 
 QString SimulationResults::summaryFileName() const
 {
-    // Return the full summary file name with path
+    qCDebug(lcClientTrain) << "SimulationResults::summaryFileName:" << m_summaryFileName;
     return m_summaryFileName;
 }
 
@@ -137,9 +154,9 @@ QString SimulationResults::getTrajectoryFileName() const
     // Split the file name by '/' to separate path
     // components
     QStringList parts = m_trajectoryFileName.split("/");
-
-    // Return the last part (base name), or empty if none
-    return parts.isEmpty() ? "" : parts.last();
+    QString result = parts.isEmpty() ? "" : parts.last();
+    qCDebug(lcClientTrain) << "SimulationResults::getTrajectoryFileName:" << result;
+    return result;
 }
 
 QString SimulationResults::getSummaryFileName() const
@@ -147,9 +164,9 @@ QString SimulationResults::getSummaryFileName() const
     // Split the file name by '/' to separate path
     // components
     QStringList parts = m_summaryFileName.split("/");
-
-    // Return the last part (base name), or empty if none
-    return parts.isEmpty() ? "" : parts.last();
+    QString result = parts.isEmpty() ? "" : parts.last();
+    qCDebug(lcClientTrain) << "SimulationResults::getSummaryFileName:" << result;
+    return result;
 }
 
 } // namespace TrainClient

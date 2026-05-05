@@ -6,6 +6,7 @@
  */
 
 #include "AsyncTripManager.h"
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -31,6 +32,13 @@ AsyncTripManager::addTripAsync(const TripRequest &request)
             .arg(request.destinationId)
             .arg(QDateTime::currentMSecsSinceEpoch());
 
+    qCDebug(lcClientTruck)
+        << "AsyncTripManager::addTripAsync:"
+        << "tempTripId=" << tempTripId
+        << "network=" << request.networkName
+        << "origin=" << request.originId
+        << "dest=" << request.destinationId;
+
     // Register the trip with the placeholder ID
     return registerTrip(tempTripId, request);
 }
@@ -39,6 +47,11 @@ QFuture<TripResult>
 AsyncTripManager::registerTrip(const QString     &tripId,
                                const TripRequest &request)
 {
+    qCDebug(lcClientTruck)
+        << "AsyncTripManager::registerTrip:"
+        << "tripId=" << tripId
+        << "network=" << request.networkName;
+
     // Create a promise for this trip
     QPromise<TripResult> promise;
     QFuture<TripResult>  future = promise.future();
@@ -51,13 +64,25 @@ AsyncTripManager::registerTrip(const QString     &tripId,
     // Add to pending trips map
     m_pendingTrips.insert(tripId, promiseData);
 
+    qCDebug(lcClientTruck)
+        << "AsyncTripManager::registerTrip:"
+        << "pendingTrips=" << m_pendingTrips.size();
+
     return future;
 }
 
 bool AsyncTripManager::cancelTrip(const QString &tripId)
 {
+    qCDebug(lcClientTruck)
+        << "AsyncTripManager::cancelTrip:"
+        << "tripId=" << tripId;
+
     if (!m_pendingTrips.contains(tripId))
     {
+        qCWarning(lcClientTruck)
+            << "AsyncTripManager::cancelTrip:"
+            << "trip not found"
+            << "tripId=" << tripId;
         return false;
     }
 
@@ -92,6 +117,11 @@ void AsyncTripManager::onTripEnded(
 {
     if (!m_pendingTrips.contains(tripId))
     {
+        qCDebug(lcClientTruck)
+            << "AsyncTripManager::onTripEnded:"
+            << "unknown tripId=" << tripId
+            << "network=" << networkName
+            << "(handled elsewhere)";
         // Unknown trip - might be handled elsewhere
         return;
     }
@@ -121,13 +151,29 @@ void AsyncTripManager::onTripEnded(
 
     // Remove from pending trips
     m_pendingTrips.remove(tripId);
+
+    qCInfo(lcClientTruck)
+        << "AsyncTripManager::onTripEnded:"
+        << "tripId=" << tripId
+        << "network=" << networkName
+        << "distance=" << result.distance
+        << "travelTime=" << result.travelTime;
 }
 
 void AsyncTripManager::onTripError(
     const QString &tripId, const QString &errorMessage)
 {
+    qCCritical(lcClientTruck)
+        << "AsyncTripManager::onTripError:"
+        << "tripId=" << tripId
+        << "error=" << errorMessage;
+
     if (!m_pendingTrips.contains(tripId))
     {
+        qCDebug(lcClientTruck)
+            << "AsyncTripManager::onTripError:"
+            << "unknown tripId=" << tripId
+            << "(handled elsewhere)";
         // Unknown trip - might be handled elsewhere
         return;
     }

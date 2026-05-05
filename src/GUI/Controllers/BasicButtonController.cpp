@@ -3,6 +3,7 @@
 #include <QComboBox>
 #include <QCursor>
 #include <QFileDialog>
+#include <QJsonObject>
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QTextEdit>
@@ -12,16 +13,34 @@
 #include "../Items/DistanceMeasurementTool.h"
 #include "../Items/TerminalItem.h"
 #include "../MainWindow.h"
+#include "../Widgets/ShortestPathTable.h"
 #include "../Widgets/GraphicsScene.h"
 #include "../Widgets/GraphicsView.h"
 #include "../Widgets/SetCoordinatesDialog.h"
 
+#include "../Controllers/ConnectionController.h"
 #include "../Controllers/NetworkController.h"
 #include "../Controllers/UtilityFunctions.h"
 #include "../Widgets/ShipManagerDialog.h"
 #include "../Widgets/TrainManagerDialog.h"
+#include "../Input/InteractionController.h"
+#include "../Input/Modes/ConnectMode.h"
+#include "../Input/Modes/GlobalPositionMode.h"
+#include "../Input/Modes/LinkTerminalMode.h"
+#include "../Input/Modes/MeasureMode.h"
+#include "../Input/Modes/NormalMode.h"
+#include "../Input/Modes/UnlinkTerminalMode.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/ScenarioEditService.h"
+#include "Backend/Application/ScenarioPersistenceService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "GUI/Controllers/ViewController.h"
+#include "Backend/Application/ScenarioLoadService.h"
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
+#include "Backend/Scenario/ScenarioRuntime.h"
+#include "GUI/Controllers/FleetController.h"
+#include "GUI/Controllers/SceneVisibilityController.h"
+#include "GUI/Controllers/TerminalController.h"
 
 namespace CargoNetSim
 {
@@ -31,47 +50,28 @@ namespace GUI
 void BasicButtonController::resetOtherButtons(
     MainWindow *mainWindow, QToolButton *activeButton)
 {
-    try
-    {
-        QList<QToolButton *> toggleButtons = {
-            mainWindow->connectButton_,
-            mainWindow->linkTerminalButton_,
-            mainWindow->unlinkTerminalButton_,
-            mainWindow->measureButton_};
+    if (!mainWindow) return;
 
-        for (QToolButton *button : toggleButtons)
-        {
-            if (button != activeButton)
-            {
-                button->setChecked(false);
-            }
+    QList<QToolButton *> toggleButtons = {
+        mainWindow->connectButton_,
+        mainWindow->linkTerminalButton_,
+        mainWindow->unlinkTerminalButton_,
+        mainWindow->measureButton_};
+
+    qCDebug(lcGuiButton) << "BasicButtonController::resetOtherButtons: resetting"
+                         << toggleButtons.size() << "buttons";
+    for (QToolButton *button : toggleButtons) {
+        if (button && button != activeButton) {
+            button->setChecked(false);
         }
-
-        // Reset associated modes in the scene
-        mainWindow->regionScene_->setIsInConnectMode(false);
-        mainWindow->regionScene_->setIsInLinkTerminalMode(
-            false);
-        mainWindow->regionScene_->setIsInUnlinkTerminalMode(
-            false);
-        mainWindow->regionScene_->setIsInMeasureMode(false);
-        mainWindow->regionScene_->setConnectedFirstItem(
-            QVariant());
-        mainWindow->selectedTerminal_ = nullptr;
-    }
-    catch (const std::exception &e)
-    {
-        qCritical() << "Error in resetOtherButtons:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to reset buttons: %1")
-                .arg(e.what()));
     }
 }
 
 void BasicButtonController::toggleGrid(
     MainWindow *mainWindow, bool checked)
 {
+    qCDebug(lcGuiButton) << "BasicButtonController::toggleGrid:"
+                         << "checked=" << checked;
     try
     {
         // Update grid state for both views
@@ -100,7 +100,7 @@ void BasicButtonController::toggleGrid(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleGrid:" << e.what();
+        qCCritical(lcGuiButton) << "Error in toggleGrid:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to toggle grid: %1")
@@ -111,265 +111,63 @@ void BasicButtonController::toggleGrid(
 void BasicButtonController::toggleConnectMode(
     MainWindow *mainWindow, bool checked)
 {
-    try
-    {
-        if (checked)
-        {
-            resetOtherButtons(mainWindow,
-                              mainWindow->connectButton_);
-
-            GraphicsScene *currentScene =
-                mainWindow->tabWidget_->currentIndex() == 0
-                    ? mainWindow->regionScene_
-                    : mainWindow->globalMapScene_;
-
-            currentScene->setIsInConnectMode(true);
-            currentScene->setConnectedFirstItem(QVariant());
-            mainWindow->statusBar()->showMessage(
-                "Click on two terminals to connect them...",
-                3000);
-        }
-        else
-        {
-            mainWindow->regionScene_->setIsInConnectMode(
-                false);
-            mainWindow->regionScene_->setConnectedFirstItem(
-                QVariant());
-            mainWindow->globalMapScene_->setIsInConnectMode(
-                false);
-            mainWindow->globalMapScene_
-                ->setConnectedFirstItem(QVariant());
-            mainWindow->connectButton_->setChecked(false);
-            mainWindow->statusBar()->showMessage(
-                "Connect mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->inputController()) {
+        qCWarning(lcGuiButton) << "toggleConnectMode: null mainWindow or controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCritical() << "Error in toggleConnectMode:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to toggle connect mode: %1")
-                .arg(e.what()));
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->connectButton_);
+        mainWindow->inputController()->setMode<Input::ConnectMode>(
+            mainWindow->getConnectionType());
+    } else {
+        mainWindow->inputController()->setMode<Input::NormalMode>();
     }
 }
 
 void BasicButtonController::toggleLinkTerminalMode(
     MainWindow *mainWindow, bool checked)
 {
-    try
-    {
-        if (checked)
-        {
-            resetOtherButtons(
-                mainWindow,
-                mainWindow->linkTerminalButton_);
-
-            // Disable other modes when entering link mode
-            mainWindow->regionScene_->setIsInConnectMode(
-                false);
-            mainWindow->regionScene_
-                ->setIsInLinkTerminalMode(true);
-            mainWindow->selectedTerminal_ = nullptr;
-            mainWindow->statusBar()->showMessage(
-                "Select a terminal, then select a node to "
-                "link them...",
-                3000);
-        }
-        else
-        {
-            mainWindow->regionScene_
-                ->setIsInLinkTerminalMode(false);
-            mainWindow->selectedTerminal_ = nullptr;
-            mainWindow->linkTerminalButton_->setChecked(
-                false);
-            mainWindow->statusBar()->showMessage(
-                "Link terminal mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->regionInputController()) {
+        qCWarning(lcGuiButton) << "toggleLinkTerminalMode: null mainWindow or region controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCritical() << "Error in toggleLinkTerminalMode:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString(
-                "Failed to toggle link terminal mode: %1")
-                .arg(e.what()));
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->linkTerminalButton_);
+        mainWindow->regionInputController()->setMode<Input::LinkTerminalMode>();
+    } else {
+        mainWindow->regionInputController()->setMode<Input::NormalMode>();
     }
 }
 
 void BasicButtonController::toggleUnlinkTerminalMode(
     MainWindow *mainWindow, bool checked)
 {
-    try
-    {
-        if (checked)
-        {
-            resetOtherButtons(
-                mainWindow,
-                mainWindow->unlinkTerminalButton_);
-
-            // Disable other modes when entering unlink mode
-            mainWindow->regionScene_->setIsInConnectMode(
-                false);
-            mainWindow->regionScene_
-                ->setIsInLinkTerminalMode(false);
-            mainWindow->regionScene_
-                ->setIsInUnlinkTerminalMode(true);
-            mainWindow->selectedTerminal_ = nullptr;
-            mainWindow->statusBar()->showMessage(
-                "Select a terminal, then select a node to "
-                "unlink them...",
-                3000);
-        }
-        else
-        {
-            mainWindow->regionScene_
-                ->setIsInUnlinkTerminalMode(false);
-            mainWindow->selectedTerminal_ = nullptr;
-            mainWindow->unlinkTerminalButton_->setChecked(
-                false);
-            mainWindow->statusBar()->showMessage(
-                "Unlink terminal mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->regionInputController()) {
+        qCWarning(lcGuiButton) << "toggleUnlinkTerminalMode: null mainWindow or region controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCritical() << "Error in toggleUnlinkTerminalMode:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString(
-                "Failed to toggle unlink terminal mode: %1")
-                .arg(e.what()));
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->unlinkTerminalButton_);
+        mainWindow->regionInputController()->setMode<Input::UnlinkTerminalMode>();
+    } else {
+        mainWindow->regionInputController()->setMode<Input::NormalMode>();
     }
 }
 
 void BasicButtonController::toggleMeasureMode(
     MainWindow *mainWindow, bool checked)
 {
-    try
-    {
-        if (checked)
-        {
-            resetOtherButtons(mainWindow,
-                              mainWindow->measureButton_);
-        }
-
-        GraphicsView *currentView =
-            mainWindow->tabWidget_->currentIndex() == 0
-                ? mainWindow->regionView_
-                : mainWindow->globalMapView_;
-
-        GraphicsScene *currentScene =
-            dynamic_cast<GraphicsScene *>(
-                currentView->scene());
-
-        if (!currentScene)
-        {
-            return;
-        }
-
-        currentView->setMeasureMode(checked);
-        currentScene->setIsInMeasureMode(checked);
-        currentScene->setMeasurementTool(
-            nullptr); // Reset measurement tool
-
-        if (!checked)
-        {
-            if (currentView->getMeasurementTool())
-            {
-                if (currentView->getMeasurementTool()
-                        ->scene())
-                {
-                    GraphicsScene *scene =
-                        currentView->getScene();
-                    if (scene)
-                    {
-                        scene->removeItemWithId<
-                            DistanceMeasurementTool>(
-                            currentView
-                                ->getMeasurementTool()
-                                ->getID());
-                    }
-                }
-                currentView->setMeasurementTool(nullptr);
-            }
-            currentView
-                ->unsetCursor(); // Restore default cursor
-            mainWindow->measureButton_->setChecked(false);
-        }
-        else
-        {
-            currentView->setCursor(
-                QCursor(Qt::CrossCursor));
-        }
-
-        if (checked)
-        {
-            mainWindow->statusBar()->showMessage(
-                "Click to set start point, click again to "
-                "measure distance",
-                3000);
-        }
-        else
-        {
-            mainWindow->statusBar()->showMessage(
-                "Measurement mode disabled", 2000);
-        }
+    qCDebug(lcGuiButton) << "BasicButtonController::toggleMeasureMode:"
+                         << "checked=" << checked;
+    if (!mainWindow || !mainWindow->inputController()) {
+        qCWarning(lcGuiButton) << "toggleMeasureMode: null mainWindow or controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCritical() << "Error in toggleMeasureMode:"
-                    << e.what();
-
-        // Reset measure mode to safe state
-        mainWindow->measureButton_->setChecked(false);
-
-        GraphicsView *currentView =
-            mainWindow->tabWidget_->currentIndex() == 0
-                ? mainWindow->regionView_
-                : mainWindow->globalMapView_;
-
-        if (currentView)
-        {
-            currentView->setMeasureMode(false);
-
-            GraphicsScene *currentScene =
-                dynamic_cast<GraphicsScene *>(
-                    currentView->scene());
-
-            if (currentScene)
-            {
-                currentScene->setIsInMeasureMode(false);
-            }
-
-            if (currentView->getMeasurementTool()
-                && currentView->getMeasurementTool()
-                       ->scene())
-            {
-                GraphicsScene *scene =
-                    currentView->getScene();
-                if (scene)
-                {
-                    scene->removeItemWithId<
-                        DistanceMeasurementTool>(
-                        currentView->getMeasurementTool()
-                            ->getID());
-                }
-
-                currentView->setMeasurementTool(nullptr);
-            }
-
-            currentView->unsetCursor();
-        }
-
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Error in measure mode: %1")
-                .arg(e.what()));
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->measureButton_);
+        mainWindow->inputController()->setMode<Input::MeasureMode>();
+    } else {
+        mainWindow->inputController()->setMode<Input::NormalMode>();
     }
 }
 
@@ -405,7 +203,7 @@ void BasicButtonController::clearMeasurements(
         {
             currentScene
                 ->removeItemWithId<DistanceMeasurementTool>(
-                    item->getID());
+                    item->sceneRegistryKey());
         }
 
         mainWindow->statusBar()->showMessage(
@@ -413,7 +211,7 @@ void BasicButtonController::clearMeasurements(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in clearMeasurements:"
+        qCCritical(lcGuiButton) << "Error in clearMeasurements:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -427,15 +225,14 @@ void BasicButtonController::changeRegion(
 {
     try
     {
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->setCurrentRegion(region);
-        ViewController::updateSceneVisibility(mainWindow);
+        if (auto *networkView = mainWindow->networkViewService())
+            networkView->setCurrentRegion(region);
+        mainWindow->sceneVisibility()->updateSceneVisibility();
         emit mainWindow->regionChanged(region);
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in changeRegion:" << e.what();
+        qCCritical(lcGuiButton) << "Error in changeRegion:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to change region: %1")
@@ -505,7 +302,7 @@ void BasicButtonController::exportLog(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in exportLog:" << e.what();
+        qCCritical(lcGuiButton) << "Error in exportLog:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to export log: %1")
@@ -516,13 +313,13 @@ void BasicButtonController::exportLog(
 void BasicButtonController::checkNetwork(
     MainWindow *mainWindow, GraphicsScene *scene)
 {
+    qCDebug(lcGuiButton) << "BasicButtonController::checkNetwork: begin";
     try
     {
         QString currentRegion =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegion();
+            mainWindow && mainWindow->networkViewService()
+                ? mainWindow->networkViewService()->currentRegionName()
+                : QString();
         QList<TerminalItem *> allRegionTerminals =
             UtilitiesFunctions::getTerminalItems(
                 scene, currentRegion,
@@ -543,7 +340,11 @@ void BasicButtonController::checkNetwork(
                                                   // type
             );
 
-        ViewController::flashTerminalItems(
+        qCDebug(lcGuiButton) << "BasicButtonController::checkNetwork:"
+                             << "total=" << allRegionTerminals.size()
+                             << "notConnected=" << notConnectedTerminals.size();
+
+        SceneVisibilityController::flashTerminalItems(
             notConnectedTerminals, true);
 
         if (!notConnectedTerminals.isEmpty())
@@ -571,7 +372,7 @@ void BasicButtonController::checkNetwork(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in checkNetwork:" << e.what();
+        qCCritical(lcGuiButton) << "Error in checkNetwork:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to check network: %1")
@@ -585,7 +386,14 @@ void BasicButtonController::disconnectAllTerminals(
 {
     try
     {
-        QList<GraphicsObjectBase *> itemsToRemove;
+        if (!mainWindow || !scene || !mainWindow->connectionCtrl())
+        {
+            qCWarning(lcGuiButton)
+                << "disconnectAllTerminals: missing MainWindow, scene, or ConnectionController";
+            return;
+        }
+
+        QList<ConnectionLine *> itemsToRemove;
 
         auto itemsToCheck =
             scene->getItemsByType<ConnectionLine>();
@@ -601,23 +409,20 @@ void BasicButtonController::disconnectAllTerminals(
             }
         }
 
-        // Remove items separately to avoid modifying
-        // collection during iteration
-        for (GraphicsObjectBase *item : itemsToRemove)
+        int removedCount = 0;
+        for (ConnectionLine *item : itemsToRemove)
         {
-            scene->removeItemWithId<ConnectionLine>(
-                item->getID());
+            if (mainWindow->connectionCtrl()->removeConnectionLine(item))
+                ++removedCount;
         }
 
-        if (mainWindow)
-        {
-            mainWindow->showStatusBarMessage(
-                "All terminals disconnected", 2000);
-        }
+        mainWindow->showStatusBarMessage(
+            QString("Disconnected %1 connection(s).").arg(removedCount),
+            2000);
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in disconnectAllTerminals:"
+        qCCritical(lcGuiButton) << "Error in disconnectAllTerminals:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -652,10 +457,9 @@ void BasicButtonController::toggleConnectionLines(
                 ->getItemsByType<ConnectionLine>();
 
         QString currentRegion =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegion();
+            mainWindow->networkViewService()
+                ? mainWindow->networkViewService()->currentRegionName()
+                : QString();
 
         // Update visibility of connection lines
         for (ConnectionLine *connection : connectionLines)
@@ -674,7 +478,7 @@ void BasicButtonController::toggleConnectionLines(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleConnectionLines:"
+        qCCritical(lcGuiButton) << "Error in toggleConnectionLines:"
                     << e.what();
         mainWindow->showStatusBarMessage(
             QString("Failed to toggle connection lines: %1")
@@ -714,10 +518,9 @@ void BasicButtonController::toggleTerminals(
         {
             if (terminal
                 && terminal->getRegion()
-                       == CargoNetSim::CargoNetSimController::
-                              getInstance()
-                                  .getRegionDataController()
-                                  ->getCurrentRegion())
+                       == (mainWindow->networkViewService()
+                               ? mainWindow->networkViewService()->currentRegionName()
+                               : QString()))
             {
                 terminal->setVisible(checked);
             }
@@ -730,7 +533,7 @@ void BasicButtonController::toggleTerminals(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in toggleTerminals:"
+        qCCritical(lcGuiButton) << "Error in toggleTerminals:"
                     << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
@@ -742,6 +545,7 @@ void BasicButtonController::toggleTerminals(
 void BasicButtonController::newProject(
     MainWindow *mainWindow)
 {
+    qCInfo(lcGuiButton) << "BasicButtonController::newProject: begin";
     try
     {
         QMessageBox::StandardButton reply =
@@ -755,67 +559,58 @@ void BasicButtonController::newProject(
 
         if (reply == QMessageBox::Yes)
         {
-            // Clear current scene
-            mainWindow->regionScene_->clear();
+            auto doc = std::make_unique<
+                Backend::Scenario::ScenarioDocument>();
 
-            // Reset Region Manager
-            mainWindow->regionManager_->clearRegions();
+            Backend::Scenario::RegionSpec defaultRegion;
+            defaultRegion.name =
+                QStringLiteral("Default Region");
+            defaultRegion.color =
+                QStringLiteral("#00FF00");
+            defaultRegion.localOrigin    = {0.0, 0.0};
+            defaultRegion.globalPosition = {0.0, 0.0};
+            if (!Backend::Application::ScenarioEditService::addRegion(
+                    doc.get(), defaultRegion))
+            {
+                qCCritical(lcGuiButton)
+                    << "newProject: failed to seed default region";
+                QMessageBox::critical(
+                    mainWindow, "New Project",
+                    "Failed to initialize the default region.");
+                return;
+            }
 
-            // Reset current region
-            // CargoNetSim::CargoNetSimController::
-            //     getInstance()
-            //         .getRegionDataController()
-            //         ->setCurrentRegion("Default Region");
+            Backend::Application::ScenarioLoadService loadService;
+            auto loadResult =
+                loadService.loadFromDocument(std::move(doc));
 
-            // Reset network registries
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getNetworkController()
-                    ->clear();
+            if (!loadResult.succeeded())
+            {
+                qCCritical(lcGuiButton)
+                    << "newProject: failed to initialize"
+                       " empty scenario:"
+                    << loadResult.message;
+                QMessageBox::critical(
+                    mainWindow, "New Project",
+                    QString("Failed to initialize empty"
+                            " scenario.\n%1")
+                        .arg(loadResult.message));
+                return;
+            }
 
-            // Clear region data
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->clear();
+            mainWindow->setRuntime(
+                std::move(loadResult.runtime));
+            mainWindow->currentProjectPath_.clear();
 
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->addRegion("Default Region");
-
-            // TODO
-            // mainWindow->regionCenters_.clear();
-            // RegionDataController::getInstance().clear();
-
-            // // Create the default region
-            // Backend::RegionDataController::getInstance().addRegion(
-            //     "Default Region", QColor(Qt::green));
-
-            // mainWindow->createRegionCenter(
-            //     "Default Region",
-            //     Backend::RegionDataController::getInstance()
-            //         .getRegionData("Default
-            //         Region")->getVariable("color")
-            //     );
-
-            // // Update UI
-            // mainWindow->regionCombo_->clear();
-            // mainWindow->regionCombo_->addItems(
-            //     RegionDataController::getInstance().getAllRegionNames());
-            // mainWindow->regionCombo_->setCurrentText(mainWindow->currentRegion_);
-
-            // // Update views
-            // ViewController::updateSceneVisibility(mainWindow);
-            // ViewController::updateGlobalMapScene(mainWindow);
-
+            qCInfo(lcGuiButton)
+                << "newProject: empty scenario created";
             mainWindow->statusBar()->showMessage(
                 "New project created", 2000);
         }
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error in newProject:" << e.what();
+        qCCritical(lcGuiButton) << "Error in newProject:" << e.what();
         QMessageBox::critical(
             mainWindow, "Error",
             QString("Failed to create new project: %1")
@@ -823,207 +618,126 @@ void BasicButtonController::newProject(
     }
 }
 
-void BasicButtonController::openProject(
+void BasicButtonController::openScenario(
     MainWindow *mainWindow)
 {
-    try
-    {
-        QString filePath = QFileDialog::getOpenFileName(
-            mainWindow, "Open Project", "",
-            "CargoNetSim Projects (*.cns);;All Files (*.*)",
-            nullptr, QFileDialog::DontUseNativeDialog);
+    if (!mainWindow) return;
+    qCInfo(lcGuiButton) << "BasicButtonController::openScenario: begin";
 
-        if (!filePath.isEmpty())
-        {
-            // if
-            // (ProjectSerializer::loadProject(mainWindow,
-            // filePath)) {
-            //     mainWindow->currentProjectPath_ =
-            //     filePath;
-            //     mainWindow->statusBar()->showMessage(
-            //         QString("Project loaded successfully
-            //         from %1").arg(filePath), 2000);
-            // }
-            // else {
-            //     throw std::runtime_error("Failed to load
-            //     project. Check the console for
-            //     details.");
-            // }
-        }
-    }
-    catch (const std::exception &e)
+    const QString filePath = QFileDialog::getOpenFileName(
+        mainWindow, "Open Scenario", "",
+        "CargoNetSim Scenarios (*.yml *.yaml);;All Files (*.*)",
+        nullptr, QFileDialog::DontUseNativeDialog);
+    if (filePath.isEmpty()) return;
+
+    qCInfo(lcGuiButton) << "BasicButtonController::openScenario:"
+                        << "path=" << filePath;
+    QString err;
+    Backend::Application::ScenarioPersistenceService persistenceService;
+    auto doc = persistenceService.loadYaml(filePath, &err);
+    if (!doc)
     {
-        qCritical() << "Error in openProject:" << e.what();
+        qCWarning(lcGuiButton)
+            << "BasicButtonController::openScenario:"
+            << "failed to load:" << err;
         QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to open project: %1")
-                .arg(e.what()));
+            mainWindow, "Open Scenario",
+            QString("Failed to load scenario:\n%1")
+                .arg(err));
+        return;
     }
+
+    Backend::Application::ScenarioLoadService loadService;
+    auto loadResult =
+        loadService.loadFromDocument(std::move(doc));
+    if (!loadResult.succeeded())
+    {
+        qCWarning(lcGuiButton)
+            << "BasicButtonController::openScenario:"
+            << "failed to apply:" << loadResult.message;
+        QMessageBox::critical(
+            mainWindow, "Open Scenario",
+            QString("Failed to apply scenario:\n%1")
+                .arg(loadResult.message));
+        return;
+    }
+
+    mainWindow->setRuntime(std::move(loadResult.runtime));
+
+    mainWindow->currentProjectPath_ = filePath;
+    mainWindow->statusBar()->showMessage(
+        QString("Scenario loaded: %1").arg(filePath), 3000);
 }
 
-void BasicButtonController::saveProject(
+void BasicButtonController::saveScenario(
     MainWindow *mainWindow)
 {
-    try
+    if (!mainWindow) return;
+    qCInfo(lcGuiButton) << "BasicButtonController::saveScenario: begin";
+    if (!mainWindow->runtime())
     {
-        // If project hasn't been saved before, show save
-        // dialog
-        if (!mainWindow->currentProjectPath_.length())
-        {
-            QString filePath = QFileDialog::getSaveFileName(
-                mainWindow, "Save Project", "",
-                "CargoNetSim Projects (*.cns);;All Files "
-                "(*.*)",
-                nullptr, QFileDialog::DontUseNativeDialog);
-
-            if (filePath.isEmpty())
-            {
-                return;
-            }
-
-            // Add extension if not present
-            if (!filePath.endsWith(".cns"))
-            {
-                filePath += ".cns";
-            }
-
-            mainWindow->currentProjectPath_ = filePath;
-        }
-
-        // if (ProjectSerializer::saveProject(mainWindow,
-        // mainWindow->currentProjectPath_)) {
-        //     mainWindow->statusBar()->showMessage(
-        //         QString("Project saved successfully to
-        //         %1").arg(mainWindow->currentProjectPath_),
-        //         2000
-        //         );
-        // }
-        // else {
-        //     throw std::runtime_error("Failed to save
-        //     project. Check the console for details.");
-        // }
+        qCWarning(lcGuiButton) << "BasicButtonController::saveScenario:"
+                               << "no scenario loaded";
+        QMessageBox::warning(mainWindow, "Save Scenario",
+                             "No scenario loaded.");
+        return;
     }
-    catch (const std::exception &e)
+
+    QString filePath = mainWindow->currentProjectPath_;
+    if (filePath.isEmpty())
     {
-        qCritical() << "Error in saveProject:" << e.what();
+        filePath = QFileDialog::getSaveFileName(
+            mainWindow, "Save Scenario As", "",
+            "CargoNetSim Scenarios (*.yml);;All Files (*.*)",
+            nullptr, QFileDialog::DontUseNativeDialog);
+        if (filePath.isEmpty()) return;
+        if (!filePath.endsWith(".yml", Qt::CaseInsensitive)
+            && !filePath.endsWith(".yaml", Qt::CaseInsensitive))
+            filePath += ".yml";
+        mainWindow->currentProjectPath_ = filePath;
+    }
+
+    auto &document = mainWindow->runtime()->document();
+    const QList<QJsonObject> comparisonSnapshots =
+        mainWindow->shortestPathTable_
+            ? mainWindow->shortestPathTable_
+                  ->buildComparisonSnapshots(document)
+            : QList<QJsonObject>{};
+    if (!Backend::Application::ScenarioEditService::
+            updateComparisonSnapshots(&document, comparisonSnapshots))
+    {
+        qCWarning(lcGuiButton)
+            << "BasicButtonController::saveScenario:"
+            << "failed to update comparison snapshots";
+    }
+
+    QString err;
+    Backend::Application::ScenarioPersistenceService persistenceService;
+    if (!persistenceService.saveYaml(document, filePath, &err))
+    {
+        qCWarning(lcGuiButton) << "BasicButtonController::saveScenario:"
+                               << "save failed:" << err;
         QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to save project: %1")
-                .arg(e.what()));
+            mainWindow, "Save Scenario",
+            QString("Failed to save scenario:\n%1").arg(err));
+        return;
     }
+    mainWindow->statusBar()->showMessage(
+        QString("Scenario saved: %1").arg(filePath), 3000);
 }
 
 void BasicButtonController::toggleSetGlobalPositionMode(
     MainWindow *mainWindow, bool checked)
 {
-    try
-    {
-        // Force reset the scene mode to match the button
-        // state
-        mainWindow->globalMapScene_
-            ->setIsInGlobalPositionMode(checked);
-
-        if (checked)
-        {
-            resetOtherButtons(
-                mainWindow,
-                mainWindow->setGlobalPositionButton_);
-            mainWindow->statusBar()->showMessage(
-                "Click on a terminal to set its global "
-                "position...",
-                3000);
-        }
-        else
-        {
-            mainWindow->setGlobalPositionButton_
-                ->setChecked(false);
-            mainWindow->statusBar()->showMessage(
-                "Set global position mode disabled", 2000);
-        }
+    if (!mainWindow || !mainWindow->globalInputController()) {
+        qCWarning(lcGuiButton) << "toggleSetGlobalPositionMode: null mainWindow or controller";
+        return;
     }
-    catch (const std::exception &e)
-    {
-        qCritical()
-            << "Error in toggleSetGlobalPositionMode:"
-            << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString(
-                "Failed to toggle global position mode: %1")
-                .arg(e.what()));
-    }
-}
-
-bool BasicButtonController::setTerminalGlobalPosition(
-    MainWindow *mainWindow, TerminalItem *terminal)
-{
-    try
-    {
-        if (!mainWindow || !terminal)
-        {
-            return false;
-        }
-
-        // Get the terminal's current global position
-        GlobalTerminalItem *globalItem =
-            terminal->getGlobalTerminalItem();
-        if (!globalItem)
-        {
-            mainWindow->showStatusBarMessage(
-                "Terminal not found in global map", 2000);
-            return false;
-        }
-
-        // Get the current position
-        QPointF globalProjectedPos = globalItem->pos();
-
-        QPointF globalGeoPos =
-            mainWindow->globalMapView_->sceneToWGS84(
-                globalProjectedPos);
-
-        // Show the dialog
-        SetCoordinatesDialog dialog(
-            terminal->getProperties()["Name"].toString(),
-            globalGeoPos, mainWindow);
-
-        if (dialog.exec() == QDialog::Accepted)
-        {
-            // Get the new coordinates
-            QPointF userGeoPoint = dialog.getCoordinates();
-
-            bool result = ViewController::
-                updateTerminalPositionByGlobalPosition(
-                    mainWindow, terminal, userGeoPoint);
-
-            // Set the terminal position
-            if (result)
-            {
-                mainWindow->statusBar()->showMessage(
-                    "Terminal position updated", 2000);
-                return true;
-            }
-            else
-            {
-                mainWindow->statusBar()->showMessage(
-                    "Failed to update terminal position",
-                    2000);
-                return false;
-            }
-        }
-
-        // Dialog was cancelled
-        return false;
-    }
-    catch (const std::exception &e)
-    {
-        qCritical() << "Error in setTerminalGlobalPosition:"
-                    << e.what();
-        QMessageBox::critical(
-            mainWindow, "Error",
-            QString("Failed to set terminal global "
-                    "position: %1")
-                .arg(e.what()));
-        return false;
+    if (checked) {
+        resetOtherButtons(mainWindow, mainWindow->setGlobalPositionButton_);
+        mainWindow->globalInputController()->setMode<Input::GlobalPositionMode>();
+    } else {
+        mainWindow->globalInputController()->setMode<Input::NormalMode>();
     }
 }
 
@@ -1040,33 +754,32 @@ void BasicButtonController::toggleDockWidget(
 void BasicButtonController::showTrainManager(
     MainWindow *mainWindow)
 {
+    if (!mainWindow) return;
     TrainManagerDialog dialog(mainWindow);
 
-    auto trains =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController()
-            ->getAllTrains();
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    auto trains = controller.getAllTrains();
     dialog.setTrains(trains);
 
     if (dialog.exec() == QDialog::Accepted)
     {
         // Store trains
         auto newTrains = dialog.getTrains();
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController()
-            ->updateTrains(newTrains);
+        controller.updateTrains(newTrains);
+        mainWindow->fleetCtrl()->appendTrainFiles(dialog.newlyLoadedFiles());
     }
 }
 
 void BasicButtonController::showShipManager(
     MainWindow *mainWindow)
 {
+    if (!mainWindow) return;
     ShipManagerDialog dialog(mainWindow);
 
-    auto ships =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController()
-            ->getAllShips();
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    auto ships = controller.getAllShips();
     dialog.setShips(ships);
     dialog.updateTable();
 
@@ -1074,9 +787,8 @@ void BasicButtonController::showShipManager(
     {
         // Store ships
         auto newShips = dialog.getShips();
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getVehicleController()
-            ->updateShips(newShips);
+        controller.updateShips(newShips);
+        mainWindow->fleetCtrl()->appendShipFiles(dialog.newlyLoadedFiles());
     }
 }
 
@@ -1090,11 +802,10 @@ void BasicButtonController::updateRegionComboBox(
     // Clear and repopulate
     mainWindow->regionCombo_->clear();
 
-    // Get all region names from RegionDataController
     QStringList regionNames =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getAllRegionNames();
+        mainWindow->networkViewService()
+            ? mainWindow->networkViewService()->regionNames()
+            : QStringList();
     mainWindow->regionCombo_->addItems(regionNames);
 
     // Restore selection if it still exists, otherwise
@@ -1112,12 +823,12 @@ void BasicButtonController::updateRegionComboBox(
         if (!mainWindow->regionCombo_->currentText()
                  .isEmpty())
         {
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->setCurrentRegion(
-                        mainWindow->regionCombo_
-                            ->currentText());
+            if (auto *networkView =
+                    mainWindow->networkViewService())
+            {
+                networkView->setCurrentRegion(
+                    mainWindow->regionCombo_->currentText());
+            }
         }
     }
 }
@@ -1125,33 +836,32 @@ void BasicButtonController::updateRegionComboBox(
 void BasicButtonController::setupSignals(
     MainWindow *mainWindow)
 {
-    QObject::connect(
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController(),
-        &Backend::RegionDataController::regionAdded,
-        mainWindow,
-        [mainWindow](const QString &regionName) {
-            updateRegionComboBox(mainWindow);
-        });
+    if (auto *networkView = mainWindow->networkViewService())
+    {
+        QObject::connect(
+            networkView,
+            &Backend::Application::NetworkViewService::regionAdded,
+            mainWindow,
+            [mainWindow](const QString &) {
+                updateRegionComboBox(mainWindow);
+            });
 
-    QObject::connect(
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController(),
-        &Backend::RegionDataController::regionRenamed,
-        mainWindow,
-        [mainWindow](const QString &oldName,
-                     const QString &newName) {
-            updateRegionComboBox(mainWindow);
-        });
+        QObject::connect(
+            networkView,
+            &Backend::Application::NetworkViewService::regionRenamed,
+            mainWindow,
+            [mainWindow](const QString &, const QString &) {
+                updateRegionComboBox(mainWindow);
+            });
 
-    QObject::connect(
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController(),
-        &Backend::RegionDataController::regionRemoved,
-        mainWindow,
-        [mainWindow](const QString &regionName) {
-            updateRegionComboBox(mainWindow);
-        });
+        QObject::connect(
+            networkView,
+            &Backend::Application::NetworkViewService::regionRemoved,
+            mainWindow,
+            [mainWindow](const QString &) {
+                updateRegionComboBox(mainWindow);
+            });
+    }
 
     QObject::connect(
         mainWindow->regionCombo_,

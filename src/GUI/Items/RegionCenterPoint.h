@@ -1,15 +1,24 @@
 #pragma once
 
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IDraggable.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 #include "GraphicsObjectBase.h"
 
 #include <QColor>
+#include <QCursor>
 #include <QGraphicsObject>
 #include <QMap>
 #include <QPointF>
+#include <QPointer>
 #include <QVariant>
 
 namespace CargoNetSim
 {
+
+namespace Backend::Scenario { class ScenarioDocument; }
+
 namespace GUI
 {
 
@@ -23,11 +32,18 @@ namespace GUI
  * including geographic coordinates and shared coordinates
  * that are used for global map positioning.
  */
-class RegionCenterPoint : public GraphicsObjectBase
+class RegionCenterPoint : public GraphicsObjectBase,
+                          public Input::IClickable,
+                          public Input::IHoverable,
+                          public Input::IDraggable
 {
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 7 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructs a RegionCenterPoint.
      * @param regionName The name of the region
@@ -45,6 +61,40 @@ public:
      * @brief Destructor
      */
     virtual ~RegionCenterPoint() = default;
+
+    /**
+     * @brief Bind this center point to its owning document + region name.
+     *
+     * View-only binding. The document is retained as a QPointer so it
+     * cannot dangle if the runtime is swapped; the region name is the
+     * lookup key into doc->regions. Rename updates the name via
+     * `setRegion(newName)` — no re-binding required, no raw pointer
+     * held into a relocatable container. Passing `doc == nullptr`
+     * unbinds.
+     */
+    void setRegionBinding(
+        Backend::Scenario::ScenarioDocument *doc,
+        const QString                       &regionName);
+
+    /// Non-owning region-spec pointer, obtained by name lookup into
+    /// the bound document each call. Never cached — returns a pointer
+    /// valid only for the current call stack. nullptr when unbound or
+    /// when the region name is missing from the doc.
+    Backend::Scenario::RegionSpec *regionSpecModel() const;
+
+    /// Domain name of the bound region, or empty when unbound.
+    /// Reads from the authoritative property bag.
+    QString getRegionName() const
+    {
+        return properties.value("Region").toString();
+    }
+
+    /**
+     * @brief Refreshes all display properties from the bound
+     * RegionSpec. No-op when @p spec is null.
+     */
+    void refreshFromSpec(
+        const Backend::Scenario::RegionSpec *spec);
 
     /**
      * @brief Updates the region's center coordinates.
@@ -121,12 +171,6 @@ public:
 
 signals:
     /**
-     * @brief Signal emitted when the item is clicked.
-     * @param item Pointer to this RegionCenterPoint
-     */
-    void clicked(RegionCenterPoint *item);
-
-    /**
      * @brief Signal emitted when the position changes.
      * @param newPos New position in scene coordinates
      */
@@ -172,19 +216,37 @@ signals:
     void propertiesChanged();
 
 protected:
+    // No domainKey() override on purpose: region names are mutable
+    // (renameRegion), so using them as the registry key would drift
+    // silently after rename — getItemById<RegionCenterPoint>(newName)
+    // would return nullptr while the item sat under the old key.
+    // Inheriting the base's empty-default lets sceneRegistryKey() fall
+    // back to the per-item UUID, matching every other item class in
+    // this codebase. Name-keyed callers use
+    // RegionCenterPointFactory::findByName().
+
     // QGraphicsItem overrides
     QRectF boundingRect() const override;
     void   paint(QPainter                       *painter,
                  const QStyleOptionGraphicsItem *option,
                  QWidget *widget = nullptr) override;
-    void   mousePressEvent(
-          QGraphicsSceneMouseEvent *event) override;
-    QVariant itemChange(GraphicsItemChange change,
-                        const QVariant    &value) override;
-    void     hoverEnterEvent(
-            QGraphicsSceneHoverEvent *event) override;
-    void hoverLeaveEvent(
-        QGraphicsSceneHoverEvent *event) override;
+
+public:
+    // Input interface overrides
+    Input::Handled
+    onLeftClick(const Input::ClickContext &) override;
+    void
+    onHoverEnter(const Input::ClickContext &) override;
+    void
+    onHoverLeave(const Input::ClickContext &) override;
+    QCursor hoverCursor() const override
+    {
+        return QCursor(Qt::PointingHandCursor);
+    }
+    bool
+    canDrag(const Input::ClickContext &) const override;
+    void onDragEnd(const QPointF            &finalPos,
+                   const Input::ClickContext &) override;
 
 private:
     /**
@@ -195,7 +257,13 @@ private:
 
     QColor                  color;
     QMap<QString, QVariant> properties;
-    QPointF                 dragOffset;
+
+    /// Document this view is bound to. QPointer so a runtime swap
+    /// (scenario close / reload) turns lookups into safe nullptrs
+    /// rather than dangling reads. The region NAME — not a spec
+    /// pointer — is the lookup key; it lives in properties["Region"]
+    /// so the property bag is the single source of truth.
+    QPointer<Backend::Scenario::ScenarioDocument> m_doc;
 };
 
 } // namespace GUI

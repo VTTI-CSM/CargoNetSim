@@ -28,6 +28,7 @@
 #include <QMutex>
 #include <QObject>
 #include <QReadWriteLock>
+#include <QSet>
 #include <QString>
 #include <containerLib/container.h>
 
@@ -51,6 +52,7 @@ namespace Backend
 {
 
 class SimulationTime;
+class SimulatorHealthProbeTransport;
 
 namespace ShipClient
 {
@@ -147,6 +149,14 @@ public:
         LoggerInterface *logger = nullptr) override;
 
     /**
+     * @brief Probe ship availability over the dedicated health transport
+     *
+     * Uses an isolated health command/response lane so liveness checks do not
+     * queue behind simulation initialization or run commands.
+     */
+    bool probeCommandAvailability(int timeoutMs = 500) override;
+
+    /**
      * @brief Defines a new ship simulator
      *
      * Configures a simulation network with specified ships
@@ -176,23 +186,54 @@ public:
                     const QString &networkPath = "Default");
 
     /**
-     * @brief Runs the simulator for specified networks
+     * @brief Runs the simulator for a bounded interactive chunk
      *
-     * Starts the simulation for given networks or all if
-     * "*" is specified, with an optional time step limit.
-     * Uses a read lock when accessing network data.
+     * Starts the simulation for the given networks or all if
+     * "*" is specified, using an explicit chunk length. Uses a
+     * read lock when accessing network data.
      *
-     * Thread safety: Uses ScopedReadLock when reading
-     * network keys.
+     * Production code should prefer advanceByTimeStep(). This method
+     * accepts only positive bounded chunks; unlimited execution is not
+     * exposed by the CargoNetSim client API.
      *
-     * @param networkNames List of network names or "*" for
-     * all
-     * @param byTimeSteps Steps to run, -1 for unlimited,
-     * defaults to -1
+     * Thread safety: Uses ScopedReadLock when reading network
+     * keys.
+     *
+     * @param networkNames List of network names or "*" for all
+     * @param byTimeSteps Explicit chunk length to request
      * @return True if the simulation starts successfully
      */
     bool runSimulator(const QStringList &networkNames,
-                      double byTimeSteps = -1.0);
+                      double byTimeSteps);
+
+    /**
+     * @brief Advance simulation by a specific time step
+     * @param networkNames Networks to advance ("*" for all)
+     * @param deltaT Time step in seconds
+     * @return True if step completed successfully
+     *
+     * Unlike runSimulator(), this waits for simulationAdvanced
+     * event instead of allShipsReachedDestination.
+     */
+    Q_INVOKABLE bool advanceByTimeStep(
+        const QStringList& networkNames,
+        double deltaT);
+
+    /**
+     * @brief Notify about terminal closure for rerouting
+     * @param terminalId Closed terminal
+     * @param alternativeId Alternative terminal
+     */
+    Q_INVOKABLE void notifyTerminalClosure(
+        const QString& terminalId,
+        const QString& alternativeId);
+
+    /**
+     * @brief Notify about terminal reopening
+     * @param terminalId Reopened terminal
+     */
+    Q_INVOKABLE void notifyTerminalReopened(
+        const QString& terminalId);
 
     /**
      * @brief Ends the simulator for specified networks
@@ -361,14 +402,42 @@ protected:
      * the Qt event thread via QueuedConnection from
      * RabbitMQHandler.
      *
+     * Populates ship-specific caches from an incoming event.
+     * Invoked by the base class `processMessage` before
+     * waiters are woken (see SimulationClientBase).
+     *
      * Thread safety: Event handlers that modify shared
      * state use appropriate locking mechanisms internally.
-     *
-     * @param message JSON object containing the server
-     * message
      */
-    void
-    processMessage(const QJsonObject &message) override;
+    void onEventReceived(const QString     &normalizedEvent,
+                         const QJsonObject &message) override;
+
+signals:
+    void segmentVehicleArrived(const QString &networkName,
+                               const QString &vehicleId,
+                               const QString &runtimeTerminalId,
+                               double         eventTimeSeconds);
+
+    void segmentUnloadSucceeded(const QString &networkName,
+                                const QString &vehicleId,
+                                const QString &terminalId,
+                                double         eventTimeSeconds);
+
+    void segmentUnloadFailed(const QString &networkName,
+                             const QString &vehicleId,
+                             const QString &terminalId,
+                             const QString &message,
+                             double         eventTimeSeconds);
+
+    void terminalHandoffSucceeded(const QString &networkName,
+                                  const QString &vehicleId,
+                                  const QString &scenarioTerminalId,
+                                  double         eventTimeSeconds);
+
+    void terminalHandoffFailed(const QString &networkName,
+                               const QString &vehicleId,
+                               const QString &message,
+                               double         eventTimeSeconds);
 
 private:
     /**
@@ -387,7 +456,8 @@ private:
      */
     bool unloadContainersFromShipAtTerminalsPrivate(
         const QString &networkName, const QString &shipId,
-        const QStringList &terminalNames);
+        const QStringList &terminalNames,
+        QString           *errorMessage = nullptr);
 
     /**
      * @brief Handles simulation network loaded event
@@ -530,7 +600,10 @@ private:
      * @brief Handles ship reached destination event
      *
      * Processes the event when a ship reaches its
-     * destination. Updates the m_shipState data structure.
+     * destination. Updates the m_shipState data structure
+     * and completes final-destination unloading through the
+     * planned scenario terminal when no explicit seaport
+     * event is emitted.
      *
      * Thread safety: Uses ScopedWriteLock to protect shared
      * state. The lock is temporarily released while calling
@@ -699,6 +772,18 @@ private:
      * m_dataAccessMutex.
      */
     QMap<QString, QStringList> m_shipsDestinationTerminals;
+
+    /**
+     * @var m_finalDestinationHandledShips
+     * @brief Tracks ships whose final destination event has
+     *        already driven arrival/unload handling.
+     *
+     * Access to this structure is protected by
+     * m_dataAccessMutex.
+     */
+    QSet<QString> m_finalDestinationHandledShips;
+
+    SimulatorHealthProbeTransport *m_healthProbeTransport = nullptr;
 };
 
 } // namespace ShipClient

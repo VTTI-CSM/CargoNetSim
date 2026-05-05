@@ -9,6 +9,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Option to enable or disable tests
 option(CARGONET_BUILD_TESTS "Build the CargoNetSim test suite" ON)
 option(CARGONET_BUILD_INSTALLER "Build the CargoNetSim installer package" ON)
+option(CARGONET_BUILD_RABBITMQ_CONFIG "Build RabbitMQ config tool" ON)
 
 # Include our custom CMake modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -41,5 +42,6 @@ if(CARGONET_BUILD_INSTALLER)
 endif()
 
 # Install configuration
-install(DIRECTORY config/ DESTINATION etc/CargoNetSim)
+install(DIRECTORY config/ DESTINATION etc/CargoNetSim
+    COMPONENT CargoNetSim_COMP)
 # install(DIRECTORY media/ DESTINATION share/CargoNetSim/media)

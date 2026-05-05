@@ -12,7 +12,8 @@
  */
 #pragma once
 
-#include "GUI/Widgets/ShortestPathTable.h"
+#include "Backend/Application/PathPresentationService.h"
+#include "GUI/Utils/PathComparisonViewModel.h"
 #include <QDialog>
 #include <QGridLayout>
 #include <QLabel>
@@ -42,6 +43,8 @@ class PathComparisonDialog : public QDialog
     Q_OBJECT
 
 public:
+    using PathData = Backend::Application::PathPresentationRecord;
+
     /**
      * @brief Constructs a PathComparisonDialog
      * @param pathData List of PathData pointers to compare
@@ -51,8 +54,7 @@ public:
      * comparison.
      */
     explicit PathComparisonDialog(
-        const QList<const ShortestPathsTable::PathData *>
-                &pathData,
+        const QList<const PathData *> &pathData,
         QWidget *parent = nullptr);
 
     /**
@@ -121,14 +123,11 @@ private:
      */
     QPixmap createTransportModePixmap(const QString &mode);
 
-    QString
-    getTerminalDisplayNameByID(Backend::Path *path,
-                               const QString &terminalID);
-
     /**
      * @brief List of PathData objects being compared
      */
-    QList<const ShortestPathsTable::PathData *> m_pathData;
+    QList<const PathData *> m_pathData;
+    PathComparisonViewModel m_viewModel;
 
     /**
      * @brief Tab widget for organizing comparison views

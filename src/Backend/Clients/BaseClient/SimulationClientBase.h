@@ -2,6 +2,7 @@
 
 #include "Backend/Clients/BaseClient/RabbitMQHandler.h"
 #include "Backend/Commons/ClientType.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/LoggerInterface.h"
 #include "Backend/Commons/ThreadSafetyUtils.h"
 #include <QEventLoop>
@@ -17,6 +18,7 @@
 #include <QTimer>
 #include <QWaitCondition>
 #include <atomic>
+#include <limits>
 
 // Forward declaration
 namespace CargoNetSim
@@ -64,7 +66,7 @@ public:
     explicit SimulationClientBase(
         QObject       *parent = nullptr,
         const QString &host = "localhost", int port = 5672,
-        const QString &exchange     = "simulation_exchange",
+        const QString &exchange     = "CargoNetSim.Exchange",
         const QString &commandQueue = "command_queue",
         const QString &responseQueue     = "response_queue",
         const QString &sendingRoutingKey = "default_key",
@@ -132,6 +134,24 @@ public:
         LoggerInterface          *logger         = nullptr);
 
     /**
+     * @brief Override the execution time used by live runtime callbacks
+     *
+     * Thread-safe. Intended for the new executor-owned live execution loop.
+     * When set, derived clients should prefer this value over the legacy
+     * shared SimulationTime object for event timestamps and terminal handoff
+     * timestamps.
+     */
+    void setExecutionTimeOverride(double currentTimeSeconds);
+
+    /**
+     * @brief Clear the live execution time override
+     *
+     * Thread-safe. After clearing, derived clients fall back to the shared
+     * SimulationTime object when present.
+     */
+    void clearExecutionTimeOverride();
+
+    /**
      * @brief Sets the controller reference
      * @param controller Pointer to controller
      */
@@ -176,6 +196,20 @@ public:
         return m_rabbitMQHandler;
     }
 
+    /**
+     * @brief Probe whether the simulator can accept and answer commands
+     *
+     * This is an application-level readiness probe, distinct from the
+     * lower-level RabbitMQ connection and queue-consumer diagnostics.
+     * Derived classes may override it when the simulator exposes a
+     * different lightweight probe command than the default
+     * `checkConnection`.
+     *
+     * @param timeoutMs Maximum time to wait for the probe response
+     * @return True when the simulator answered the probe successfully
+     */
+    virtual bool probeCommandAvailability(int timeoutMs = 500);
+
 signals:
     /**
      * @brief Emitted when an event is received
@@ -216,6 +250,16 @@ signals:
     void connectionStatusChanged(bool connected);
 
 protected:
+    /**
+     * @brief Resolve the current execution time for runtime callbacks
+     *
+     * Resolution order:
+     * 1. executor-owned override when present
+     * 2. shared SimulationTime when present
+     * 3. `-1.0` when no time source is available
+     */
+    double currentExecutionTime() const;
+
     /**
      * @brief Send a command and wait for a specific
      * response event
@@ -311,6 +355,27 @@ protected:
     virtual void processMessage(const QJsonObject &message);
 
     /**
+     * @brief Hook for subclasses to populate typed caches
+     *        from an incoming event.
+     *
+     * Invoked by `processMessage` on the I/O thread *before*
+     * the event is registered in `m_receivedEvents` and
+     * before any `eventReceived` / `commandResultReceived`
+     * signal is emitted. Subclasses override this to mutate
+     * their per-event caches so that threads blocked in
+     * `sendCommandAndWait` / `waitForEvent` observe the
+     * populated state the moment they wake.
+     *
+     * Default implementation is a no-op.
+     *
+     * @param normalizedEvent  Event name after normalization
+     * @param message          Full message JSON object
+     */
+    virtual void
+    onEventReceived(const QString     &normalizedEvent,
+                    const QJsonObject &message);
+
+    /**
      * @brief Normalize an event name
      * @param eventName Event name to normalize
      * @return Normalized event name
@@ -350,7 +415,7 @@ protected:
         // connected
         if (m_rabbitMQHandler == nullptr || !isConnected())
         {
-            qWarning()
+            qCWarning(lcClient)
                 << "Cannot execute command: RabbitMQ "
                    "handler"
                    " not initialized or not connected";
@@ -364,7 +429,7 @@ protected:
     }
 
     // RabbitMQ handler
-    RabbitMQHandler *m_rabbitMQHandler;
+    RabbitMQHandler *m_rabbitMQHandler = nullptr;
 
     // Client type identification
     ClientType m_clientType;
@@ -377,6 +442,8 @@ protected:
     // Connection parameters
     QString     m_host;
     int         m_port;
+    QString     m_username = "guest";
+    QString     m_password = "guest";
     QString     m_exchange;
     QString     m_commandQueue;
     QString     m_responseQueue;
@@ -387,10 +454,10 @@ protected:
     LoggerInterface *m_logger = nullptr;
 
     // SimulationTime interface
-    SimulationTime *m_simulationTime;
+    SimulationTime *m_simulationTime = nullptr;
 
     // Terminal client reference
-    TerminalSimulationClient *m_terminalClient;
+    TerminalSimulationClient *m_terminalClient = nullptr;
 
     // Controller
     CargoNetSimController *m_controller = nullptr;
@@ -407,12 +474,24 @@ private slots:
     void handleMessage(const QJsonObject &message);
 
 private:
+    /**
+     * @brief Load RabbitMQ configuration from config file
+     *
+     * Loads host, port, username, exchange from XML config.
+     * Password is loaded from OS keychain.
+     */
+    void loadRabbitMQConfig();
+
     // Command serialization
     QReadWriteLock m_commandSerializationMutex;
 
     // Currently processing flag for preventing concurrent
     // operations
     std::atomic<bool> m_processingCommand;
+
+    // Live executor time override. NaN means "no override".
+    std::atomic<double> m_executionTimeOverrideSeconds{
+        std::numeric_limits<double>::quiet_NaN()};
 };
 
 } // namespace Backend

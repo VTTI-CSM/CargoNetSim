@@ -1,10 +1,18 @@
 #pragma once
 
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IDraggable.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 #include "GraphicsObjectBase.h"
+#include "TerminalItem.h"
+
+#include <QCursor>
 
 #include <QGraphicsObject>
 #include <QPixmap>
 #include <QPointF>
+#include <QPointer>
 #include <QString>
 
 namespace CargoNetSim
@@ -12,20 +20,37 @@ namespace CargoNetSim
 namespace GUI
 {
 
-class TerminalItem;
-
 /**
  * @brief Represents a terminal on the global map view
  *
  * A global map representation using the same pixmap as
  * TerminalItem but scaled down. Links to the original
  * terminal item and represents it on the global map.
+ *
+ * Delete-policy: GlobalTerminalItem is a mirror, not an
+ * independently addressable entity. Deleting it in isolation
+ * would leave the underlying TerminalItem + placement orphaned
+ * of its global representation while the placement still says
+ * "Show on Global Map = true". The mirror is owned by the
+ * lifecycle of the linked TerminalItem: deleting the terminal,
+ * toggling its "Show on Global Map" flag, or removing the
+ * region is the only way to remove the mirror. We therefore
+ * deliberately do NOT override GraphicsObjectBase::createDeleteCommand
+ * — base's nullptr return makes Delete a silent no-op on this
+ * item, which is the intended behaviour.
  */
-class GlobalTerminalItem : public GraphicsObjectBase
+class GlobalTerminalItem : public GraphicsObjectBase,
+                           public Input::IClickable,
+                           public Input::IHoverable,
+                           public Input::IDraggable
 {
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 2 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructs a GlobalTerminalItem
      * @param pixmap The pixmap to display
@@ -53,8 +78,35 @@ public:
     /**
      * @brief Set the linked terminal item
      * @param terminalItem The terminal item to link
+     *
+     * **Scene-registration invariant:** this item's `getID()` returns
+     * the linked terminal's id when linked. Callers are expected to
+     * link the terminal BEFORE adding this item to a scene via
+     * `addItemWithId`. Re-linking after registration leaves the scene's
+     * registry key stale — if you ever need that flow, also re-register.
      */
     void setLinkedTerminalItem(TerminalItem *terminalItem);
+
+    /// Domain id: the linked TerminalItem's terminal id, or empty when the
+    /// link isn't set or the linked terminal is unbound. No fallback to
+    /// UUID — callers that want QObject identity call getID() directly.
+    /// Implementation in .cpp (needs TerminalItem's full definition).
+    QString getTerminalId() const;
+
+    /// Emit a CreateGlobalLink command between this item and @p other,
+    /// which must also be a GlobalTerminalItem. GlobalLinks live in the
+    /// global scene and span regions; TerminalItem pairings are rejected
+    /// with nullptr because region Connections are a different entity.
+    std::unique_ptr<QUndoCommand> createConnectCommandTo(
+        const GraphicsObjectBase*                        other,
+        Backend::TransportationTypes::TransportationMode mode,
+        Backend::Scenario::ScenarioDocument*             doc) const override;
+
+    /// Delegates to the linked TerminalItem's typed interface accessor.
+    /// Empty map when no terminal is linked. Callers get enums, not
+    /// strings — consistent with TerminalItem::availableInterfaces.
+    Backend::Scenario::InterfaceConversion::InterfaceMap
+    availableInterfaces() const;
 
     /**
      * @brief Updates the item's appearance based on
@@ -82,18 +134,32 @@ public:
              const QPixmap                 &pixmap,
              QGraphicsItem *parent = nullptr);
 
+    /**
+     * @brief IClickable left-click hook.
+     *
+     * Logs the click and passes through so the existing
+     * mousePressEvent / scene selection pipeline continues
+     * unchanged. Installed by the input dispatch refactor.
+     */
+    Input::Handled
+    onLeftClick(const Input::ClickContext &ctx) override;
+
+    // IHoverable — replaces old hoverEnter/hoverLeave setCursor logic.
+    QCursor hoverCursor() const override
+    {
+        return QCursor(Qt::PointingHandCursor);
+    }
+
+    // IDraggable — replaces old itemChange ItemPositionHasChanged emit.
+    void onDragEnd(const QPointF           &finalPos,
+                   const Input::ClickContext &ctx) override;
+
 signals:
     /**
      * @brief Signal emitted when item position has changed
      * @param newPos The new position
      */
     void positionChanged(const QPointF &newPos);
-
-    /**
-     * @brief Signal emitted when item is clicked
-     * @param item The item that was clicked
-     */
-    void itemClicked(GlobalTerminalItem *item);
 
     /**
      * @brief Signal emitted when linked terminal item
@@ -105,6 +171,9 @@ signals:
                                TerminalItem *newTerminal);
 
 protected:
+    /// Scene-registration hook: delegate to the linked terminal's domain id.
+    QString domainKey() const override { return getTerminalId(); }
+
     /**
      * @brief Returns the bounding rectangle of this item
      * @return The bounding rectangle
@@ -121,43 +190,13 @@ protected:
                const QStyleOptionGraphicsItem *option,
                QWidget *widget = nullptr) override;
 
-    /**
-     * @brief Handles item position changes
-     * @param change The type of change
-     * @param value The new value
-     * @return The adjusted value
-     */
-    QVariant itemChange(GraphicsItemChange change,
-                        const QVariant    &value) override;
-
-    /**
-     * @brief Handles mouse hover enter events
-     * @param event The hover event
-     */
-    void hoverEnterEvent(
-        QGraphicsSceneHoverEvent *event) override;
-
-    /**
-     * @brief Handles mouse hover leave events
-     * @param event The hover event
-     */
-    void hoverLeaveEvent(
-        QGraphicsSceneHoverEvent *event) override;
-
-    /**
-     * @brief Handles mouse press events
-     * @param event The mouse event
-     */
-    void mousePressEvent(
-        QGraphicsSceneMouseEvent *event) override;
-
 private:
     QPixmap
         originalPixmap;   ///< The original terminal pixmap
     QPixmap scaledPixmap; ///< The scaled version for global
                           ///< view
-    TerminalItem
-        *linkedTerminalItem; ///< The linked terminal item
+    QPointer<TerminalItem>
+        linkedTerminalItem; ///< The linked terminal item (QPointer auto-nulls on deletion)
 };
 
 } // namespace GUI

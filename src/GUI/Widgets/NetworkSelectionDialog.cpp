@@ -1,5 +1,6 @@
 // NetworkSelectionDialog.cpp
 #include "NetworkSelectionDialog.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QLabel>
 #include <QMessageBox>
 namespace CargoNetSim
@@ -11,6 +12,8 @@ NetworkSelectionDialog::NetworkSelectionDialog(
     : QDialog(parent)
     , currentMode(mode)
 {
+    qCInfo(lcGuiNetwork) << "NetworkSelectionDialog::NetworkSelectionDialog: opening mode"
+                      << (mode == LinkMode ? "Link" : "Unlink");
     setWindowTitle(mode == LinkMode
                        ? "Select Network Types to Link"
                        : "Select Network Types to Unlink");
@@ -52,6 +55,16 @@ NetworkSelectionDialog::NetworkSelectionDialog(
     linkSelectedButton->setEnabled(false);
     linkAllVisibleButton->setEnabled(false);
     // Connect signals
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+    connect(
+        trainNetworkCheckBox, &QCheckBox::checkStateChanged,
+        this,
+        &NetworkSelectionDialog::onCheckBoxStateChanged);
+    connect(
+        truckNetworkCheckBox, &QCheckBox::checkStateChanged,
+        this,
+        &NetworkSelectionDialog::onCheckBoxStateChanged);
+#else
     connect(
         trainNetworkCheckBox, &QCheckBox::stateChanged,
         this,
@@ -60,6 +73,7 @@ NetworkSelectionDialog::NetworkSelectionDialog(
         truckNetworkCheckBox, &QCheckBox::stateChanged,
         this,
         &NetworkSelectionDialog::onCheckBoxStateChanged);
+#endif
     connect(linkSelectedButton, &QPushButton::clicked, this,
             &QDialog::accept);
     connect(linkAllVisibleButton, &QPushButton::clicked,
@@ -77,6 +91,8 @@ void NetworkSelectionDialog::setMode(Mode mode)
 {
     if (currentMode != mode)
     {
+        qCDebug(lcGuiNetwork) << "NetworkSelectionDialog::setMode:"
+                           << (mode == LinkMode ? "Link" : "Unlink");
         currentMode = mode;
         setWindowTitle(
             mode == LinkMode
@@ -107,6 +123,9 @@ void NetworkSelectionDialog::updateButtonLabels()
 QList<NetworkType>
 NetworkSelectionDialog::getSelectedNetworkTypes() const
 {
+    qCDebug(lcGuiNetwork) << "NetworkSelectionDialog::getSelectedNetworkTypes:"
+                       << "train:" << trainNetworkCheckBox->isChecked()
+                       << "truck:" << truckNetworkCheckBox->isChecked();
     QList<NetworkType> types;
     if (trainNetworkCheckBox->isChecked())
     {
@@ -121,6 +140,9 @@ NetworkSelectionDialog::getSelectedNetworkTypes() const
 
 void NetworkSelectionDialog::onCheckBoxStateChanged()
 {
+    qCDebug(lcGuiNetwork) << "NetworkSelectionDialog::onCheckBoxStateChanged:"
+                       << "train:" << trainNetworkCheckBox->isChecked()
+                       << "truck:" << truckNetworkCheckBox->isChecked();
     // Enable buttons only if at least one network type is
     // selected
     bool enable = trainNetworkCheckBox->isChecked()

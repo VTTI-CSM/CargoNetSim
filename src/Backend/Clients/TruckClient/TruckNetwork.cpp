@@ -13,6 +13,9 @@
 #include <QRegularExpression>
 #include <QTextStream>
 
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
+
 namespace CargoNetSim
 {
 namespace Backend
@@ -50,6 +53,9 @@ void IntegrationNetwork::initializeNetwork(
     const QVector<IntegrationNode *> &nodes,
     const QVector<IntegrationLink *> &links)
 {
+    qCInfo(lcClientTruck) << "IntegrationNetwork::initializeNetwork:"
+                          << "nodes=" << nodes.size()
+                          << "links=" << links.size();
     QMutexLocker locker(&m_mutex);
 
     // Clean up existing resources
@@ -90,16 +96,23 @@ void IntegrationNetwork::initializeNetwork(
         // Add edge to graph
         int   fromNode = link->getUpstreamNodeId();
         int   toNode   = link->getDownstreamNodeId();
-        float weight   = link->getLength();
+        float weight = static_cast<float>(
+            link->lengthUnits().value());
 
         QMap<QString, QVariant> attributes;
         attributes["link_id"]    = link->getLinkId();
-        attributes["free_speed"] = link->getFreeSpeed();
+        attributes["free_speed"] =
+            link->freeSpeedUnits().value();
         attributes["lanes"]      = link->getLanes();
 
         m_graph->addEdge(fromNode, toNode, weight,
                          attributes);
     }
+
+    qCDebug(lcClientTruck) << "IntegrationNetwork::initializeNetwork:"
+                          << "graph built with"
+                          << m_graph->getNodes().size() << "nodes,"
+                          << m_linkObjects.size() << "edges";
 
     // Emit change signals
     emit networkChanged();
@@ -117,6 +130,9 @@ ShortestPathResult
 IntegrationNetwork::findShortestPath(int startNodeId,
                                      int endNodeId)
 {
+    qCDebug(lcClientTruck) << "IntegrationNetwork::findShortestPath:"
+                           << "from=" << startNodeId
+                           << "to=" << endNodeId;
     QMutexLocker       locker(&m_mutex);
     ShortestPathResult result;
 
@@ -131,6 +147,9 @@ IntegrationNetwork::findShortestPath(int startNodeId,
     // initialized with infinity values)
     if (result.pathNodes.isEmpty())
     {
+        qCWarning(lcClientTruck) << "IntegrationNetwork::findShortestPath:"
+                                 << "no path found from" << startNodeId
+                                 << "to" << endNodeId;
         return result;
     }
 
@@ -138,13 +157,13 @@ IntegrationNetwork::findShortestPath(int startNodeId,
     result.pathLinks = getPathLinks(result.pathNodes);
 
     // Calculate path metrics
-    result.totalLength =
-        getPathLengthByLinks(result.pathLinks)
-        * 1000.0; // Convert km to m
-    result.minTravelTime =
-        m_graph->calculatePathMetric(result.pathNodes,
-                                     "time")
-        * 3600.0; // Convert hours to seconds
+    result.setTotalLength(
+        Units::toMeters(Units::kilometers(
+            getPathLengthByLinks(result.pathLinks))));
+    result.setMinTravelTime(
+        Units::toSeconds(Units::hours(
+            m_graph->calculatePathMetric(result.pathNodes,
+                                         "time"))));
 
     return result;
 }
@@ -217,6 +236,8 @@ IntegrationNetwork::getNode(int nodeId) const
         }
     }
 
+    qCWarning(lcClientTruck) << "IntegrationNetwork::getNode:"
+                             << "node not found:" << nodeId;
     return nullptr;
 }
 
@@ -234,6 +255,8 @@ IntegrationNetwork::getLink(int linkId) const
         }
     }
 
+    qCWarning(lcClientTruck) << "IntegrationNetwork::getLink:"
+                             << "link not found:" << linkId;
     return nullptr;
 }
 
@@ -253,6 +276,10 @@ IntegrationNetwork::getMultiplePaths(int startNodeId,
                                      int endNodeId,
                                      int maxPaths)
 {
+    qCDebug(lcClientTruck) << "IntegrationNetwork::getMultiplePaths:"
+                           << "from=" << startNodeId
+                           << "to=" << endNodeId
+                           << "maxPaths=" << maxPaths;
     QMutexLocker              locker(&m_mutex);
     QList<ShortestPathResult> results;
 
@@ -273,16 +300,20 @@ IntegrationNetwork::getMultiplePaths(int startNodeId,
         result.pathLinks = getPathLinks(path);
 
         // Calculate metrics
-        result.totalLength =
-            getPathLengthByLinks(result.pathLinks);
-        result.minTravelTime =
-            m_graph->calculatePathMetric(path, "time");
+        result.setTotalLength(
+            Units::toMeters(Units::kilometers(
+                getPathLengthByLinks(result.pathLinks))));
+        result.setMinTravelTime(
+            Units::toSeconds(Units::hours(
+                m_graph->calculatePathMetric(path, "time"))));
         result.optimizationCriterion =
             "distance"; // Default criterion
 
         results.append(result);
     }
 
+    qCDebug(lcClientTruck) << "IntegrationNetwork::getMultiplePaths:"
+                           << "found" << results.size() << "paths";
     return results;
 }
 
@@ -309,6 +340,9 @@ IntegrationNetwork::getVariables() const
 
 QJsonObject IntegrationNetwork::toJson() const
 {
+    qCDebug(lcClientTruck) << "IntegrationNetwork::toJson:"
+                           << "nodes=" << m_nodeObjects.size()
+                           << "links=" << m_linkObjects.size();
     QMutexLocker locker(&m_mutex);
     QJsonObject  result;
 
@@ -374,7 +408,7 @@ double IntegrationNetwork::getPathLengthByLinks(
         {
             if (link->getLinkId() == linkId)
             {
-                totalLength += link->getLength();
+                totalLength += link->lengthUnits().value();
                 break;
             }
         }
@@ -466,7 +500,7 @@ bool IntegrationSimulationConfig::initialize(
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error initializing configuration:"
+        qCCritical(lcClientTruck) << "Error initializing configuration:"
                     << e.what();
         return false;
     }
@@ -646,7 +680,7 @@ IntegrationSimulationConfigReader::
     // Check if the file exists
     if (!QFile::exists(configFilePath))
     {
-        qCritical() << "Configuration file does not exist:"
+        qCCritical(lcClientTruck) << "Configuration file does not exist:"
                     << configFilePath;
         return;
     }
@@ -655,7 +689,7 @@ IntegrationSimulationConfigReader::
     m_config = readConfig(configFilePath);
     if (!m_config)
     {
-        qCritical()
+        qCCritical(lcClientTruck)
             << "Failed to read valid configuration from:"
             << configFilePath;
         return;
@@ -805,11 +839,13 @@ IntegrationSimulationConfigReader::readConfig(
                 "Failed to initialize configuration");
         }
 
+        config->setSourceConfigPath(configFilePath);
+
         return config;
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error reading configuration file:"
+        qCCritical(lcClientTruck) << "Error reading configuration file:"
                     << e.what();
         return nullptr;
     }

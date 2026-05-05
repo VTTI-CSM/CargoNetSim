@@ -3,10 +3,15 @@
 
 #include <QAction>
 #include <QHBoxLayout>
+#include <QIcon>
+#include <QKeySequence>
 #include <QStyle>
+#include <QUndoStack>
 #include <QVBoxLayout>
 #include <QWidgetAction>
 
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Commons/LogCategories.h"
 #include "../Controllers/BasicButtonController.h"
 #include "../Controllers/NetworkController.h"
 #include "../Controllers/UtilityFunctions.h"
@@ -16,8 +21,7 @@
 #include "../Widgets/ShipManagerDialog.h"
 #include "../Widgets/TrainManagerDialog.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "Backend/Controllers/VehicleController.h"
-#include "GUI/Controllers/ViewController.h"
+#include "GUI/Controllers/ConnectionController.h"
 #include "GUI/Widgets/ScrollableToolBar.h"
 
 namespace CargoNetSim
@@ -29,6 +33,8 @@ QMap<QWidget *, bool> ToolbarController::widgetStates;
 
 void ToolbarController::setupToolbar(MainWindow *mainWindow)
 {
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: begin";
+
     //////////////////////////////////////////////////////////////////////////
     // Create base toolbar and ribbon
     //////////////////////////////////////////////////////////////////////////
@@ -63,50 +69,122 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     newProjectButton->setText("New\nProject");
     newProjectButton->setIcon(
         QIcon(IconFactory::createNewProjectIcon()));
-    newProjectButton->setEnabled(false);
-    // QObject::connect(newProjectButton,
-    // &QToolButton::clicked,
-    //                  [mainWindow]() {
-    //                  BasicButtonController::newProject(mainWindow);
-    //                  });
+    QObject::connect(newProjectButton,
+                     &QToolButton::clicked,
+                     [mainWindow]() {
+                         BasicButtonController::newProject(
+                             mainWindow);
+                     });
     projectLayout->addWidget(newProjectButton);
 
-    // Open project button
-    // QToolButton *openProjectButton = new QToolButton();
-    // openProjectButton->setToolButtonStyle(
-    //     Qt::ToolButtonStyle::ToolButtonTextUnderIcon);
-    // openProjectButton->setText("Open\nProject");
-    // openProjectButton->setIcon(
-    //     QIcon(IconFactory::createOpenProjectIcon()));
-    // openProjectButton->setEnabled(false);
-    // // QObject::connect(openProjectButton,
-    // // &QToolButton::clicked,
-    // //                  [mainWindow]() {
-    // // BasicButtonController::openProject(mainWindow);
-    // //                  });
-    // projectLayout->addWidget(openProjectButton);
+    // Open Scenario button (Plan 4 Task 20 — wires the ribbon to
+    // BasicButtonController::openScenario from Task 19).
+    QToolButton *openScenarioButton = new QToolButton();
+    openScenarioButton->setToolButtonStyle(
+        Qt::ToolButtonStyle::ToolButtonTextUnderIcon);
+    openScenarioButton->setText("Open\nScenario");
+    openScenarioButton->setIcon(
+        QIcon(IconFactory::createOpenProjectIcon()));
+    QObject::connect(openScenarioButton,
+                     &QToolButton::clicked,
+                     [mainWindow]() {
+                         BasicButtonController::openScenario(
+                             mainWindow);
+                     });
+    projectLayout->addWidget(openScenarioButton);
 
-    // Save project button
-    // QToolButton *saveProjectButton = new QToolButton();
-    // saveProjectButton->setToolButtonStyle(
-    //     Qt::ToolButtonStyle::ToolButtonTextUnderIcon);
-    // saveProjectButton->setText("Save\nProject");
-    // saveProjectButton->setIcon(
-    //     QIcon(IconFactory::createSaveProjectIcon()));
-    // saveProjectButton->setEnabled(false);
-    // // QObject::connect(saveProjectButton,
-    // // &QToolButton::clicked,
-    // //                  [mainWindow]() {
-    // // BasicButtonController::saveProject(mainWindow);
-    // //                  });
-    // projectLayout->addWidget(saveProjectButton);
+    // Save Scenario button.
+    QToolButton *saveScenarioButton = new QToolButton();
+    saveScenarioButton->setToolButtonStyle(
+        Qt::ToolButtonStyle::ToolButtonTextUnderIcon);
+    saveScenarioButton->setText("Save\nScenario");
+    saveScenarioButton->setIcon(
+        QIcon(IconFactory::createSaveProjectIcon()));
+    QObject::connect(saveScenarioButton,
+                     &QToolButton::clicked,
+                     [mainWindow]() {
+                         BasicButtonController::saveScenario(
+                             mainWindow);
+                     });
+    projectLayout->addWidget(saveScenarioButton);
 
     mainWindow->projectButtons_ = {
-        newProjectButton
-        // openProjectButton,
-        // saveProjectButton
+        newProjectButton,
+        openScenarioButton,
+        saveScenarioButton
     };
     homeLayout->addWidget(mainWindow->projectGroup_);
+
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Project group created";
+
+    // Create Edit group (Plan 4 Task 4.12 — Undo/Redo wired to
+    // the scenario CommandBus so ribbon mirrors QUndoStack state).
+    QGroupBox   *editGroup   = new QGroupBox("Edit");
+    QHBoxLayout *editLayout  = new QHBoxLayout(editGroup);
+    editLayout->setSpacing(4);
+    editLayout->setContentsMargins(8, 12, 8, 8);
+
+    QUndoStack *undoStack = mainWindow->commandBus()->undoStack();
+
+    // Static button label; the hover tooltip carries the dynamic
+    // command description so the ribbon stays visually stable.
+    QAction *undoAction = new QAction(
+        QIcon::fromTheme("edit-undo"), QStringLiteral("Undo"), mainWindow);
+    undoAction->setShortcut(QKeySequence::Undo);
+    undoAction->setEnabled(undoStack->canUndo());
+    auto refreshUndoTooltip = [undoAction, undoStack]() {
+        const QString cmd = undoStack->undoText();
+        undoAction->setToolTip(cmd.isEmpty()
+                                   ? QStringLiteral("Undo")
+                                   : QStringLiteral("Undo %1").arg(cmd));
+    };
+    refreshUndoTooltip();
+    QObject::connect(undoStack, &QUndoStack::canUndoChanged,
+                     undoAction, &QAction::setEnabled);
+    QObject::connect(undoStack, &QUndoStack::undoTextChanged,
+                     undoAction,
+                     [refreshUndoTooltip](const QString &) {
+                         refreshUndoTooltip();
+                     });
+    QObject::connect(undoAction, &QAction::triggered,
+                     undoStack, &QUndoStack::undo);
+
+    QAction *redoAction = new QAction(
+        QIcon::fromTheme("edit-redo"), QStringLiteral("Redo"), mainWindow);
+    redoAction->setShortcut(QKeySequence::Redo);
+    redoAction->setEnabled(undoStack->canRedo());
+    auto refreshRedoTooltip = [redoAction, undoStack]() {
+        const QString cmd = undoStack->redoText();
+        redoAction->setToolTip(cmd.isEmpty()
+                                   ? QStringLiteral("Redo")
+                                   : QStringLiteral("Redo %1").arg(cmd));
+    };
+    refreshRedoTooltip();
+    QObject::connect(undoStack, &QUndoStack::canRedoChanged,
+                     redoAction, &QAction::setEnabled);
+    QObject::connect(undoStack, &QUndoStack::redoTextChanged,
+                     redoAction,
+                     [refreshRedoTooltip](const QString &) {
+                         refreshRedoTooltip();
+                     });
+    QObject::connect(redoAction, &QAction::triggered,
+                     undoStack, &QUndoStack::redo);
+
+    QToolButton *undoButton = new QToolButton();
+    undoButton->setToolButtonStyle(
+        Qt::ToolButtonStyle::ToolButtonTextUnderIcon);
+    undoButton->setDefaultAction(undoAction);
+    editLayout->addWidget(undoButton);
+
+    QToolButton *redoButton = new QToolButton();
+    redoButton->setToolButtonStyle(
+        Qt::ToolButtonStyle::ToolButtonTextUnderIcon);
+    redoButton->setDefaultAction(redoAction);
+    editLayout->addWidget(redoButton);
+
+    homeLayout->addWidget(editGroup);
+
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Edit group created";
 
     // Create Tools group
     mainWindow->toolsGroup_ = new QGroupBox("Basic Tools");
@@ -196,6 +274,8 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
         unlinkTerminalButton, setGlobalPositionButton};
     homeLayout->addWidget(mainWindow->toolsGroup_);
 
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Tools group created";
+
     // Create Measurements group
     mainWindow->measurementsGroup_ =
         new QGroupBox("Measurements");
@@ -239,6 +319,8 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     mainWindow->measurementsButtons_ = {measureButton,
                                         clearMeasureButton};
     homeLayout->addWidget(mainWindow->measurementsGroup_);
+
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Measurements group created";
 
     // Create Region group
     mainWindow->regionGroup_ = new QGroupBox("Region");
@@ -354,18 +436,28 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     QObject::connect(
         connectVisibleTerminalsByNetworkButton,
         &QToolButton::clicked, [mainWindow]() {
-            ViewController::
-                connectVisibleTerminalsByNetworks(
-                    mainWindow);
+            QString currentRegion =
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
+            mainWindow->connectionCtrl()
+                ->connectVisibleTerminalsByNetworks(
+                    currentRegion,
+                    mainWindow->isGlobalViewActive());
         });
 
     // Connect the menu button's click signal
     QObject::connect(
         connectTerminalItemsByInterfaceButton,
         &QToolButton::clicked, [mainWindow]() {
-            ViewController::
-                connectVisibleTerminalsByInterfaces(
-                    mainWindow);
+            QString currentRegion =
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
+            mainWindow->connectionCtrl()
+                ->connectVisibleTerminalsByInterfaces(
+                    currentRegion,
+                    mainWindow->isGlobalViewActive());
         });
 
     networkToolsLayout->addWidget(
@@ -384,10 +476,9 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
         disconnectAllTerminalsButton, &QToolButton::clicked,
         [mainWindow]() {
             QString currentRegion =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegion();
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
             BasicButtonController::disconnectAllTerminals(
                 mainWindow, mainWindow->getCurrentScene(),
                 (mainWindow->isRegionViewActive()
@@ -436,6 +527,8 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
 
     homeLayout->addWidget(mainWindow->networkToolsGroup_);
 
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Network Tools group created";
+
     // Create Simulation Tools group
     mainWindow->simulationToolsGroup_ =
         new QGroupBox("Simulation Tools");
@@ -458,8 +551,7 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
             QMap<QString, QVariant> simParams =
                 CargoNetSim::CargoNetSimController::
                     getInstance()
-                        .getConfigController()
-                        ->getSimulationParams();
+                        .getSimulationParams();
             int pathsNo =
                 simParams.value("shortest_paths", 3)
                     .toInt();
@@ -496,6 +588,8 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     homeLayout->addWidget(
         mainWindow->simulationToolsGroup_);
 
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Simulation Tools group created";
+
     // Create Logs group
     mainWindow->logsGroup_ = new QGroupBox("Logs");
     QHBoxLayout *logsLayout =
@@ -531,6 +625,8 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     homeLayout->addStretch();
     int homeTabIndex = toolbar->addTab(homeTab, "Home");
 
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Home tab created";
+
     //////////////////////////////////////////////////////////////////////////
     // IMPORT TAB
     //////////////////////////////////////////////////////////////////////////
@@ -558,8 +654,7 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
         IconFactory::createSetBackgroundColorPixmap()));
     QObject::connect(bgPhotoButton, &QToolButton::clicked,
                      mainWindow, [mainWindow]() {
-                         ViewController::addBackgroundPhoto(
-                             mainWindow);
+                         mainWindow->addBackgroundPhoto();
                      });
     viewImportLayout->addWidget(bgPhotoButton);
 
@@ -584,13 +679,12 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     QObject::connect(
         trainImportButton, &QToolButton::clicked,
         [mainWindow]() {
-            auto regionData =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegionData();
+            const QString regionName =
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
             NetworkController::importNetwork(
-                mainWindow, NetworkType::Train, regionData);
+                mainWindow, NetworkType::Train, regionName);
         });
     networkImportLayout->addWidget(trainImportButton);
 
@@ -604,13 +698,12 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     QObject::connect(
         truckImportButton, &QToolButton::clicked,
         [mainWindow]() {
-            auto regionData =
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getCurrentRegionData();
+            const QString regionName =
+                mainWindow->networkViewService()
+                    ? mainWindow->networkViewService()->currentRegionName()
+                    : QString();
             NetworkController::importNetwork(
-                mainWindow, NetworkType::Truck, regionData);
+                mainWindow, NetworkType::Truck, regionName);
         });
     networkImportLayout->addWidget(truckImportButton);
 
@@ -670,6 +763,8 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     importLayout->addStretch();
     int importTabIndex =
         toolbar->addTab(importTab, "Import");
+
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: Import tab created";
 
     //////////////////////////////////////////////////////////////////////////
     // VIEW TAB
@@ -908,6 +1003,8 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
     viewLayout->addStretch();
     int viewTabIndex = toolbar->addTab(viewTab, "View");
 
+    qCDebug(lcGuiButton) << "ToolbarController::setupToolbar: View tab created";
+
     mainWindow->windowVisibility_.clear();
 
     // Add each entry individually:
@@ -1017,12 +1114,10 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
         QList<int>{2};
     mainWindow->toolsButtonsVisibility_[newProjectButton] =
         QList<int>{0, 1};
-    // mainWindow->toolsButtonsVisibility_[openProjectButton]
-    // =
-    //     QList<int>{0, 1};
-    // mainWindow->toolsButtonsVisibility_[saveProjectButton]
-    // =
-    //     QList<int>{0, 1};
+    mainWindow->toolsButtonsVisibility_[openScenarioButton] =
+        QList<int>{0, 1};
+    mainWindow->toolsButtonsVisibility_[saveScenarioButton] =
+        QList<int>{0, 1};
     mainWindow
         ->toolsButtonsVisibility_[shortestPathsButton] =
         QList<int>{0, 1};
@@ -1045,6 +1140,7 @@ void ToolbarController::setupToolbar(MainWindow *mainWindow)
 void ToolbarController::storeButtonStates(
     MainWindow *mainWindow)
 {
+    qCDebug(lcGuiButton) << "ToolbarController::storeButtonStates: begin";
     widgetStates.clear();
 
     if (mainWindow->toolbar_)
@@ -1065,6 +1161,7 @@ void ToolbarController::storeButtonStates(
 void ToolbarController::restoreButtonStates(
     MainWindow *mainWindow)
 {
+    qCDebug(lcGuiButton) << "ToolbarController::restoreButtonStates: begin";
     // Restore widget states from saved states
     for (auto it = widgetStates.begin();
          it != widgetStates.end(); ++it)
@@ -1081,6 +1178,7 @@ void ToolbarController::restoreButtonStates(
 void ToolbarController::disableAllButtons(
     MainWindow *mainWindow)
 {
+    qCDebug(lcGuiButton) << "ToolbarController::disableAllButtons: begin";
     if (mainWindow->toolbar_)
     {
         // Get all interactive widgets

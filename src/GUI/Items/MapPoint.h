@@ -1,18 +1,33 @@
 #pragma once
 
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IContextMenuProvider.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 #include "GraphicsObjectBase.h"
 
 #include <QColor>
+#include <QCursor>
 #include <QGraphicsObject>
 #include <QMap>
+#include <QMenu>
 #include <QPointF>
 #include <QString>
 #include <QVariant>
 
 namespace CargoNetSim
 {
+namespace Backend {
+namespace Scenario {
+struct NodeLinkage;
+class  ScenarioDocument;
+} // namespace Scenario
+} // namespace Backend
+
 namespace GUI
 {
+
+namespace Input { class CommandBus; }
 
 class TerminalItem;
 
@@ -22,12 +37,31 @@ class TerminalItem;
  * MapPoint is a visual representation of a network node
  * that can be linked to a terminal. It can have different
  * shapes and belongs to a specific network region.
+ *
+ * Delete-policy: MapPoints are network-scoped — the network
+ * owns a fixed set of nodes and a MapPoint's identity is
+ * its node id inside that network. Deleting a single node
+ * would desynchronize the scene from the network model, so
+ * per-item Delete is not supported. The network-removal path
+ * (NetworkDrawingController::removeNetwork) iterates nodes
+ * and links and removes every MapPoint/MapLine belonging to
+ * the network in one pass. We therefore deliberately do NOT
+ * override GraphicsObjectBase::createDeleteCommand — base's
+ * nullptr return makes Delete a silent no-op on this item,
+ * which is the intended behaviour.
  */
-class MapPoint : public GraphicsObjectBase
+class MapPoint : public GraphicsObjectBase,
+                 public Input::IClickable,
+                 public Input::IContextMenuProvider,
+                 public Input::IHoverable
 {
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 5 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructs a new MapPoint object
      *
@@ -52,6 +86,35 @@ public:
                  QMap<QString, QVariant>());
 
     virtual ~MapPoint() = default;
+
+    /**
+     * @brief Bind this point to a NodeLinkage (non-owning).
+     *
+     * The linkage carries the canonical (networkName, nodeId, terminalId,
+     * source) tuple that this point represents. When bound, callers like
+     * the backend editing service can read the linkage
+     * directly instead of pulling values from m_properties.
+     *
+     * This is a view binding over a backend linkage. `setLinkedTerminal`
+     * remains a pure view-cache call (it updates the `m_terminal` pointer
+     * + property cache only); user-driven linking/unlinking mutates the
+     * document through `ScenarioEditService::linkTerminalToNode` via
+     * CommandBus commands, not here.
+     *
+     * Passing nullptr unbinds.
+     */
+    void setLinkageModel(Backend::Scenario::NodeLinkage *linkage)
+    {
+        m_linkage = linkage;
+    }
+
+    /// Non-owning linkage pointer, or nullptr when no canonical linkage is
+    /// bound yet (for example an unlinked network node or a view-only test
+    /// fixture).
+    Backend::Scenario::NodeLinkage *linkageModel() const
+    {
+        return m_linkage;
+    }
 
     /**
      * @brief Sets the terminal linked to this point
@@ -197,12 +260,14 @@ public:
         const QMap<int, TerminalItem *> &terminalsById =
             QMap<int, TerminalItem *>());
 
-signals:
-    /**
-     * @brief Signal emitted when the point is clicked
-     */
-    void clicked(MapPoint *point);
+    // --- Input interfaces (Plan 3 Task 3.5) ---
+    Input::Handled onLeftClick   (const Input::ClickContext&) override;
+    void           buildContextMenu(QMenu* menu, const Input::ClickContext&) override;
+    void           onHoverEnter  (const Input::ClickContext&) override;
+    void           onHoverLeave  (const Input::ClickContext&) override;
+    QCursor        hoverCursor() const override { return QCursor(Qt::PointingHandCursor); }
 
+signals:
     /**
      * @brief Signal emitted when the point is moved
      */
@@ -237,16 +302,14 @@ protected:
     void   paint(QPainter                       *painter,
                  const QStyleOptionGraphicsItem *option,
                  QWidget *widget = nullptr) override;
-    void   mousePressEvent(
-          QGraphicsSceneMouseEvent *event) override;
-    void contextMenuEvent(
-        QGraphicsSceneContextMenuEvent *event) override;
 
 private:
-    void
-    showContextMenu(QGraphicsSceneContextMenuEvent *event);
-    void
-    createTerminalAtPosition(const QString &terminalType);
+    void createTerminalAtPosition(
+        const QString &terminalType,
+        Backend::Scenario::TerminalPlacement::TerminalRole role =
+            Backend::Scenario::TerminalPlacement::TerminalRole::Transit,
+        Backend::Scenario::ScenarioDocument *doc = nullptr,
+        Input::CommandBus                   *bus = nullptr);
 
     static int POINT_ID;
 
@@ -257,6 +320,11 @@ private:
     QColor                  m_color;
     QMap<QString, QVariant> m_properties;
     QObject                *m_referenceNetwork;
+
+    /// Non-owning pointer into ScenarioDocument::linkages. When non-null
+    /// this point is a view of that linkage; null means no backend linkage
+    /// is currently bound.
+    Backend::Scenario::NodeLinkage *m_linkage = nullptr;
 };
 
 } // namespace GUI

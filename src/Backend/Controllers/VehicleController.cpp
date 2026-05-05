@@ -1,4 +1,5 @@
 #include "VehicleController.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QRandomGenerator>
 
 namespace CargoNetSim
@@ -13,13 +14,15 @@ VehicleController::VehicleController(QObject *parent)
 
 VehicleController::~VehicleController()
 {
-    clear();
 }
 
 // Ship Management Methods
 bool VehicleController::loadShipsFromFile(
     const QString &filePath)
 {
+    qCInfo(lcController) << "VehicleController::loadShipsFromFile:"
+                         << filePath;
+
     // Clear existing ships
     qDeleteAll(m_ships);
     m_ships.clear();
@@ -29,6 +32,8 @@ bool VehicleController::loadShipsFromFile(
         ShipsReader::readShipsFile(filePath, this);
     if (loadedShips.isEmpty())
     {
+        qCWarning(lcController) << "VehicleController::loadShipsFromFile:"
+                                << "no ships parsed from" << filePath;
         return false;
     }
 
@@ -40,6 +45,8 @@ bool VehicleController::loadShipsFromFile(
                 [this, ship]() { emit shipUpdated(ship); });
     }
 
+    qCDebug(lcController) << "VehicleController::loadShipsFromFile:"
+                          << "loaded" << loadedShips.size() << "ships";
     emit shipsLoaded(loadedShips.size());
     return true;
 }
@@ -59,8 +66,12 @@ bool VehicleController::addShip(Ship *ship)
 {
     if (!ship || m_ships.contains(ship->getUserId()))
     {
+        qCDebug(lcController) << "VehicleController::addShip:"
+                              << "rejected (null or duplicate)";
         return false;
     }
+    qCDebug(lcController) << "VehicleController::addShip:"
+                          << ship->getUserId();
 
     // Take ownership of the ship
     ship->setParent(this);
@@ -78,6 +89,7 @@ bool VehicleController::addShip(Ship *ship)
 
 bool VehicleController::removeShip(const QString &shipId)
 {
+    qCDebug(lcController) << "VehicleController::removeShip:" << shipId;
     if (!m_ships.contains(shipId))
     {
         return false;
@@ -94,8 +106,12 @@ bool VehicleController::updateShip(Ship *ship)
 {
     if (!ship || !m_ships.contains(ship->getUserId()))
     {
+        qCDebug(lcController) << "VehicleController::updateShip:"
+                              << "rejected (null or not found)";
         return false;
     }
+    qCDebug(lcController) << "VehicleController::updateShip:"
+                          << ship->getUserId();
 
     // Remove old ship
     Ship *oldShip = m_ships[ship->getUserId()];
@@ -177,6 +193,9 @@ int VehicleController::shipCount() const
 bool VehicleController::loadTrainsFromFile(
     const QString &filePath)
 {
+    qCInfo(lcController) << "VehicleController::loadTrainsFromFile:"
+                         << filePath;
+
     // Clear existing trains
     qDeleteAll(m_trains);
     m_trains.clear();
@@ -186,6 +205,8 @@ bool VehicleController::loadTrainsFromFile(
         TrainsReader::readTrainsFile(filePath, this);
     if (loadedTrains.isEmpty())
     {
+        qCWarning(lcController) << "VehicleController::loadTrainsFromFile:"
+                                << "no trains parsed from" << filePath;
         return false;
     }
 
@@ -198,6 +219,8 @@ bool VehicleController::loadTrainsFromFile(
             [this, train]() { emit trainUpdated(train); });
     }
 
+    qCDebug(lcController) << "VehicleController::loadTrainsFromFile:"
+                          << "loaded" << loadedTrains.size() << "trains";
     emit trainsLoaded(loadedTrains.size());
     return true;
 }
@@ -217,8 +240,12 @@ bool VehicleController::addTrain(Train *train)
 {
     if (!train || m_trains.contains(train->getUserId()))
     {
+        qCDebug(lcController) << "VehicleController::addTrain:"
+                              << "rejected (null or duplicate)";
         return false;
     }
+    qCDebug(lcController) << "VehicleController::addTrain:"
+                          << train->getUserId();
 
     // Take ownership of the train
     train->setParent(this);
@@ -236,6 +263,7 @@ bool VehicleController::addTrain(Train *train)
 
 bool VehicleController::removeTrain(const QString &userId)
 {
+    qCDebug(lcController) << "VehicleController::removeTrain:" << userId;
     if (!m_trains.contains(userId))
     {
         return false;
@@ -252,8 +280,12 @@ bool VehicleController::updateTrain(Train *train)
 {
     if (!train || !m_trains.contains(train->getUserId()))
     {
+        qCDebug(lcController) << "VehicleController::updateTrain:"
+                              << "rejected (null or not found)";
         return false;
     }
+    qCDebug(lcController) << "VehicleController::updateTrain:"
+                          << train->getUserId();
 
     // Remove old train
     Train *oldTrain = m_trains[train->getUserId()];
@@ -335,6 +367,9 @@ int VehicleController::trainCount() const
 // General operations
 void VehicleController::clear()
 {
+    qCInfo(lcController) << "VehicleController::clear:"
+                         << m_ships.size() << "ships,"
+                         << m_trains.size() << "trains";
     // Clear ships
     qDeleteAll(m_ships);
     m_ships.clear();
@@ -350,6 +385,8 @@ Ship *VehicleController::getRandomShip() const
 {
     if (m_ships.isEmpty())
     {
+        qCWarning(lcController) << "VehicleController::getRandomShip:"
+                                << "ship collection is empty";
         return nullptr;
     }
 
@@ -369,6 +406,8 @@ Train *VehicleController::getRandomTrain() const
 {
     if (m_trains.isEmpty())
     {
+        qCWarning(lcController) << "VehicleController::getRandomTrain:"
+                                << "train collection is empty";
         return nullptr;
     }
 

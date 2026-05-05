@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Backend/Commons/Units.h"
+
 #include <QByteArray>
 #include <QDateTime>
 #include <QJsonArray>
@@ -82,6 +84,26 @@ public:
     double                       getWaveHeight() const;
     double                       getWaveLength() const;
     double getWaveAngularFrequency() const;
+
+    Units::LengthMeters travelledDistanceUnits() const
+    {
+        return Units::meters(getTravelledDistance());
+    }
+
+    Units::TimeSeconds tripTimeUnits() const
+    {
+        return Units::seconds(getTripTime());
+    }
+
+    Units::EnergyKilowattHours energyConsumptionUnits() const
+    {
+        return Units::kilowattHours(getEnergyConsumption());
+    }
+
+    Units::MassKilograms carbonEmissionsUnits() const
+    {
+        return Units::kilograms(getCarbonEmissions());
+    }
 
 private:
     QString m_shipId;

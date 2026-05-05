@@ -1,7 +1,7 @@
 #include "TerminalSelectionDialog.h"
 #include "../MainWindow.h"
-#include "Backend/Controllers/CargoNetSimController.h"
-#include "GUI/Controllers/ViewController.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Commons/LogCategories.h"
 #include "GUI/Items/ConnectionLine.h"
 #include "GUI/Items/GlobalTerminalItem.h"
 #include "GUI/Items/TerminalItem.h"
@@ -32,6 +32,7 @@ TerminalSelectionDialog::TerminalSelectionDialog(
     : QDialog(parent)
     , mainWindow_(mainWindow)
 {
+    qCInfo(lcGuiUtil) << "TerminalSelectionDialog::TerminalSelectionDialog: opening";
     setWindowTitle("Filter Connections");
     setMinimumSize(600, 500);
 
@@ -43,10 +44,14 @@ TerminalSelectionDialog::TerminalSelectionDialog(
     populateConnectionTypes();
 }
 
-TerminalSelectionDialog::~TerminalSelectionDialog() {}
+TerminalSelectionDialog::~TerminalSelectionDialog()
+{
+    qCInfo(lcGuiUtil) << "TerminalSelectionDialog::~TerminalSelectionDialog: closing";
+}
 
 void TerminalSelectionDialog::setupUI()
 {
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::setupUI: building UI";
     // Main layout
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setSpacing(10);
@@ -198,6 +203,7 @@ void TerminalSelectionDialog::createConnections()
 QStringList
 TerminalSelectionDialog::getSelectedTerminalNames() const
 {
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::getSelectedTerminalNames";
     QStringList selectedTerminals;
 
     for (int i = 0; i < terminalListWidget_->count(); ++i)
@@ -210,6 +216,8 @@ TerminalSelectionDialog::getSelectedTerminalNames() const
         }
     }
 
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::getSelectedTerminalNames:"
+                       << selectedTerminals.size() << "selected";
     return selectedTerminals;
 }
 
@@ -226,11 +234,14 @@ TerminalSelectionDialog::getSelectedConnectionTypes() const
         }
     }
 
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::getSelectedConnectionTypes:"
+                       << selectedTypes.size() << "selected";
     return selectedTypes;
 }
 
 void TerminalSelectionDialog::populateTerminalNames()
 {
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::populateTerminalNames";
     originalTerminalNames_.clear();
     terminalListWidget_->clear();
 
@@ -269,10 +280,9 @@ void TerminalSelectionDialog::populateTerminalNames()
         // Get terminal names from TerminalItems in the
         // current region
         QString currentRegion =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getCurrentRegion();
+            mainWindow_ && mainWindow_->networkViewService()
+                ? mainWindow_->networkViewService()->currentRegionName()
+                : QString();
 
         QList<TerminalItem *> terminals =
             scene->getItemsByType<TerminalItem>();
@@ -295,6 +305,8 @@ void TerminalSelectionDialog::populateTerminalNames()
         }
     }
 
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::populateTerminalNames: found"
+                       << originalTerminalNames_.size() << "terminals";
     // Sort terminal names alphabetically
     originalTerminalNames_.sort();
 
@@ -310,6 +322,7 @@ void TerminalSelectionDialog::populateTerminalNames()
 
 void TerminalSelectionDialog::populateConnectionTypes()
 {
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::populateConnectionTypes";
     availableConnectionTypes_.clear();
 
     // Clear previous checkboxes
@@ -330,12 +343,17 @@ void TerminalSelectionDialog::populateConnectionTypes()
     QList<ConnectionLine *> connectionLines =
         scene->getItemsByType<ConnectionLine>();
 
-    // Find unique connection types
+    // Find unique connection types. `connectionType()` returns the
+    // strongly-typed enum; the dialog's availableConnectionTypes_ is
+    // a user-facing QStringList, so display via TransportationTypes::
+    // toString ("Truck"/"Train"/"Ship").
     for (ConnectionLine *line : connectionLines)
     {
         if (line && line->isVisible())
         {
-            QString connectionType = line->connectionType();
+            const QString connectionType =
+                Backend::TransportationTypes::toString(
+                    line->connectionType());
             if (!connectionType.isEmpty()
                 && !availableConnectionTypes_.contains(
                     connectionType))
@@ -345,6 +363,8 @@ void TerminalSelectionDialog::populateConnectionTypes()
         }
     }
 
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::populateConnectionTypes: found"
+                       << availableConnectionTypes_.size() << "types";
     // Sort connection types alphabetically
     availableConnectionTypes_.sort();
 
@@ -422,6 +442,7 @@ void TerminalSelectionDialog::validateSelections()
 void TerminalSelectionDialog::filterTerminalList(
     const QString &text)
 {
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::filterTerminalList:" << text;
     for (int i = 0; i < terminalListWidget_->count(); ++i)
     {
         QListWidgetItem *item =
@@ -438,6 +459,7 @@ void TerminalSelectionDialog::filterTerminalList(
 void TerminalSelectionDialog::selectAllTerminals(
     bool checked)
 {
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::selectAllTerminals:" << checked;
     for (int i = 0; i < terminalListWidget_->count(); ++i)
     {
         QListWidgetItem *item =
@@ -454,6 +476,7 @@ void TerminalSelectionDialog::selectAllTerminals(
 void TerminalSelectionDialog::selectAllConnectionTypes(
     bool checked)
 {
+    qCDebug(lcGuiUtil) << "TerminalSelectionDialog::selectAllConnectionTypes:" << checked;
     for (QCheckBox *checkbox : connectionTypeCheckBoxes_)
     {
         checkbox->setChecked(checked);

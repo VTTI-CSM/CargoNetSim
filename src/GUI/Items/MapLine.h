@@ -1,10 +1,12 @@
 #pragma once
 
 #include "GUI/Items/TerminalItem.h"
+#include "GUI/Input/Interfaces/IClickable.h"
 #include "GraphicsObjectBase.h"
 
 #include <QGraphicsObject>
 #include <QMap>
+#include <QPainterPath>
 #include <QPen>
 #include <QPointF>
 #include <QString>
@@ -22,12 +24,23 @@ namespace GUI
  * MapLine is a visual representation of a connection
  * between two points in a network. It belongs to a specific
  * network region and can have various properties.
+ *
+ * Delete-policy: same as MapPoint — network-scoped; removed
+ * en-bloc by NetworkDrawingController::removeNetwork. We
+ * deliberately do NOT override
+ * GraphicsObjectBase::createDeleteCommand. See MapPoint.h for
+ * the full rationale.
  */
-class MapLine : public GraphicsObjectBase
+class MapLine : public GraphicsObjectBase,
+                public Input::IClickable
 {
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 6 };
+    int type() const override { return Type; }
+
     /**
      * @brief Constructs a new MapLine object
      *
@@ -172,12 +185,10 @@ public:
     static MapLine *
     fromDict(const QMap<QString, QVariant> &data);
 
-signals:
-    /**
-     * @brief Signal emitted when the line is clicked
-     */
-    void clicked(MapLine *line);
+    Input::Handled
+    onLeftClick(const Input::ClickContext &ctx) override;
 
+signals:
     /**
      * @brief Signal emitted when the line's color changes
      */
@@ -190,16 +201,13 @@ signals:
                          const QVariant &value);
 
 protected:
-    QRectF boundingRect() const override;
-    void   paint(QPainter                       *painter,
-                 const QStyleOptionGraphicsItem *option,
-                 QWidget *widget = nullptr) override;
-    void   mousePressEvent(
-          QGraphicsSceneMouseEvent *event) override;
+    QRectF       boundingRect() const override;
+    QPainterPath shape() const override;
+    void         paint(QPainter                       *painter,
+                       const QStyleOptionGraphicsItem *option,
+                       QWidget *widget = nullptr) override;
 
 private:
-    void selectNetworkLines();
-
     QPointF                 startPoint;
     QPointF                 endPoint;
     QMap<QString, QVariant> m_properties;

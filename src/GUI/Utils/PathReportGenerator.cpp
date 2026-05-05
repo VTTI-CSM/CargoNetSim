@@ -12,28 +12,171 @@
  */
 
 #include "PathReportGenerator.h"
-#include <KDReportsPreviewDialog.h>
-#include <KDReportsPreviewWidget.h>
-#include <QApplication>
-#include <QDir>
+#include "Backend/Commons/LogCategories.h"
 #include <QFont>
-#include <QFontMetrics>
-#include <QMessageBox>
+#include <QLocale>
 #include <QPainter>
 #include <QPrinter>
+#include <limits>
 
 namespace CargoNetSim
 {
 namespace GUI
 {
 
+namespace
+{
+
+using CostSnapshot =
+    CargoNetSim::Backend::Application::PathPresentationCostSnapshot;
+using SegmentEntry =
+    CargoNetSim::Backend::Application::PathPresentationSegmentEntry;
+using PathMetrics = CargoNetSim::Backend::Scenario::PathMetrics;
+
+QString formatFixed(double value, int precision)
+{
+    return QLocale().toString(value, 'f', precision);
+}
+
+QString formatUsd(double value)
+{
+    return QObject::tr("$%1").arg(formatFixed(value, 2));
+}
+
+QString formatPercent(double value)
+{
+    const QString sign = value > 0.0 ? QStringLiteral("+")
+                                     : QString();
+    return QObject::tr("%1%2%")
+        .arg(sign, formatFixed(value, 2));
+}
+
+QString formatAvailable(bool available, double value,
+                        int precision)
+{
+    return available ? formatFixed(value, precision)
+                     : QObject::tr("N/A");
+}
+
+QString formatActualAvailable(bool available, double value,
+                              int precision)
+{
+    return available ? formatFixed(value, precision)
+                     : QObject::tr("Not modeled");
+}
+
+QString formatActualInt(bool available, int value)
+{
+    return available ? QString::number(value)
+                     : QObject::tr("Not modeled");
+}
+
+QString formatActualMode(
+    bool available,
+    CargoNetSim::Backend::TransportationTypes::
+        TransportationMode mode)
+{
+    if (!available)
+        return QObject::tr("Not modeled");
+    return CargoNetSim::Backend::TransportationTypes::
+        toString(mode);
+}
+
+double costSnapshotTotal(const CostSnapshot &costs)
+{
+    if (!costs.available)
+        return 0.0;
+
+    return costs.travelTime + costs.distance
+           + costs.carbonEmissions
+           + costs.energyConsumption + costs.risk
+           + costs.directCost;
+}
+
+QString formatCostComponent(const CostSnapshot &costs,
+                            double component,
+                            int    precision = 2)
+{
+    return costs.available ? formatFixed(component, precision)
+                           : QObject::tr("N/A");
+}
+
+QString percentDifferenceText(double predicted, double actual)
+{
+    if (predicted <= 0.0 || actual < 0.0)
+        return QObject::tr("N/A");
+
+    return formatPercent(((actual - predicted) / predicted)
+                         * 100.0);
+}
+
+QString shortened(const QString &text, int maxLength = 90)
+{
+    if (text.size() <= maxLength)
+        return text;
+    if (maxLength <= 3)
+        return text.left(maxLength);
+    return text.left(maxLength - 3) + QStringLiteral("...");
+}
+
+QString modeSequenceFor(const QList<SegmentEntry> &segments)
+{
+    QStringList modes;
+    for (const auto &segment : segments)
+    {
+        modes << (segment.modeName.isEmpty()
+                      ? QObject::tr("Unknown")
+                      : segment.modeName);
+    }
+    return modes.isEmpty() ? QObject::tr("N/A")
+                           : modes.join(QStringLiteral(" -> "));
+}
+
+QString vehiclePlanFor(const PathMetrics &metrics)
+{
+    if (!metrics.previewVehicleBreakdown.isEmpty())
+    {
+        QStringList parts;
+        for (const auto &entry :
+             metrics.previewVehicleBreakdown)
+        {
+            QString mode =
+                CargoNetSim::Backend::TransportationTypes::
+                    toString(entry.mode);
+            if (mode.isEmpty())
+                mode = QObject::tr("Unknown");
+
+            parts << QObject::tr("S%1 %2 x%3")
+                         .arg(entry.segmentIndex + 1)
+                         .arg(mode)
+                         .arg(entry.vehiclesNeeded);
+        }
+        return parts.join(QStringLiteral(", "));
+    }
+
+    if (metrics.vehiclesNeeded > 0)
+        return QObject::tr("%1 vehicle(s)")
+            .arg(metrics.vehiclesNeeded);
+
+    return QObject::tr("N/A");
+}
+
+QString yesNo(bool value)
+{
+    return value ? QObject::tr("Yes") : QObject::tr("No");
+}
+
+} // namespace
+
 PathReportGenerator::PathReportGenerator(
-    const QList<const ShortestPathsTable::PathData *>
-            &pathData,
+    const QList<const PathData *> &pathData,
     QObject *parent)
     : QObject(parent)
     , m_pathData(pathData)
+    , m_viewModel(pathData)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::PathReportGenerator: pathData count"
+                       << pathData.size();
     // Initialize fonts
     m_pageTitleFont     = QFont("Arial", 18, QFont::Bold);
     m_sectionTitleFont  = QFont("Arial", 14, QFont::Bold);
@@ -58,11 +201,14 @@ PathReportGenerator::PathReportGenerator(
 
 PathReportGenerator::~PathReportGenerator()
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::~PathReportGenerator: destroyed";
     // Clean up if needed
 }
 
 KDReports::Report *PathReportGenerator::generateReport()
 {
+    qCInfo(lcGuiUtil) << "PathReportGenerator::generateReport: generating for"
+                      << m_pathData.size() << "paths";
     // Create the report
     KDReports::Report *report = new KDReports::Report();
 
@@ -97,26 +243,42 @@ KDReports::Report *PathReportGenerator::generateReport()
     // Set default title
     // report.setReportTitle(tr("Path Analysis Report"));
 
-    // Add report content
+    qCInfo(lcGuiUtil)
+        << "PathReportGenerator::generateReport: adding report header";
     addReportHeader(report);
+    qCInfo(lcGuiUtil)
+        << "PathReportGenerator::generateReport: adding executive summary";
+    addExecutiveSummary(report);
+    qCInfo(lcGuiUtil)
+        << "PathReportGenerator::generateReport: adding report notes";
+    addReportNotes(report);
+    qCInfo(lcGuiUtil)
+        << "PathReportGenerator::generateReport: adding table of contents";
     addTableOfContents(report);
 
     // Start a new page for path details
     report->addPageBreak();
 
+    qCInfo(lcGuiUtil)
+        << "PathReportGenerator::generateReport: adding comparative analysis";
     addComparativeAnalysis(report);
 
     // Start a new page for comparative analysis
     report->addPageBreak();
 
+    qCInfo(lcGuiUtil)
+        << "PathReportGenerator::generateReport: adding individual path sections";
     addIndividualPathSections(report);
 
+    qCInfo(lcGuiUtil)
+        << "PathReportGenerator::generateReport: completed";
     return report;
 }
 
 void PathReportGenerator::addReportHeader(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addReportHeader: --- header section ---";
     // Title
     KDReports::TextElement titleElement(
         tr("Path Analysis Report"));
@@ -148,9 +310,233 @@ void PathReportGenerator::addReportHeader(
     report->addVerticalSpacing(5);
 }
 
+void PathReportGenerator::addExecutiveSummary(
+    KDReports::Report *report)
+{
+    qCDebug(lcGuiUtil)
+        << "PathReportGenerator::addExecutiveSummary: paths"
+        << m_pathData.size();
+
+    KDReports::TextElement sectionTitle(
+        tr("Executive Summary"));
+    sectionTitle.setFont(m_sectionTitleFont);
+    sectionTitle.setTextColor(m_subtitleColor);
+    report->addElement(sectionTitle);
+    report->addVerticalSpacing(5);
+
+    int validPathCount = 0;
+    int simulatedCount = 0;
+    const PathData *bestPredicted = nullptr;
+    const PathData *bestActual = nullptr;
+    double bestPredictedCost =
+        std::numeric_limits<double>::max();
+    double bestActualCost = std::numeric_limits<double>::max();
+
+    for (const auto *pathData : m_pathData)
+    {
+        if (!(pathData && pathData->path))
+            continue;
+
+        ++validPathCount;
+        const auto summary = m_viewModel.pathSummary(pathData);
+        if (summary.predictedTotalCost < bestPredictedCost)
+        {
+            bestPredictedCost = summary.predictedTotalCost;
+            bestPredicted     = pathData;
+        }
+
+        if (pathData->hasSimulationTotalCost())
+        {
+            ++simulatedCount;
+            if (pathData->simulationTotalCost < bestActualCost)
+            {
+                bestActualCost = pathData->simulationTotalCost;
+                bestActual     = pathData;
+            }
+        }
+    }
+
+    KDReports::TableElement keyTable;
+    keyTable.setHeaderColumnCount(2);
+    keyTable.setHeaderRowCount(1);
+    keyTable.setBorder(1);
+    keyTable.setBorderBrush(QBrush(m_tableBorderColor));
+    styleTableCell(keyTable, 0, 0, tr("Metric"), true);
+    styleTableCell(keyTable, 0, 1, tr("Value"), true);
+
+    int row = 1;
+    styleTableCell(keyTable, row, 0, tr("Paths Included"),
+                   false, true);
+    styleTableCell(keyTable, row, 1,
+                   QString::number(validPathCount));
+    ++row;
+
+    styleTableCell(keyTable, row, 0, tr("Simulated Paths"),
+                   false, true);
+    styleTableCell(keyTable, row, 1,
+                   QString::number(simulatedCount));
+    ++row;
+
+    styleTableCell(keyTable, row, 0,
+                   tr("Best Predicted Path"), false, true);
+    styleTableCell(
+        keyTable, row, 1,
+        bestPredicted
+            ? m_viewModel.pathSummary(bestPredicted).pathLabel
+            : tr("N/A"));
+    ++row;
+
+    styleTableCell(keyTable, row, 0,
+                   tr("Best Predicted Total"), false, true);
+    styleTableCell(keyTable, row, 1,
+                   bestPredicted ? formatUsd(bestPredictedCost)
+                                 : tr("N/A"));
+    ++row;
+
+    styleTableCell(keyTable, row, 0,
+                   tr("Best Simulated Path"), false, true);
+    styleTableCell(
+        keyTable, row, 1,
+        bestActual ? m_viewModel.pathSummary(bestActual).pathLabel
+                   : tr("Not simulated"));
+    ++row;
+
+    styleTableCell(keyTable, row, 0,
+                   tr("Best Simulated Total"), false, true);
+    styleTableCell(keyTable, row, 1,
+                   bestActual ? formatUsd(bestActualCost)
+                              : tr("Not simulated"));
+    report->addElement(keyTable);
+    report->addVerticalSpacing(8);
+
+    KDReports::TextElement overviewTitle(
+        tr("Path Overview"));
+    overviewTitle.setFont(m_normalTextFont);
+    overviewTitle.setBold(true);
+    overviewTitle.setTextColor(m_subtitleColor);
+    report->addElement(overviewTitle);
+    report->addVerticalSpacing(3);
+
+    KDReports::TableElement overviewTable;
+    overviewTable.setHeaderRowCount(1);
+    overviewTable.setBorder(1);
+    overviewTable.setBorderBrush(QBrush(m_tableBorderColor));
+
+    const QStringList headers = {
+        tr("Path"),       tr("Rank"),
+        tr("Containers"), tr("Modes"),
+        tr("Predicted"),  tr("Actual"),
+        tr("Diff"),       tr("Pred Km"),
+        tr("Pred h"),     tr("Actual h"),
+        tr("Seg"),        tr("Term")};
+    for (int col = 0; col < headers.size(); ++col)
+        styleTableCell(overviewTable, 0, col, headers[col],
+                       true);
+
+    row = 1;
+    for (const auto *pathData : m_pathData)
+    {
+        if (!(pathData && pathData->path))
+            continue;
+
+        const auto summary = m_viewModel.pathSummary(pathData);
+        const auto segments =
+            m_viewModel.segmentEntries(pathData);
+        const auto predictedMetrics = pathData->predictedMetrics;
+        const bool hasActual = pathData->actualMetrics.valid;
+
+        styleTableCell(overviewTable, row, 0,
+                       summary.pathLabel, false, true);
+        styleTableCell(overviewTable, row, 1,
+                       QString::number(pathData->path->getRank()));
+        styleTableCell(
+            overviewTable, row, 2,
+            QString::number(
+                pathData->path->getEffectiveContainerCount()));
+        styleTableCell(overviewTable, row, 3,
+                       modeSequenceFor(segments));
+        styleTableCell(overviewTable, row, 4,
+                       formatUsd(summary.predictedTotalCost));
+        styleTableCell(
+            overviewTable, row, 5,
+            pathData->hasSimulationTotalCost()
+                ? formatUsd(pathData->simulationTotalCost)
+                : tr("Not simulated"));
+        styleTableCell(
+            overviewTable, row, 6,
+            pathData->hasSimulationTotalCost()
+                ? percentDifferenceText(
+                      summary.predictedTotalCost,
+                      pathData->simulationTotalCost)
+                : tr("N/A"));
+        styleTableCell(overviewTable, row, 7,
+                       formatAvailable(
+                           predictedMetrics.valid,
+                           predictedMetrics.distanceKm, 1));
+        styleTableCell(overviewTable, row, 8,
+                       formatAvailable(
+                           predictedMetrics.valid,
+                           predictedMetrics.travelTimeHours,
+                           1));
+        styleTableCell(overviewTable, row, 9,
+                       formatAvailable(
+                           hasActual,
+                           pathData->actualMetrics
+                               .travelTimeHours,
+                           1));
+        styleTableCell(overviewTable, row, 10,
+                       QString::number(summary.segmentCount));
+        styleTableCell(overviewTable, row, 11,
+                       QString::number(summary.terminalCount));
+        ++row;
+    }
+
+    report->addElement(overviewTable);
+    report->addVerticalSpacing(10);
+}
+
+void PathReportGenerator::addReportNotes(
+    KDReports::Report *report)
+{
+    qCDebug(lcGuiUtil)
+        << "PathReportGenerator::addReportNotes";
+
+    KDReports::TextElement sectionTitle(
+        tr("Report Notes"));
+    sectionTitle.setFont(m_sectionTitleFont);
+    sectionTitle.setTextColor(m_subtitleColor);
+    report->addElement(sectionTitle);
+    report->addVerticalSpacing(4);
+
+    const QStringList notes = {
+        tr("Predicted segment physical metrics are raw vehicle or "
+           "segment totals. Allocated predicted values are the "
+           "shipment share used by the cost model."),
+        tr("Actual segment values come from the executed simulator "
+           "events captured by CargoNetSim. Non-simulated paths are "
+           "reported as Not simulated."),
+        tr("Actual terminal values come from recorded arrival-side "
+           "handling events. Terminals without an arrival event in "
+           "the selected run are reported as Not modeled."),
+        tr("Segment total cost rows sum every component: travel "
+           "time, distance, carbon emissions, energy consumption, "
+           "risk, and direct cost.")};
+
+    for (const auto &note : notes)
+    {
+        KDReports::TextElement noteElement(
+            QStringLiteral("- ") + note);
+        noteElement.setFont(m_normalTextFont);
+        report->addElement(noteElement);
+    }
+
+    report->addVerticalSpacing(10);
+}
+
 void PathReportGenerator::addTableOfContents(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addTableOfContents: paths" << m_pathData.size();
     // Section title
     KDReports::TextElement tocTitle(
         tr("Table of Contents"));
@@ -161,6 +547,18 @@ void PathReportGenerator::addTableOfContents(
 
     QFont TOCLeavel1Font = QFont(m_normalTextFont);
     TOCLeavel1Font.setBold(true);
+
+    const QStringList frontMatter = {
+        tr("    Executive Summary"),
+        tr("    Report Notes")};
+    for (const auto &entryText : frontMatter)
+    {
+        KDReports::TextElement entry(entryText);
+        entry.setFont(TOCLeavel1Font);
+        entry.setTextColor(Qt::black);
+        report->addElement(entry);
+    }
+    report->addVerticalSpacing(5);
 
     // Add entry for comparative analysis
     KDReports::TextElement compHeader(
@@ -174,6 +572,8 @@ void PathReportGenerator::addTableOfContents(
     QString sections[] = {
         tr("        Summary Comparison"),
         tr("        Terminal Comparison"),
+        tr("        Terminal-by-Terminal Attribute "
+           "Comparison"),
         tr("        Segment Comparison"),
         tr("        Cost Comparison"),
         tr("        Segment-by-Segment Attribute "
@@ -202,13 +602,14 @@ void PathReportGenerator::addTableOfContents(
     {
         if (pathData && pathData->path)
         {
-            int     pathId = pathData->path->getPathId();
-            QString bookmarkName =
-                QString("path_%1").arg(pathId);
+            const auto summary = m_viewModel.pathSummary(pathData);
+            int     pathId = summary.pathId;
 
             // Create TOC entry with link to the bookmark
             QString pathEntry =
-                tr("        Path %1").arg(pathId);
+                tr("        Path %1 Summary, Terminals, "
+                   "Segments, and Costs")
+                    .arg(pathId);
             KDReports::TextElement entry(pathEntry);
             entry.setFont(m_normalTextFont);
             report->addElement(entry);
@@ -219,6 +620,8 @@ void PathReportGenerator::addTableOfContents(
 void PathReportGenerator::addIndividualPathSections(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addIndividualPathSections: paths"
+                       << m_pathData.size();
     // Section title
     KDReports::TextElement sectionTitle(
         tr("Individual Path Analysis"));
@@ -247,13 +650,15 @@ void PathReportGenerator::addIndividualPathSections(
 }
 
 void PathReportGenerator::addPathDetails(
-    KDReports::Report                  *report,
-    const ShortestPathsTable::PathData *pathData)
+    KDReports::Report *report, const PathData *pathData)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addPathDetails:"
+                       << (pathData && pathData->path ? "valid path" : "null");
     if (!pathData || !pathData->path)
         return;
 
-    int pathId = pathData->path->getPathId();
+    const auto summary = m_viewModel.pathSummary(pathData);
+    int pathId = summary.pathId;
 
     // Path title
     KDReports::TextElement pathTitle(
@@ -270,6 +675,9 @@ void PathReportGenerator::addPathDetails(
     // Add path summary
     addPathSummary(report, pathData);
 
+    // Add physical metric overview
+    addPathMetricsOverview(report, pathData);
+
     // Add path terminals
     addPathTerminals(report, pathData);
 
@@ -281,9 +689,9 @@ void PathReportGenerator::addPathDetails(
 }
 
 void PathReportGenerator::addPathVisualization(
-    KDReports::Report                  *report,
-    const ShortestPathsTable::PathData *pathData)
+    KDReports::Report *report, const PathData *pathData)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addPathVisualization: --- visualization ---";
     // Section title
     KDReports::TextElement sectionTitle(
         tr("Path Visualization"));
@@ -319,16 +727,17 @@ void PathReportGenerator::addPathVisualization(
 }
 
 QImage PathReportGenerator::createPathVisualizationImage(
-    const ShortestPathsTable::PathData *pathData)
+    const PathData *pathData)
 {
     if (!pathData || !pathData->path)
         return QImage();
 
-    // Get terminals and segments from the path
-    const QList<Backend::Terminal *> &terminals =
-        pathData->path->getTerminalsInPath();
-    const QList<Backend::PathSegment *> &segments =
-        pathData->path->getSegments();
+    const auto terminals = m_viewModel.terminalEntries(pathData);
+    const auto segments = m_viewModel.segmentEntries(pathData);
+
+    const int terminalCount = terminals.size();
+    const int segmentCount = segments.size();
+    qCDebug(lcGuiUtil) << "PathReportGenerator::createPathVisualizationImage: terminals=" << terminalCount << "segments=" << segmentCount;
 
     if (terminals.isEmpty())
         return QImage();
@@ -342,10 +751,6 @@ QImage PathReportGenerator::createPathVisualizationImage(
     QImage image(width, 100, QImage::Format_ARGB32);
     image.fill(Qt::transparent);
 
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setRenderHint(QPainter::TextAntialiasing, true);
-
     // Calculate spacing
     int numTerminals = terminals.size();
     int contentWidth =
@@ -354,112 +759,105 @@ QImage PathReportGenerator::createPathVisualizationImage(
         contentWidth
         / (numTerminals > 1 ? (numTerminals - 1) : 1);
 
-    // Draw terminals and transportation modes
-    int xPos = 20; // Start from left margin
-
-    for (int i = 0; i < terminals.size(); ++i)
     {
-        if (!terminals[i])
-            continue;
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setRenderHint(QPainter::TextAntialiasing, true);
 
-        // Draw terminal circle
-        QColor terminalColor = QColor(52, 152, 219); // Blue
-        painter.setPen(QPen(terminalColor.darker(), 2));
-        painter.setBrush(terminalColor);
-        painter.drawEllipse(QPointF(xPos, 50), 10, 10);
+        // Draw terminals and transportation modes
+        int xPos = 20; // Start from left margin
 
-        // Draw terminal name
-        QString terminalName =
-            terminals[i]->getDisplayName();
-        if (terminalName.isEmpty())
-            terminalName = tr("Terminal %1").arg(i + 1);
-
-        // Limit name length to prevent overlaps
-        if (terminalName.length() > 15)
+        for (int i = 0; i < terminals.size(); ++i)
         {
-            terminalName = terminalName.left(12) + "...";
-        }
+            // Draw terminal circle
+            QColor terminalColor = QColor(52, 152, 219); // Blue
+            painter.setPen(QPen(terminalColor.darker(), 2));
+            painter.setBrush(terminalColor);
+            painter.drawEllipse(QPointF(xPos, 50), 10, 10);
 
-        QFont terminalFont = painter.font();
-        terminalFont.setPointSize(8);
-        painter.setFont(terminalFont);
+            // Draw terminal name
+            QString terminalName = terminals[i].displayName;
+            if (terminalName.isEmpty())
+                terminalName = tr("Terminal %1").arg(i + 1);
 
-        // Draw text above circle
-        QRectF textRect(xPos - 50, 10, 100, 30);
-        painter.setPen(Qt::black);
-        painter.drawText(textRect, Qt::AlignCenter,
-                         terminalName);
-
-        // Draw transportation mode line to next terminal
-        if (i < terminals.size() - 1 && i < segments.size()
-            && segments[i])
-        {
-            // Transportation mode
-            Backend::TransportationTypes::TransportationMode
-                    mode = segments[i]->getMode();
-            QString modeText =
-                Backend::TransportationTypes::toString(
-                    mode);
-
-            // Abbreviate very long mode names
-            if (modeText.length() > 10)
+            // Limit name length to prevent overlaps
+            if (terminalName.length() > 15)
             {
-                modeText = modeText.left(8) + "...";
+                terminalName = terminalName.left(12) + "...";
             }
 
-            // Draw line to next terminal
-            QColor lineColor;
-            if (modeText.contains("Truck",
-                                  Qt::CaseInsensitive))
-                lineColor = QColor(
-                    255, 0, 255); // Magenta for truck
-            else if (modeText.contains("Rail",
-                                       Qt::CaseInsensitive)
-                     || modeText.contains(
-                         "Train", Qt::CaseInsensitive))
-                lineColor = QColor(
-                    80, 80, 80); // Dark gray for rail
-            else if (modeText.contains("Ship",
-                                       Qt::CaseInsensitive)
-                     || modeText.contains(
-                         "Water", Qt::CaseInsensitive))
-                lineColor =
-                    QColor(0, 0, 255); // Blue for ship
-            else
-                lineColor = Qt::black; // Default
+            QFont terminalFont = painter.font();
+            terminalFont.setPointSize(8);
+            painter.setFont(terminalFont);
 
-            painter.setPen(
-                QPen(lineColor, 2, Qt::SolidLine));
-            painter.drawLine(xPos + 10, 50,
-                             xPos + terminalSpacing - 10,
-                             50);
+            // Draw text above circle
+            QRectF textRect(xPos - 50, 10, 100, 30);
+            painter.setPen(Qt::black);
+            painter.drawText(textRect, Qt::AlignCenter,
+                             terminalName);
 
-            // Draw mode text
-            QFont modeFont = painter.font();
-            modeFont.setPointSize(8);
-            painter.setFont(modeFont);
+            // Draw transportation mode line to next terminal
+            if (i < terminals.size() - 1 && i < segments.size())
+            {
+                QString modeText = segments[i].modeName;
 
-            QRectF modeRect(xPos + 10, 60,
-                            terminalSpacing - 20, 30);
-            painter.drawText(modeRect, Qt::AlignCenter,
-                             modeText);
+                // Abbreviate very long mode names
+                if (modeText.length() > 10)
+                {
+                    modeText = modeText.left(8) + "...";
+                }
+
+                // Draw line to next terminal
+                QColor lineColor;
+                if (modeText.contains("Truck",
+                                      Qt::CaseInsensitive))
+                    lineColor = QColor(
+                        255, 0, 255); // Magenta for truck
+                else if (modeText.contains(
+                             "Rail", Qt::CaseInsensitive)
+                         || modeText.contains(
+                             "Train", Qt::CaseInsensitive))
+                    lineColor = QColor(
+                        80, 80, 80); // Dark gray for rail
+                else if (modeText.contains(
+                             "Ship", Qt::CaseInsensitive)
+                         || modeText.contains(
+                             "Water", Qt::CaseInsensitive))
+                    lineColor =
+                        QColor(0, 0, 255); // Blue for ship
+                else
+                    lineColor = Qt::black; // Default
+
+                painter.setPen(
+                    QPen(lineColor, 2, Qt::SolidLine));
+                painter.drawLine(xPos + 10, 50,
+                                 xPos + terminalSpacing - 10,
+                                 50);
+
+                // Draw mode text
+                QFont modeFont = painter.font();
+                modeFont.setPointSize(8);
+                painter.setFont(modeFont);
+
+                QRectF modeRect(xPos + 10, 60,
+                                terminalSpacing - 20, 30);
+                painter.drawText(modeRect, Qt::AlignCenter,
+                                 modeText);
+            }
+
+            // Move to next terminal position
+            xPos += terminalSpacing;
         }
-
-        // Move to next terminal position
-        xPos += terminalSpacing;
     }
 
-    image =
-        image.scaled(QSize(400, 400), Qt::KeepAspectRatio,
-                     Qt::SmoothTransformation);
-
-    return image;
+    return image.scaled(QSize(400, 400), Qt::KeepAspectRatio,
+                        Qt::SmoothTransformation);
 }
 
 void PathReportGenerator::addPathSummary(
-    KDReports::Report                  *report,
-    const ShortestPathsTable::PathData *pathData)
+    KDReports::Report *report, const PathData *pathData)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addPathSummary: --- summary section ---";
     // Section title
     KDReports::TextElement sectionTitle(tr("Path Summary"));
     sectionTitle.setFont(m_sectionTitleFont);
@@ -485,48 +883,59 @@ void PathReportGenerator::addPathSummary(
     // Path ID
     styleTableCell(table, row, 0, tr("Path ID"), false,
                    true);
+    const auto summary = m_viewModel.pathSummary(pathData);
+    const auto segments = m_viewModel.segmentEntries(pathData);
+    styleTableCell(
+        table, row, 1, QString::number(summary.pathId));
+    row++;
+
+    styleTableCell(table, row, 0, tr("Rank"), false, true);
+    styleTableCell(table, row, 1,
+                   QString::number(pathData->path->getRank()));
+    row++;
+
+    styleTableCell(table, row, 0, tr("Effective Containers"),
+                   false, true);
     styleTableCell(
         table, row, 1,
-        QString::number(pathData->path->getPathId()));
+        QString::number(
+            pathData->path->getEffectiveContainerCount()));
+    row++;
+
+    styleTableCell(table, row, 0, tr("Mode Sequence"),
+                   false, true);
+    styleTableCell(table, row, 1,
+                   modeSequenceFor(segments));
     row++;
 
     // Total terminals
     styleTableCell(table, row, 0, tr("Total Terminals"),
                    false, true);
     styleTableCell(
-        table, row, 1,
-        QString::number(
-            pathData->path->getTerminalsInPath().size()));
+        table, row, 1, QString::number(summary.terminalCount));
     row++;
 
     // Total segments
     styleTableCell(table, row, 0, tr("Total Segments"),
                    false, true);
     styleTableCell(
-        table, row, 1,
-        QString::number(
-            pathData->path->getSegments().size()));
+        table, row, 1, QString::number(summary.segmentCount));
     row++;
 
     // Predicted cost
     styleTableCell(table, row, 0, tr("Predicted Cost"),
                    false, true);
-    styleTableCell(
-        table, row, 1,
-        QString::number(pathData->path->getTotalPathCost(),
-                        'f', 2));
+    styleTableCell(table, row, 1,
+                   formatUsd(summary.predictedTotalCost));
     row++;
 
     // Actual cost
     styleTableCell(table, row, 0, tr("Actual Cost"), false,
                    true);
-    if (pathData->m_totalSimulationPathCost >= 0)
+    if (pathData->hasSimulationTotalCost())
     {
-        styleTableCell(
-            table, row, 1,
-            QString::number(
-                pathData->m_totalSimulationPathCost, 'f',
-                2));
+        styleTableCell(table, row, 1,
+                       formatUsd(pathData->simulationTotalCost));
     }
     else
     {
@@ -537,35 +946,35 @@ void PathReportGenerator::addPathSummary(
     // Start terminal
     styleTableCell(table, row, 0, tr("Start Terminal"),
                    false, true);
-    QString startTerminal;
-    try
-    {
-        startTerminal = pathData->path->getTerminalsInPath()
-                            .first()
-                            ->getDisplayName();
-    }
-    catch (const std::exception &)
-    {
-        startTerminal = tr("Unknown");
-    }
-    styleTableCell(table, row, 1, startTerminal);
+    styleTableCell(table, row, 1,
+                   summary.startTerminalName.isEmpty()
+                       ? tr("Unknown")
+                       : summary.startTerminalName);
     row++;
 
     // End terminal
     styleTableCell(table, row, 0, tr("End Terminal"), false,
                    true);
-    QString endTerminal;
-    try
-    {
-        endTerminal = pathData->path->getTerminalsInPath()
-                          .last()
-                          ->getDisplayName();
-    }
-    catch (const std::exception &)
-    {
-        endTerminal = tr("Unknown");
-    }
-    styleTableCell(table, row, 1, endTerminal);
+    styleTableCell(table, row, 1,
+                   summary.endTerminalName.isEmpty()
+                       ? tr("Unknown")
+                       : summary.endTerminalName);
+    row++;
+
+    styleTableCell(table, row, 0,
+                   tr("Same-Mode Pass-Through Skip"),
+                   false, true);
+    styleTableCell(
+        table, row, 1,
+        yesNo(pathData->path
+                  ->skipSameModeTerminalDelaysAndCosts()));
+    row++;
+
+    styleTableCell(table, row, 0, tr("Canonical Path Key"),
+                   false, true);
+    styleTableCell(
+        table, row, 1,
+        shortened(pathData->path->canonicalPathKey(), 120));
 
     // Add table to report
     report->addElement(table);
@@ -573,10 +982,157 @@ void PathReportGenerator::addPathSummary(
     report->addVerticalSpacing(10);
 }
 
-void PathReportGenerator::addPathTerminals(
-    KDReports::Report                  *report,
-    const ShortestPathsTable::PathData *pathData)
+void PathReportGenerator::addPathMetricsOverview(
+    KDReports::Report *report, const PathData *pathData)
 {
+    qCDebug(lcGuiUtil)
+        << "PathReportGenerator::addPathMetricsOverview";
+    if (!pathData || !pathData->path)
+        return;
+
+    KDReports::TextElement sectionTitle(
+        tr("Path Physical Metrics"));
+    sectionTitle.setFont(m_sectionTitleFont);
+    sectionTitle.setTextColor(m_subtitleColor);
+    report->addElement(sectionTitle);
+    report->addVerticalSpacing(5);
+
+    KDReports::TableElement table;
+    table.setHeaderColumnCount(2);
+    table.setHeaderRowCount(1);
+    table.setBorder(1);
+    table.setBorderBrush(QBrush(m_tableBorderColor));
+
+    styleTableCell(table, 0, 0, tr("Metric"), true);
+    styleTableCell(table, 0, 1, tr("Value"), true);
+
+    const auto &predicted = pathData->predictedMetrics;
+    const auto &actual    = pathData->actualMetrics;
+    const auto segments   = m_viewModel.segmentEntries(pathData);
+    bool   hasPredictedAllocated = false;
+    double predictedAllocatedEnergy = 0.0;
+    double predictedAllocatedCarbon = 0.0;
+    for (const auto &segment : segments)
+    {
+        const auto &values = segment.displayValues;
+        if (!values.predictedAllocatedAvailable)
+            continue;
+
+        hasPredictedAllocated = true;
+        predictedAllocatedEnergy +=
+            values.predictedAllocatedEnergyConsumption;
+        predictedAllocatedCarbon +=
+            values.predictedAllocatedCarbonEmissions;
+    }
+
+    int row = 1;
+    styleTableCell(table, row, 0,
+                   tr("Predicted Distance (km)"), false,
+                   true);
+    styleTableCell(table, row, 1,
+                   formatAvailable(predicted.valid,
+                                   predicted.distanceKm, 2));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Actual Distance (km)"), false, true);
+    styleTableCell(table, row, 1,
+                   formatAvailable(actual.valid,
+                                   actual.distanceKm, 2));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Predicted Travel Time (hr)"), false,
+                   true);
+    styleTableCell(
+        table, row, 1,
+        formatAvailable(predicted.valid,
+                        predicted.travelTimeHours, 2));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Actual Travel Time (hr)"), false,
+                   true);
+    styleTableCell(table, row, 1,
+                   formatAvailable(actual.valid,
+                                   actual.travelTimeHours, 2));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Predicted Energy (Vehicle, kWh)"),
+                   false, true);
+    styleTableCell(
+        table, row, 1,
+        formatAvailable(predicted.valid,
+                        predicted.energyPerVehicle, 2));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Predicted Energy (Allocated, kWh)"),
+                   false, true);
+    styleTableCell(
+        table, row, 1,
+        formatAvailable(hasPredictedAllocated,
+                        predictedAllocatedEnergy, 2));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Actual Energy (kWh)"), false, true);
+    styleTableCell(table, row, 1,
+                   formatAvailable(actual.valid,
+                                   actual.energyPerVehicle,
+                                   2));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Predicted Carbon (Vehicle, t)"),
+                   false, true);
+    styleTableCell(
+        table, row, 1,
+        formatAvailable(predicted.valid,
+                        predicted.carbonPerVehicle, 3));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Predicted Carbon (Allocated, t)"),
+                   false, true);
+    styleTableCell(
+        table, row, 1,
+        formatAvailable(hasPredictedAllocated,
+                        predictedAllocatedCarbon, 3));
+    ++row;
+
+    styleTableCell(table, row, 0, tr("Actual Carbon (t)"),
+                   false, true);
+    styleTableCell(table, row, 1,
+                   formatAvailable(actual.valid,
+                                   actual.carbonPerVehicle,
+                                   3));
+    ++row;
+
+    styleTableCell(table, row, 0,
+                   tr("Predicted Vehicle Plan"), false,
+                   true);
+    styleTableCell(table, row, 1,
+                   predicted.valid ? vehiclePlanFor(predicted)
+                                   : tr("N/A"));
+    ++row;
+
+    styleTableCell(table, row, 0, tr("Fuel Type"), false,
+                   true);
+    styleTableCell(table, row, 1,
+                   predicted.fuelType.isEmpty()
+                       ? tr("N/A")
+                       : predicted.fuelType);
+
+    report->addElement(table);
+    report->addVerticalSpacing(10);
+}
+
+void PathReportGenerator::addPathTerminals(
+    KDReports::Report *report, const PathData *pathData)
+{
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addPathTerminals: --- terminals section ---";
     // Section title
     KDReports::TextElement sectionTitle(tr("Terminals"));
     sectionTitle.setFont(m_sectionTitleFont);
@@ -585,9 +1141,7 @@ void PathReportGenerator::addPathTerminals(
 
     report->addVerticalSpacing(5);
 
-    // Get the terminals from the path
-    const QList<Backend::Terminal *> &terminals =
-        pathData->path->getTerminalsInPath();
+    const auto terminals = m_viewModel.terminalEntries(pathData);
 
     if (terminals.isEmpty())
     {
@@ -602,7 +1156,7 @@ void PathReportGenerator::addPathTerminals(
 
     // Create table for terminals data
     KDReports::TableElement table;
-    table.setHeaderColumnCount(3);
+    table.setHeaderColumnCount(7);
     table.setHeaderRowCount(1);
     table.setBorder(1);
     table.setBorderBrush(QBrush(m_tableBorderColor));
@@ -611,6 +1165,14 @@ void PathReportGenerator::addPathTerminals(
     styleTableCell(table, 0, 0, tr("Index"), true);
     styleTableCell(table, 0, 1, tr("Terminal Name"), true);
     styleTableCell(table, 0, 2, tr("ID"), true);
+    styleTableCell(table, 0, 3, tr("Pred. Handling s"),
+                   true);
+    styleTableCell(table, 0, 4, tr("Pred. Direct $"),
+                   true);
+    styleTableCell(table, 0, 5, tr("Raw Tariff $"),
+                   true);
+    styleTableCell(table, 0, 6, tr("Prediction Note"),
+                   true);
 
     // Add data rows
     for (int i = 0; i < terminals.size(); ++i)
@@ -621,35 +1183,264 @@ void PathReportGenerator::addPathTerminals(
         styleTableCell(table, row, 0,
                        QString::number(i + 1), false, true);
 
-        if (terminals[i])
-        {
-            // Terminal name
-            styleTableCell(table, row, 1,
-                           terminals[i]->getDisplayName());
+        // Terminal name
+        styleTableCell(table, row, 1,
+                       terminals[i].displayName.isEmpty()
+                           ? terminals[i].canonicalName
+                           : terminals[i].displayName);
 
-            // Terminal ID
-            styleTableCell(
-                table, row, 2,
-                terminals[i]->getCanonicalName());
-        }
-        else
-        {
-            // Unknown terminal
-            styleTableCell(table, row, 1, tr("Unknown"));
-            styleTableCell(table, row, 2, tr("N/A"));
-        }
+        // Terminal ID
+        styleTableCell(table, row, 2,
+                       terminals[i].canonicalName);
+
+        const auto &values = terminals[i].displayValues;
+        styleTableCell(
+            table, row, 3,
+            formatAvailable(values.predictedAvailable,
+                            values.predictedHandlingSeconds,
+                            0));
+        styleTableCell(
+            table, row, 4,
+            values.predictedAvailable
+                ? formatUsd(values.predictedDirectCostUsd)
+                : tr("N/A"));
+        styleTableCell(
+            table, row, 5,
+            values.predictedAvailable
+                ? formatUsd(values.predictedRawDirectCostUsd)
+                : tr("N/A"));
+        styleTableCell(
+            table, row, 6,
+            terminals[i].predictedCostsSkipped
+                ? (terminals[i].predictedSkipReason.isEmpty()
+                       ? tr("Skipped")
+                       : terminals[i].predictedSkipReason)
+                : tr("-"));
     }
 
     // Add table to report
     report->addElement(table);
 
     report->addVerticalSpacing(10);
+
+    addPathTerminalDetails(report, pathData);
+}
+
+void PathReportGenerator::addPathTerminalDetails(
+    KDReports::Report *report, const PathData *pathData)
+{
+    qCDebug(lcGuiUtil)
+        << "PathReportGenerator::addPathTerminalDetails";
+    const auto terminals = m_viewModel.terminalEntries(pathData);
+    if (terminals.isEmpty())
+        return;
+
+    KDReports::TextElement detailsTitle(
+        tr("Terminal Predicted/Actual Details"));
+    detailsTitle.setFont(m_normalTextFont);
+    detailsTitle.setBold(true);
+    detailsTitle.setTextColor(m_subtitleColor);
+    report->addElement(detailsTitle);
+    report->addVerticalSpacing(5);
+
+    for (int terminalIdx = 0; terminalIdx < terminals.size();
+         ++terminalIdx)
+    {
+        const auto &terminal = terminals[terminalIdx];
+        const auto &values = terminal.displayValues;
+
+        KDReports::TextElement terminalTitle(
+            tr("Terminal %1: %2")
+                .arg(terminalIdx + 1)
+                .arg(terminal.displayName.isEmpty()
+                         ? terminal.canonicalName
+                         : terminal.displayName));
+        terminalTitle.setFont(m_normalTextFont);
+        terminalTitle.setBold(true);
+        report->addElement(terminalTitle);
+
+        if (terminal.predictedCostsSkipped
+            && !terminal.predictedSkipReason.isEmpty())
+        {
+            KDReports::TextElement note(
+                tr("Prediction note: %1")
+                    .arg(terminal.predictedSkipReason));
+            note.setFont(m_smallTextFont);
+            note.setItalic(true);
+            report->addElement(note);
+        }
+
+        report->addVerticalSpacing(3);
+
+        KDReports::TableElement table;
+        table.setHeaderColumnCount(3);
+        table.setHeaderRowCount(1);
+        table.setBorder(1);
+        table.setBorderBrush(QBrush(m_tableBorderColor));
+        styleTableCell(table, 0, 0, tr("Metric"), true);
+        styleTableCell(table, 0, 1, tr("Predicted"),
+                       true);
+        styleTableCell(table, 0, 2, tr("Actual"), true);
+
+        int row = 1;
+        styleTableCell(table, row, 0,
+                       tr("Handling Time (s)"), false,
+                       true);
+        styleTableCell(
+            table, row, 1,
+            formatAvailable(values.predictedAvailable,
+                            values.predictedHandlingSeconds,
+                            0));
+        styleTableCell(
+            table, row, 2,
+            formatActualAvailable(
+                values.actualAvailable,
+                values.actualTotalHandlingSeconds, 0));
+        ++row;
+
+        styleTableCell(table, row, 0,
+                       tr("Raw Direct Tariff (USD)"), false,
+                       true);
+        styleTableCell(
+            table, row, 1,
+            values.predictedAvailable
+                ? formatUsd(values.predictedRawDirectCostUsd)
+                : tr("N/A"));
+        styleTableCell(table, row, 2, tr("-"));
+        ++row;
+
+        styleTableCell(table, row, 0,
+                       tr("Direct Cost (USD)"), false,
+                       true);
+        styleTableCell(
+            table, row, 1,
+            values.predictedAvailable
+                ? formatUsd(values.predictedDirectCostUsd)
+                : tr("N/A"));
+        styleTableCell(
+            table, row, 2,
+            values.actualAvailable
+                ? formatUsd(values.actualDirectCostUsd)
+                : tr("Not modeled"));
+        ++row;
+
+        styleTableCell(
+            table, row, 0,
+            tr("Weighted Delay Contribution"), false, true);
+        styleTableCell(
+            table, row, 1,
+            formatAvailable(
+                values.predictedAvailable,
+                values.predictedWeightedDelayContribution,
+                2));
+        styleTableCell(
+            table, row, 2,
+            formatActualAvailable(
+                values.actualAvailable,
+                values.actualWeightedDelayContribution, 2));
+        ++row;
+
+        styleTableCell(
+            table, row, 0,
+            tr("Weighted Cost Contribution"), false, true);
+        styleTableCell(
+            table, row, 1,
+            formatAvailable(
+                values.predictedAvailable,
+                values.predictedWeightedCostContribution,
+                2));
+        styleTableCell(
+            table, row, 2,
+            formatActualAvailable(
+                values.actualAvailable,
+                values.actualWeightedCostContribution, 2));
+        ++row;
+
+        styleTableCell(
+            table, row, 0,
+            tr("Weighted Total Contribution"), false, true);
+        styleTableCell(
+            table, row, 1,
+            formatAvailable(
+                values.predictedAvailable,
+                values.predictedWeightedTotalContribution,
+                2));
+        styleTableCell(
+            table, row, 2,
+            formatActualAvailable(
+                values.actualAvailable,
+                values.actualWeightedTotalContribution, 2));
+        ++row;
+
+        styleTableCell(table, row, 0, tr("Arrival Mode"),
+                       false, true);
+        styleTableCell(table, row, 1, tr("-"));
+        styleTableCell(
+            table, row, 2,
+            formatActualMode(values.actualAvailable,
+                             values.actualArrivalMode));
+        ++row;
+
+        styleTableCell(table, row, 0,
+                       tr("Dropped Containers"), false,
+                       true);
+        styleTableCell(table, row, 1, tr("-"));
+        styleTableCell(
+            table, row, 2,
+            formatActualInt(values.actualAvailable,
+                            values.actualDroppedContainers));
+        ++row;
+
+        styleTableCell(table, row, 0,
+                       tr("Arrival Events"), false, true);
+        styleTableCell(table, row, 1, tr("-"));
+        styleTableCell(
+            table, row, 2,
+            formatActualInt(values.actualAvailable,
+                            values.actualArrivalEvents));
+        ++row;
+
+        styleTableCell(table, row, 0,
+                       tr("Utilization At Arrival"), false,
+                       true);
+        styleTableCell(table, row, 1, tr("-"));
+        styleTableCell(
+            table, row, 2,
+            formatActualAvailable(
+                values.actualAvailable,
+                values.actualUtilizationAtArrival, 3));
+        ++row;
+
+        styleTableCell(table, row, 0,
+                       tr("Congestion At Arrival"), false,
+                       true);
+        styleTableCell(table, row, 1, tr("-"));
+        styleTableCell(
+            table, row, 2,
+            formatActualAvailable(
+                values.actualAvailable,
+                values.actualCongestionAtArrival, 3));
+        ++row;
+
+        styleTableCell(table, row, 0,
+                       tr("Delay Multiplier At Arrival"),
+                       false, true);
+        styleTableCell(table, row, 1, tr("-"));
+        styleTableCell(
+            table, row, 2,
+            formatActualAvailable(
+                values.actualAvailable,
+                values.actualDelayMultiplierAtArrival, 3));
+
+        report->addElement(table);
+        report->addVerticalSpacing(8);
+    }
 }
 
 void PathReportGenerator::addPathSegments(
-    KDReports::Report                  *report,
-    const ShortestPathsTable::PathData *pathData)
+    KDReports::Report *report, const PathData *pathData)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addPathSegments: --- segments section ---";
     // Section title
     KDReports::TextElement sectionTitle(tr("Segments"));
     sectionTitle.setFont(m_sectionTitleFont);
@@ -658,9 +1449,7 @@ void PathReportGenerator::addPathSegments(
 
     report->addVerticalSpacing(5);
 
-    // Get the segments from the path
-    const QList<Backend::PathSegment *> &segments =
-        pathData->path->getSegments();
+    const auto segments = m_viewModel.segmentEntries(pathData);
 
     if (segments.isEmpty())
     {
@@ -695,33 +1484,12 @@ void PathReportGenerator::addPathSegments(
         styleTableCell(table, row, 0,
                        QString::number(i + 1), false, true);
 
-        if (segments[i])
-        {
-            // Start terminal
-            styleTableCell(table, row, 1,
-                           getTerminalDisplayNameByID(
-                               pathData->path,
-                               segments[i]->getStart()));
-
-            // End terminal
-            styleTableCell(
-                table, row, 2,
-                getTerminalDisplayNameByID(
-                    pathData->path, segments[i]->getEnd()));
-
-            // Transportation mode
-            styleTableCell(
-                table, row, 3,
-                Backend::TransportationTypes::toString(
-                    segments[i]->getMode()));
-        }
-        else
-        {
-            // Unknown segment
-            styleTableCell(table, row, 1, tr("Unknown"));
-            styleTableCell(table, row, 2, tr("Unknown"));
-            styleTableCell(table, row, 3, tr("Unknown"));
-        }
+        styleTableCell(table, row, 1,
+                       segments[i].startTerminalName);
+        styleTableCell(table, row, 2,
+                       segments[i].endTerminalName);
+        styleTableCell(table, row, 3,
+                       segments[i].modeName);
     }
 
     // Add table to report
@@ -732,9 +1500,6 @@ void PathReportGenerator::addPathSegments(
     // Add detailed segment attributes for each segment
     for (int i = 0; i < segments.size(); ++i)
     {
-        if (!segments[i])
-            continue;
-
         // Section title for the segment
         KDReports::TextElement segmentTitle(
             tr("Segment %1 Attributes").arg(i + 1));
@@ -745,27 +1510,10 @@ void PathReportGenerator::addPathSegments(
 
         report->addVerticalSpacing(5);
 
-        // Get segment attributes
-        const QJsonObject &attributes =
-            segments[i]->getAttributes();
-
-        // Extract estimated_values
-        QJsonObject estimatedValuesObj;
-        if (attributes.contains("estimated_values")
-            && attributes["estimated_values"].isObject())
-        {
-            estimatedValuesObj =
-                attributes["estimated_values"].toObject();
-        }
-
-        // Extract actual_values values
-        QJsonObject actualValuesObj;
-        if (attributes.contains("actual_values")
-            && attributes["actual_values"].isObject())
-        {
-            actualValuesObj =
-                attributes["actual_values"].toObject();
-        }
+        const auto &segment = segments[i];
+        const auto &values = segment.displayValues;
+        const auto &predictedCosts = segment.predictedCosts;
+        const auto &actualCosts = segment.actualCosts;
 
         // Create table for segment attributes
         KDReports::TableElement attrTable;
@@ -787,41 +1535,48 @@ void PathReportGenerator::addPathSegments(
 
         // Carbon Emissions
         styleTableCell(attrTable, rowIndex, 0,
-                       tr("Carbon Emissions"), false, true);
+                       tr("Carbon Emissions (Vehicle)"), false, true);
         styleTableCell(
             attrTable, rowIndex, 1,
-            estimatedValuesObj.contains("carbonEmissions")
+            values.predictedAvailable
                 ? QString::number(
-                      estimatedValuesObj["carbonEmissions"]
-                          .toDouble(),
+                      values.predictedCarbonEmissions, 'f', 3)
+                : tr("N/A"));
+        styleTableCell(
+            attrTable, rowIndex, 2, tr("-"));
+        rowIndex++;
+
+        styleTableCell(attrTable, rowIndex, 0,
+                       tr("Carbon Emissions (Allocated)"),
+                       false, true);
+        styleTableCell(
+            attrTable, rowIndex, 1,
+            values.predictedAvailable
+                ? QString::number(
+                      values.predictedAllocatedCarbonEmissions,
                       'f', 3)
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains("carbonEmissions")
+            values.actualAvailable
                 ? QString::number(
-                      actualValuesObj["carbonEmissions"]
-                          .toDouble(),
+                      values.actualCarbonEmissions,
                       'f', 3)
                 : tr("N/A"));
         rowIndex++;
 
-        // Cost
-        styleTableCell(attrTable, rowIndex, 0, tr("Cost"),
+        // Direct Cost
+        styleTableCell(attrTable, rowIndex, 0, tr("Direct Cost"),
                        false, true);
         styleTableCell(
             attrTable, rowIndex, 1,
-            estimatedValuesObj.contains("cost")
-                ? QString::number(
-                      estimatedValuesObj["cost"].toDouble(),
-                      'f', 2)
+            predictedCosts.available
+                ? QString::number(predictedCosts.directCost, 'f', 2)
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains("cost")
-                ? QString::number(
-                      actualValuesObj["cost"].toDouble(),
-                      'f', 2)
+            actualCosts.available
+                ? QString::number(actualCosts.directCost, 'f', 2)
                 : tr("N/A"));
         rowIndex++;
 
@@ -830,39 +1585,47 @@ void PathReportGenerator::addPathSegments(
                        tr("Distance"), false, true);
         styleTableCell(
             attrTable, rowIndex, 1,
-            estimatedValuesObj.contains("distance")
+            values.predictedAvailable
                 ? QString::number(
-                      estimatedValuesObj["distance"]
-                          .toDouble(),
-                      'f', 2)
+                      values.predictedDistanceKm, 'f', 2)
                 : tr("N/A"));
         styleTableCell(attrTable, rowIndex, 2,
-                       actualValuesObj.contains("distance")
+                       values.actualAvailable
                            ? QString::number(
-                                 actualValuesObj["distance"]
-                                     .toDouble(),
+                                 values.actualDistanceKm,
                                  'f', 2)
                            : tr("N/A"));
         rowIndex++;
 
         // Energy Consumption
         styleTableCell(attrTable, rowIndex, 0,
-                       tr("Energy Consumption"), false,
+                       tr("Energy Consumption (Vehicle)"), false,
                        true);
         styleTableCell(
             attrTable, rowIndex, 1,
-            estimatedValuesObj.contains("energyConsumption")
-                ? QString::number(estimatedValuesObj
-                                      ["energyConsumption"]
-                                          .toDouble(),
-                                  'f', 2)
+            values.predictedAvailable
+                ? QString::number(
+                      values.predictedEnergyConsumption, 'f', 2)
+                : tr("N/A"));
+        styleTableCell(
+            attrTable, rowIndex, 2, tr("-"));
+        rowIndex++;
+
+        styleTableCell(attrTable, rowIndex, 0,
+                       tr("Energy Consumption (Allocated)"),
+                       false, true);
+        styleTableCell(
+            attrTable, rowIndex, 1,
+            values.predictedAvailable
+                ? QString::number(
+                      values.predictedAllocatedEnergyConsumption,
+                      'f', 2)
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains("energyConsumption")
+            values.actualAvailable
                 ? QString::number(
-                      actualValuesObj["energyConsumption"]
-                          .toDouble(),
+                      values.actualEnergyConsumption,
                       'f', 2)
                 : tr("N/A"));
         rowIndex++;
@@ -872,17 +1635,13 @@ void PathReportGenerator::addPathSegments(
                        false, true);
         styleTableCell(
             attrTable, rowIndex, 1,
-            estimatedValuesObj.contains("risk")
-                ? QString::number(
-                      estimatedValuesObj["risk"].toDouble(),
-                      'f', 6)
+            values.predictedAvailable
+                ? QString::number(values.predictedRisk, 'f', 6)
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains("risk")
-                ? QString::number(
-                      actualValuesObj["risk"].toDouble(),
-                      'f', 6)
+            values.actualAvailable
+                ? QString::number(values.actualRisk, 'f', 6)
                 : tr("N/A"));
         rowIndex++;
 
@@ -891,19 +1650,15 @@ void PathReportGenerator::addPathSegments(
                        tr("Travel Time"), false, true);
         styleTableCell(
             attrTable, rowIndex, 1,
-            estimatedValuesObj.contains("travelTime")
+            values.predictedAvailable
                 ? QString::number(
-                      estimatedValuesObj["travelTime"]
-                          .toDouble(),
-                      'f', 2)
+                      values.predictedTravelTimeHours, 'f', 2)
                 : tr("N/A"));
         styleTableCell(
             attrTable, rowIndex, 2,
-            actualValuesObj.contains("travelTime")
-                ? QString::number(
-                      actualValuesObj["travelTime"]
-                          .toDouble(),
-                      'f', 2)
+            values.actualAvailable
+                ? QString::number(values.actualTravelTimeHours,
+                                  'f', 2)
                 : tr("N/A"));
 
         // Add table to report
@@ -914,9 +1669,9 @@ void PathReportGenerator::addPathSegments(
 }
 
 void PathReportGenerator::addPathCosts(
-    KDReports::Report                  *report,
-    const ShortestPathsTable::PathData *pathData)
+    KDReports::Report *report, const PathData *pathData)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addPathCosts: --- costs section ---";
     // Section title
     KDReports::TextElement sectionTitle(
         tr("Cost Analysis"));
@@ -948,15 +1703,16 @@ void PathReportGenerator::addPathCosts(
 
     // Add data rows
     int rowIndex = 1;
+    const auto summary = m_viewModel.pathSummary(pathData);
 
     // Total costs
     styleTableCell(table, rowIndex, 0, tr("Total Cost"),
                    false, true);
 
     double predictedTotalCost =
-        pathData->path->getTotalPathCost();
+        summary.predictedTotalCost;
     double actualTotalCost =
-        pathData->m_totalSimulationPathCost;
+        pathData->simulationTotalCost;
 
     styleTableCell(
         table, rowIndex, 1,
@@ -1024,9 +1780,9 @@ void PathReportGenerator::addPathCosts(
                    false, true);
 
     double predictedEdgeCost =
-        pathData->path->getTotalEdgeCosts();
+        summary.predictedEdgeCost;
     double actualEdgeCost =
-        pathData->m_totalSimulationEdgeCosts;
+        pathData->simulationEdgeCosts;
 
     styleTableCell(
         table, rowIndex, 1,
@@ -1094,9 +1850,9 @@ void PathReportGenerator::addPathCosts(
                    false, true);
 
     double predictedTerminalCost =
-        pathData->path->getTotalTerminalCosts();
+        summary.predictedTerminalCost;
     double actualTerminalCost =
-        pathData->m_totalSimulationTerminalCosts;
+        pathData->simulationTerminalCosts;
 
     styleTableCell(
         table, rowIndex, 1,
@@ -1173,9 +1929,7 @@ void PathReportGenerator::addPathCosts(
 
     report->addVerticalSpacing(5);
 
-    // Get segments for the detailed breakdown
-    const QList<Backend::PathSegment *> &segments =
-        pathData->path->getSegments();
+    const auto segments = m_viewModel.segmentEntries(pathData);
 
     if (segments.isEmpty())
     {
@@ -1206,98 +1960,35 @@ void PathReportGenerator::addPathCosts(
     bool hasActualData = false;
 
     // Sum up costs across all segments
-    for (const auto &segment : segments)
+    for (int i = 0; i < segments.size(); ++i)
     {
-        if (segment)
+        const auto &segment = segments[i];
+        if (segment.predictedCosts.available)
         {
-            const QJsonObject &attributes =
-                segment->getAttributes();
+            predictedCarbonEmissionsCost +=
+                segment.predictedCosts.carbonEmissions;
+            predictedDirectCost +=
+                segment.predictedCosts.directCost;
+            predictedDistanceCost +=
+                segment.predictedCosts.distance;
+            predictedEnergyCost +=
+                segment.predictedCosts.energyConsumption;
+            predictedRiskCost += segment.predictedCosts.risk;
+            predictedTimeCost +=
+                segment.predictedCosts.travelTime;
+        }
 
-            // Extract estimated_cost
-            if (attributes.contains("estimated_cost")
-                && attributes["estimated_cost"].isObject())
-            {
-                QJsonObject estimatedCostObj =
-                    attributes["estimated_cost"].toObject();
-
-                // Accumulate predicted costs
-                predictedCarbonEmissionsCost +=
-                    estimatedCostObj.contains(
-                        "carbonEmissions")
-                        ? estimatedCostObj
-                              ["carbonEmissions"]
-                                  .toDouble()
-                        : 0.0;
-                predictedDirectCost +=
-                    estimatedCostObj.contains("cost")
-                        ? estimatedCostObj["cost"]
-                              .toDouble()
-                        : 0.0;
-                predictedDistanceCost +=
-                    estimatedCostObj.contains("distance")
-                        ? estimatedCostObj["distance"]
-                              .toDouble()
-                        : 0.0;
-                predictedEnergyCost +=
-                    estimatedCostObj.contains(
-                        "energyConsumption")
-                        ? estimatedCostObj
-                              ["energyConsumption"]
-                                  .toDouble()
-                        : 0.0;
-                predictedRiskCost +=
-                    estimatedCostObj.contains("risk")
-                        ? estimatedCostObj["risk"]
-                              .toDouble()
-                        : 0.0;
-                predictedTimeCost +=
-                    estimatedCostObj.contains("travelTime")
-                        ? estimatedCostObj["travelTime"]
-                              .toDouble()
-                        : 0.0;
-            }
-
-            // Extract actual_cost
-            if (attributes.contains("actual_cost")
-                && attributes["actual_cost"].isObject())
-            {
-                QJsonObject actualCostObj =
-                    attributes["actual_cost"].toObject();
-
-                // Accumulate actual costs
-                actualCarbonEmissionsCost +=
-                    actualCostObj.contains(
-                        "carbonEmissions")
-                        ? actualCostObj["carbonEmissions"]
-                              .toDouble()
-                        : 0.0;
-                actualDirectCost +=
-                    actualCostObj.contains("cost")
-                        ? actualCostObj["cost"].toDouble()
-                        : 0.0;
-                actualDistanceCost +=
-                    actualCostObj.contains("distance")
-                        ? actualCostObj["distance"]
-                              .toDouble()
-                        : 0.0;
-                actualEnergyCost +=
-                    actualCostObj.contains(
-                        "energyConsumption")
-                        ? actualCostObj["energyConsumption"]
-                              .toDouble()
-                        : 0.0;
-                actualRiskCost +=
-                    actualCostObj.contains("risk")
-                        ? actualCostObj["risk"].toDouble()
-                        : 0.0;
-                actualTimeCost +=
-                    actualCostObj.contains("travelTime")
-                        ? actualCostObj["travelTime"]
-                              .toDouble()
-                        : 0.0;
-
-                hasActualData = true;
-            }
+        if (segment.actualCosts.available)
+        {
+            actualCarbonEmissionsCost +=
+                segment.actualCosts.carbonEmissions;
+            actualDirectCost += segment.actualCosts.directCost;
+            actualDistanceCost += segment.actualCosts.distance;
+            actualEnergyCost +=
+                segment.actualCosts.energyConsumption;
+            actualRiskCost += segment.actualCosts.risk;
+            actualTimeCost += segment.actualCosts.travelTime;
+            hasActualData = true;
         }
     }
 
@@ -1746,7 +2437,7 @@ void PathReportGenerator::addPathCosts(
 
         // Create a chart element if KDReports supports it
         // Note: This would require KDChart integration
-        if (pathData->m_totalSimulationPathCost >= 0)
+        if (pathData->hasSimulationTotalCost())
         {
             // Add informational text about segment costs
             KDReports::TextElement chartInfo(
@@ -1790,76 +2481,39 @@ void PathReportGenerator::addPathCosts(
                                tr("Segment %1").arg(i + 1),
                                false, true);
 
-                if (segments[i])
+                if (i < segments.size())
                 {
-                    // Route info
+                    const auto &segment = segments[i];
                     QString routeInfo =
                         QString("%1 → %2 (%3)")
-                            .arg(getTerminalDisplayNameByID(
-                                pathData->path,
-                                segments[i]->getStart()))
-                            .arg(getTerminalDisplayNameByID(
-                                pathData->path,
-                                segments[i]->getEnd()))
-                            .arg(
-                                Backend::TransportationTypes::
-                                    toString(
-                                        segments[i]
-                                            ->getMode()));
+                            .arg(segment.startTerminalName)
+                            .arg(segment.endTerminalName)
+                            .arg(segment.modeName);
                     styleTableCell(segmentTable,
                                    segRowIndex, 1,
                                    routeInfo);
 
-                    // Segment costs
-                    const QJsonObject &attributes =
-                        segments[i]->getAttributes();
-
-                    // Extract cost data
-                    double segPredictedCost = 0.0;
-                    double segActualCost    = 0.0;
-
-                    if (attributes.contains(
-                            "estimated_cost")
-                        && attributes["estimated_cost"]
-                               .isObject())
-                    {
-                        QJsonObject estimatedCostObj =
-                            attributes["estimated_cost"]
-                                .toObject();
-                        segPredictedCost =
-                            estimatedCostObj.contains(
-                                "cost")
-                                ? estimatedCostObj["cost"]
-                                      .toDouble()
-                                : 0.0;
-                    }
-
-                    if (attributes.contains("actual_cost")
-                        && attributes["actual_cost"]
-                               .isObject())
-                    {
-                        QJsonObject actualCostObj =
-                            attributes["actual_cost"]
-                                .toObject();
-                        segActualCost =
-                            actualCostObj.contains("cost")
-                                ? actualCostObj["cost"]
-                                      .toDouble()
-                                : 0.0;
-                    }
+                    const auto &estimatedCostObj =
+                        segment.predictedCosts;
+                    const auto &actualCostObj =
+                        segment.actualCosts;
+                    const double segPredictedCost =
+                        costSnapshotTotal(estimatedCostObj);
+                    const double segActualCost =
+                        costSnapshotTotal(actualCostObj);
 
                     // Add cost data
-                    styleTableCell(
-                        segmentTable, segRowIndex, 2,
-                        QString::number(segPredictedCost,
-                                        'f', 2));
+                    styleTableCell(segmentTable, segRowIndex, 2,
+                                   estimatedCostObj.available
+                                       ? formatUsd(
+                                             segPredictedCost)
+                                       : tr("N/A"));
 
-                    if (segActualCost > 0)
+                    if (actualCostObj.available)
                     {
                         styleTableCell(
                             segmentTable, segRowIndex, 3,
-                            QString::number(segActualCost,
-                                            'f', 2));
+                            formatUsd(segActualCost));
 
                         // Calculate percentage difference
                         if (segPredictedCost > 0)
@@ -1965,6 +2619,8 @@ void PathReportGenerator::addPathCosts(
 void PathReportGenerator::addComparativeAnalysis(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addComparativeAnalysis: paths"
+                       << m_pathData.size();
     // Add a bookmark for the comparative analysis section
     // report.addBookmark("comparative_analysis");
 
@@ -1984,6 +2640,9 @@ void PathReportGenerator::addComparativeAnalysis(
     addTerminalComparisonTable(report);
     report->addPageBreak();
 
+    addTerminalAttributeComparisonTables(report);
+    report->addPageBreak();
+
     addSegmentComparisonTable(report);
     report->addPageBreak();
 
@@ -2000,6 +2659,7 @@ void PathReportGenerator::addComparativeAnalysis(
 void PathReportGenerator::addSummaryComparisonTable(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addSummaryComparisonTable";
     // Section title
     KDReports::TextElement sectionTitle(
         tr("Summary Comparison"));
@@ -2017,8 +2677,7 @@ void PathReportGenerator::addSummaryComparisonTable(
     {
         if (path && path->path)
         {
-            headers.append(
-                tr("Path %1").arg(path->path->getPathId()));
+            headers.append(m_viewModel.pathSummary(path).pathLabel);
         }
         else
         {
@@ -2040,9 +2699,19 @@ void PathReportGenerator::addSummaryComparisonTable(
 
     // Create row labels for the summary data
     QStringList rowLabels = {
-        tr("Path ID"),        tr("Total Terminals"),
-        tr("Total Segments"), tr("Predicted Cost"),
-        tr("Actual Cost"),    tr("Start Terminal"),
+        tr("Path ID"),
+        tr("Rank"),
+        tr("Effective Containers"),
+        tr("Mode Sequence"),
+        tr("Total Terminals"),
+        tr("Total Segments"),
+        tr("Predicted Cost"),
+        tr("Actual Cost"),
+        tr("Predicted Distance (km)"),
+        tr("Actual Distance (km)"),
+        tr("Predicted Travel Time (hr)"),
+        tr("Actual Travel Time (hr)"),
+        tr("Start Terminal"),
         tr("End Terminal")};
 
     // Add data rows
@@ -2062,44 +2731,53 @@ void PathReportGenerator::addSummaryComparisonTable(
 
             if (path && path->path)
             {
+                const auto summary = m_viewModel.pathSummary(path);
                 switch (row)
                 {
                 case 0: // Path ID
                     styleTableCell(
                         table, tableRow, tableCol,
-                        QString::number(
-                            path->path->getPathId()));
+                        QString::number(summary.pathId));
                     break;
-                case 1: // Total terminals
+                case 1: // Rank
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        QString::number(path->path->getRank()));
+                    break;
+                case 2: // Effective containers
                     styleTableCell(
                         table, tableRow, tableCol,
                         QString::number(
-                            path->path->getTerminalsInPath()
-                                .size()));
+                            path->path
+                                ->getEffectiveContainerCount()));
                     break;
-                case 2: // Total segments
+                case 3: // Mode sequence
                     styleTableCell(
                         table, tableRow, tableCol,
-                        QString::number(
-                            path->path->getSegments()
-                                .size()));
+                        modeSequenceFor(
+                            m_viewModel.segmentEntries(path)));
                     break;
-                case 3: // Predicted Cost
+                case 4: // Total terminals
                     styleTableCell(
                         table, tableRow, tableCol,
-                        QString::number(
-                            path->path->getTotalPathCost(),
-                            'f', 2));
+                        QString::number(summary.terminalCount));
                     break;
-                case 4: // Actual Cost
-                    if (path->m_totalSimulationPathCost
-                        >= 0)
+                case 5: // Total segments
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        QString::number(summary.segmentCount));
+                    break;
+                case 6: // Predicted Cost
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        formatUsd(summary.predictedTotalCost));
+                    break;
+                case 7: // Actual Cost
+                    if (path->hasSimulationTotalCost())
                     {
                         styleTableCell(
                             table, tableRow, tableCol,
-                            QString::number(
-                                path->m_totalSimulationPathCost,
-                                'f', 2));
+                            formatUsd(path->simulationTotalCost));
                     }
                     else
                     {
@@ -2108,41 +2786,51 @@ void PathReportGenerator::addSummaryComparisonTable(
                                        tr("Not simulated"));
                     }
                     break;
-                case 5: // Start Terminal
-                    try
-                    {
-                        QString startTerminalName =
-                            path->path->getTerminalsInPath()
-                                .first()
-                                ->getDisplayName();
-                        styleTableCell(table, tableRow,
-                                       tableCol,
-                                       startTerminalName);
-                    }
-                    catch (const std::exception &)
-                    {
-                        styleTableCell(table, tableRow,
-                                       tableCol,
-                                       tr("Unknown"));
-                    }
+                case 8: // Predicted Distance
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        formatAvailable(
+                            path->predictedMetrics.valid,
+                            path->predictedMetrics.distanceKm,
+                            2));
                     break;
-                case 6: // End Terminal
-                    try
-                    {
-                        QString endTerminalName =
-                            path->path->getTerminalsInPath()
-                                .last()
-                                ->getDisplayName();
-                        styleTableCell(table, tableRow,
-                                       tableCol,
-                                       endTerminalName);
-                    }
-                    catch (const std::exception &)
-                    {
-                        styleTableCell(table, tableRow,
-                                       tableCol,
-                                       tr("Unknown"));
-                    }
+                case 9: // Actual Distance
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        formatAvailable(
+                            path->actualMetrics.valid,
+                            path->actualMetrics.distanceKm, 2));
+                    break;
+                case 10: // Predicted Travel Time
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        formatAvailable(
+                            path->predictedMetrics.valid,
+                            path->predictedMetrics
+                                .travelTimeHours,
+                            2));
+                    break;
+                case 11: // Actual Travel Time
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        formatAvailable(
+                            path->actualMetrics.valid,
+                            path->actualMetrics.travelTimeHours,
+                            2));
+                    break;
+                case 12: // Start Terminal
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        summary.startTerminalName.isEmpty()
+                            ? tr("Unknown")
+                            : summary.startTerminalName);
+                    break;
+                case 13: // End Terminal
+                    styleTableCell(
+                        table, tableRow, tableCol,
+                        summary.endTerminalName.isEmpty()
+                            ? tr("Unknown")
+                            : summary.endTerminalName);
                     break;
                 }
             }
@@ -2161,6 +2849,7 @@ void PathReportGenerator::addSummaryComparisonTable(
 void PathReportGenerator::addTerminalComparisonTable(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addTerminalComparisonTable";
     // Section title
     KDReports::TextElement sectionTitle(
         tr("Terminal Comparison"));
@@ -2178,8 +2867,9 @@ void PathReportGenerator::addTerminalComparisonTable(
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             headers.append(
-                tr("Path %1").arg(path->path->getPathId()));
+                tr("Path %1").arg(summary.pathId));
         }
         else
         {
@@ -2188,16 +2878,7 @@ void PathReportGenerator::addTerminalComparisonTable(
     }
 
     // Find the maximum number of terminals across all paths
-    int maxTerminals = 0;
-    for (const auto &path : m_pathData)
-    {
-        if (path && path->path)
-        {
-            maxTerminals = qMax(
-                maxTerminals,
-                path->path->getTerminalsInPath().size());
-        }
-    }
+    const int maxTerminals = m_viewModel.maxTerminals();
 
     if (maxTerminals == 0)
     {
@@ -2239,14 +2920,16 @@ void PathReportGenerator::addTerminalComparisonTable(
 
             if (path && path->path)
             {
-                const auto &terminals =
-                    path->path->getTerminalsInPath();
+                const auto terminals =
+                    m_viewModel.terminalEntries(path);
 
-                if (i < terminals.size() && terminals[i])
+                if (i < terminals.size())
                 {
                     styleTableCell(
                         table, tableRow, tableCol,
-                        terminals[i]->getDisplayName());
+                        terminals[i].displayName.isEmpty()
+                            ? terminals[i].canonicalName
+                            : terminals[i].displayName);
                 }
                 else
                 {
@@ -2266,9 +2949,288 @@ void PathReportGenerator::addTerminalComparisonTable(
     report->addElement(table);
 }
 
+void PathReportGenerator::addTerminalAttributeComparisonTables(
+    KDReports::Report *report)
+{
+    qCDebug(lcGuiUtil)
+        << "PathReportGenerator::addTerminalAttributeComparisonTables";
+
+    KDReports::TextElement sectionTitle(
+        tr("Terminal-by-Terminal Attribute Comparison"));
+    sectionTitle.setFont(m_sectionTitleFont);
+    sectionTitle.setTextColor(m_subtitleColor);
+    report->addElement(sectionTitle);
+    report->addVerticalSpacing(5);
+
+    const int maxTerminals = m_viewModel.maxTerminals();
+    if (maxTerminals == 0)
+    {
+        KDReports::TextElement noData(
+            tr("No terminal data available for comparison."));
+        noData.setFont(m_normalTextFont);
+        report->addElement(noData);
+        return;
+    }
+
+    KDReports::TextElement note(
+        tr("Actual terminal values come from arrival-side "
+           "handling events. A start facility or pass-through "
+           "terminal without an actual arrival event is shown as "
+           "Not modeled."));
+    note.setFont(m_normalTextFont);
+    note.setItalic(true);
+    report->addElement(note);
+    report->addVerticalSpacing(5);
+
+    for (int terminalIdx = 0; terminalIdx < maxTerminals;
+         ++terminalIdx)
+    {
+        KDReports::TextElement terminalSectionTitle(
+            tr("Terminal %1 Attribute Comparison")
+                .arg(terminalIdx + 1));
+        terminalSectionTitle.setFont(m_normalTextFont);
+        terminalSectionTitle.setBold(true);
+        report->addElement(terminalSectionTitle);
+        report->addVerticalSpacing(3);
+
+        QString terminalDescText;
+        for (const auto *path : m_pathData)
+        {
+            if (!(path && path->path))
+                continue;
+
+            const auto terminals =
+                m_viewModel.terminalEntries(path);
+            if (terminalIdx >= terminals.size())
+                continue;
+
+            const auto summary = m_viewModel.pathSummary(path);
+            const auto &terminal = terminals[terminalIdx];
+            if (!terminalDescText.isEmpty())
+                terminalDescText += tr("\n");
+
+            QString noteText;
+            if (terminal.predictedCostsSkipped
+                && !terminal.predictedSkipReason.isEmpty())
+            {
+                noteText =
+                    tr(" (prediction note: %1)")
+                        .arg(terminal.predictedSkipReason);
+            }
+
+            terminalDescText +=
+                tr("Path %1: %2%3")
+                    .arg(summary.pathId)
+                    .arg(terminal.displayName.isEmpty()
+                             ? terminal.canonicalName
+                             : terminal.displayName)
+                    .arg(noteText);
+        }
+
+        if (!terminalDescText.isEmpty())
+        {
+            KDReports::TextElement descElement(
+                terminalDescText);
+            descElement.setFont(m_smallTextFont);
+            descElement.setItalic(true);
+            report->addElement(descElement);
+            report->addVerticalSpacing(5);
+        }
+
+        addTerminalPositionAttributeTable(report,
+                                          terminalIdx);
+
+        if (terminalIdx < maxTerminals - 1)
+            report->addPageBreak();
+    }
+}
+
+void PathReportGenerator::addTerminalPositionAttributeTable(
+    KDReports::Report *report, int terminalIdx)
+{
+    qCDebug(lcGuiUtil)
+        << "PathReportGenerator::addTerminalPositionAttributeTable:"
+        << terminalIdx;
+
+    QStringList headers;
+    headers.append(tr("Attribute"));
+    for (const auto *path : m_pathData)
+    {
+        if (path && path->path)
+            headers.append(m_viewModel.pathSummary(path)
+                               .pathLabel);
+        else
+            headers.append(tr("Unknown Path"));
+    }
+
+    KDReports::TableElement table;
+    table.setHeaderRowCount(1);
+    table.setBorder(1);
+    table.setBorderBrush(QBrush(m_tableBorderColor));
+
+    for (int col = 0; col < headers.size(); ++col)
+        styleTableCell(table, 0, col, headers[col], true);
+
+    const QStringList attributeLabels = {
+        tr("Handling Time (Predicted, s)"),
+        tr("Handling Time (Actual, s)"),
+        tr("Raw Direct Tariff (Predicted, USD)"),
+        tr("Direct Cost (Predicted, USD)"),
+        tr("Direct Cost (Actual, USD)"),
+        tr("Weighted Delay Contribution (Predicted)"),
+        tr("Weighted Delay Contribution (Actual)"),
+        tr("Weighted Cost Contribution (Predicted)"),
+        tr("Weighted Cost Contribution (Actual)"),
+        tr("Weighted Total Contribution (Predicted)"),
+        tr("Weighted Total Contribution (Actual)"),
+        tr("Arrival Mode (Actual)"),
+        tr("Dropped Containers (Actual)"),
+        tr("Arrival Events (Actual)"),
+        tr("Utilization At Arrival (Actual)"),
+        tr("Congestion At Arrival (Actual)"),
+        tr("Delay Multiplier At Arrival (Actual)")};
+
+    for (int rowIdx = 0; rowIdx < attributeLabels.size();
+         ++rowIdx)
+    {
+        const int tableRow = rowIdx + 1;
+        styleTableCell(table, tableRow, 0,
+                       attributeLabels[rowIdx], false,
+                       true);
+
+        for (int col = 0; col < m_pathData.size(); ++col)
+        {
+            const auto *path = m_pathData[col];
+            const int tableCol = col + 1;
+            if (!(path && path->path))
+            {
+                styleTableCell(table, tableRow, tableCol,
+                               tr("N/A"));
+                continue;
+            }
+
+            const auto terminals =
+                m_viewModel.terminalEntries(path);
+            if (terminalIdx >= terminals.size())
+            {
+                styleTableCell(table, tableRow, tableCol,
+                               tr("-"));
+                continue;
+            }
+
+            const auto &values =
+                terminals[terminalIdx].displayValues;
+            QString valueText = tr("N/A");
+            switch (rowIdx)
+            {
+            case 0:
+                valueText = formatAvailable(
+                    values.predictedAvailable,
+                    values.predictedHandlingSeconds, 0);
+                break;
+            case 1:
+                valueText = formatActualAvailable(
+                    values.actualAvailable,
+                    values.actualTotalHandlingSeconds, 0);
+                break;
+            case 2:
+                valueText =
+                    values.predictedAvailable
+                        ? formatUsd(
+                              values.predictedRawDirectCostUsd)
+                        : tr("N/A");
+                break;
+            case 3:
+                valueText =
+                    values.predictedAvailable
+                        ? formatUsd(values.predictedDirectCostUsd)
+                        : tr("N/A");
+                break;
+            case 4:
+                valueText =
+                    values.actualAvailable
+                        ? formatUsd(values.actualDirectCostUsd)
+                        : tr("Not modeled");
+                break;
+            case 5:
+                valueText = formatAvailable(
+                    values.predictedAvailable,
+                    values.predictedWeightedDelayContribution,
+                    2);
+                break;
+            case 6:
+                valueText = formatActualAvailable(
+                    values.actualAvailable,
+                    values.actualWeightedDelayContribution, 2);
+                break;
+            case 7:
+                valueText = formatAvailable(
+                    values.predictedAvailable,
+                    values.predictedWeightedCostContribution,
+                    2);
+                break;
+            case 8:
+                valueText = formatActualAvailable(
+                    values.actualAvailable,
+                    values.actualWeightedCostContribution, 2);
+                break;
+            case 9:
+                valueText = formatAvailable(
+                    values.predictedAvailable,
+                    values.predictedWeightedTotalContribution,
+                    2);
+                break;
+            case 10:
+                valueText = formatActualAvailable(
+                    values.actualAvailable,
+                    values.actualWeightedTotalContribution, 2);
+                break;
+            case 11:
+                valueText = formatActualMode(
+                    values.actualAvailable,
+                    values.actualArrivalMode);
+                break;
+            case 12:
+                valueText = formatActualInt(
+                    values.actualAvailable,
+                    values.actualDroppedContainers);
+                break;
+            case 13:
+                valueText = formatActualInt(
+                    values.actualAvailable,
+                    values.actualArrivalEvents);
+                break;
+            case 14:
+                valueText = formatActualAvailable(
+                    values.actualAvailable,
+                    values.actualUtilizationAtArrival, 3);
+                break;
+            case 15:
+                valueText = formatActualAvailable(
+                    values.actualAvailable,
+                    values.actualCongestionAtArrival, 3);
+                break;
+            case 16:
+                valueText = formatActualAvailable(
+                    values.actualAvailable,
+                    values.actualDelayMultiplierAtArrival, 3);
+                break;
+            default:
+                break;
+            }
+
+            styleTableCell(table, tableRow, tableCol,
+                           valueText);
+        }
+    }
+
+    report->addElement(table);
+}
+
 void PathReportGenerator::addSegmentComparisonTable(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addSegmentComparisonTable";
     // Section title
     KDReports::TextElement sectionTitle(
         tr("Segment Comparison"));
@@ -2286,8 +3248,9 @@ void PathReportGenerator::addSegmentComparisonTable(
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             headers.append(
-                tr("Path %1").arg(path->path->getPathId()));
+                tr("Path %1").arg(summary.pathId));
         }
         else
         {
@@ -2296,16 +3259,7 @@ void PathReportGenerator::addSegmentComparisonTable(
     }
 
     // Find the maximum number of segments across all paths
-    int maxSegments = 0;
-    for (const auto &path : m_pathData)
-    {
-        if (path && path->path)
-        {
-            maxSegments =
-                qMax(maxSegments,
-                     path->path->getSegments().size());
-        }
-    }
+    const int maxSegments = m_viewModel.maxSegments();
 
     if (maxSegments == 0)
     {
@@ -2347,25 +3301,16 @@ void PathReportGenerator::addSegmentComparisonTable(
 
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
 
-                if (i < segments.size() && segments[i])
+                if (i < segments.size())
                 {
-                    // Format: "Start → End (Mode)"
                     QString segmentInfo =
                         QString("%1 → %2 (%3)")
-                            .arg(getTerminalDisplayNameByID(
-                                path->path,
-                                segments[i]->getStart()))
-                            .arg(getTerminalDisplayNameByID(
-                                path->path,
-                                segments[i]->getEnd()))
-                            .arg(
-                                Backend::TransportationTypes::
-                                    toString(
-                                        segments[i]
-                                            ->getMode()));
+                            .arg(segments[i].startTerminalName)
+                            .arg(segments[i].endTerminalName)
+                            .arg(segments[i].modeName);
 
                     styleTableCell(table, tableRow,
                                    tableCol, segmentInfo);
@@ -2391,6 +3336,7 @@ void PathReportGenerator::addSegmentComparisonTable(
 void PathReportGenerator::addCostComparisonTable(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addCostComparisonTable";
     // Section title
     KDReports::TextElement sectionTitle(
         tr("Cost Comparison"));
@@ -2408,8 +3354,9 @@ void PathReportGenerator::addCostComparisonTable(
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             headers.append(
-                tr("Path %1").arg(path->path->getPathId()));
+                tr("Path %1").arg(summary.pathId));
         }
         else
         {
@@ -2453,6 +3400,8 @@ void PathReportGenerator::addCostComparisonTable(
 
             if (path && path->path)
             {
+                const auto summary =
+                    m_viewModel.pathSummary(path);
                 // Handle different cost categories
                 switch (row)
                 {
@@ -2460,32 +3409,30 @@ void PathReportGenerator::addCostComparisonTable(
                     styleTableCell(
                         table, tableRow, tableCol,
                         QString::number(
-                            path->path->getTotalPathCost(),
+                            summary.predictedTotalCost,
                             'f', 2));
                     break;
                 case 1: // Predicted Edge
                     styleTableCell(
                         table, tableRow, tableCol,
                         QString::number(
-                            path->path->getTotalEdgeCosts(),
+                            summary.predictedEdgeCost,
                             'f', 2));
                     break;
                 case 2: // Predicted Terminal
                     styleTableCell(
                         table, tableRow, tableCol,
                         QString::number(
-                            path->path
-                                ->getTotalTerminalCosts(),
+                            summary.predictedTerminalCost,
                             'f', 2));
                     break;
                 case 3: // Simulated Total
-                    if (path->m_totalSimulationPathCost
-                        >= 0)
+                    if (path->hasSimulationTotalCost())
                     {
                         styleTableCell(
                             table, tableRow, tableCol,
                             QString::number(
-                                path->m_totalSimulationPathCost,
+                                path->simulationTotalCost,
                                 'f', 2));
                     }
                     else
@@ -2496,13 +3443,12 @@ void PathReportGenerator::addCostComparisonTable(
                     }
                     break;
                 case 4: // Simulated Edge
-                    if (path->m_totalSimulationEdgeCosts
-                        >= 0)
+                    if (path->hasSimulationEdgeCosts())
                     {
                         styleTableCell(
                             table, tableRow, tableCol,
                             QString::number(
-                                path->m_totalSimulationEdgeCosts,
+                                path->simulationEdgeCosts,
                                 'f', 2));
                     }
                     else
@@ -2513,13 +3459,12 @@ void PathReportGenerator::addCostComparisonTable(
                     }
                     break;
                 case 5: // Simulated Terminal
-                    if (path->m_totalSimulationTerminalCosts
-                        >= 0)
+                    if (path->hasSimulationTerminalCosts())
                     {
                         styleTableCell(
                             table, tableRow, tableCol,
                             QString::number(
-                                path->m_totalSimulationTerminalCosts,
+                                path->simulationTerminalCosts,
                                 'f', 2));
                     }
                     else
@@ -2530,14 +3475,13 @@ void PathReportGenerator::addCostComparisonTable(
                     }
                     break;
                 case 6: // Difference (%)
-                    if (path->m_totalSimulationPathCost >= 0
-                        && path->path->getTotalPathCost()
-                               > 0)
+                    if (path->hasSimulationTotalCost()
+                        && summary.predictedTotalCost > 0)
                     {
                         double predictedCost =
-                            path->path->getTotalPathCost();
+                            summary.predictedTotalCost;
                         double simulatedCost =
-                            path->m_totalSimulationPathCost;
+                            path->simulationTotalCost;
                         double difference =
                             ((simulatedCost - predictedCost)
                              / predictedCost)
@@ -2612,16 +3556,7 @@ void PathReportGenerator::
     report->addVerticalSpacing(5);
 
     // Find the maximum number of segments across all paths
-    int maxSegments = 0;
-    for (const auto &path : m_pathData)
-    {
-        if (path && path->path)
-        {
-            maxSegments =
-                qMax(maxSegments,
-                     path->path->getSegments().size());
-        }
-    }
+    const int maxSegments = m_viewModel.maxSegments();
 
     if (maxSegments == 0)
     {
@@ -2655,30 +3590,23 @@ void PathReportGenerator::
         {
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
-                if (segmentIdx < segments.size()
-                    && segments[segmentIdx])
+                const auto summary =
+                    m_viewModel.pathSummary(path);
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
+                if (segmentIdx < segments.size())
                 {
                     if (!segmentDescText.isEmpty())
                         segmentDescText += tr("\n");
 
                     segmentDescText +=
                         tr("Path %1: %2 → %3 (%4)")
-                            .arg(path->path->getPathId())
-                            .arg(getTerminalDisplayNameByID(
-                                path->path,
-                                segments[segmentIdx]
-                                    ->getStart()))
-                            .arg(getTerminalDisplayNameByID(
-                                path->path,
-                                segments[segmentIdx]
-                                    ->getEnd()))
-                            .arg(
-                                Backend::TransportationTypes::
-                                    toString(
-                                        segments[segmentIdx]
-                                            ->getMode()));
+                            .arg(summary.pathId)
+                            .arg(segments[segmentIdx]
+                                     .startTerminalName)
+                            .arg(segments[segmentIdx]
+                                     .endTerminalName)
+                            .arg(segments[segmentIdx].modeName);
                 }
             }
         }
@@ -2699,7 +3627,8 @@ void PathReportGenerator::
                                          segmentIdx);
 
         // Add space between segment sections
-        report->addPageBreak();
+        if (segmentIdx < maxSegments - 1)
+            report->addPageBreak();
 
         // // Add a separator line between segment
         // // comparisons
@@ -2717,6 +3646,8 @@ void PathReportGenerator::
 void PathReportGenerator::addSegmentPositionAttributeTable(
     KDReports::Report *report, int segmentIdx)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addSegmentPositionAttributeTable: segment"
+                       << segmentIdx;
     // Create column headers (Path ID 1, Path ID 2, etc.)
     QStringList headers;
     headers.append(tr("Attribute")); // First column header
@@ -2725,8 +3656,13 @@ void PathReportGenerator::addSegmentPositionAttributeTable(
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             headers.append(
-                tr("Path %1").arg(path->path->getPathId()));
+                tr("Path %1").arg(summary.pathId));
+        }
+        else
+        {
+            headers.append(tr("Unknown Path"));
         }
     }
 
@@ -2745,17 +3681,19 @@ void PathReportGenerator::addSegmentPositionAttributeTable(
     // Row labels for attributes (with both predicted and
     // actual values)
     QStringList attributeLabels = {
-        tr("Carbon Emissions (Predicted)"),
+        tr("Carbon Emissions (Vehicle Predicted, t)"),
+        tr("Carbon Emissions (Allocated Predicted, t)"),
         tr("Carbon Emissions (Actual)"),
-        tr("Cost (Predicted)"),
-        tr("Cost (Actual)"),
-        tr("Distance (Predicted)"),
+        tr("Direct Cost (Allocated Predicted, USD)"),
+        tr("Direct Cost (Actual)"),
+        tr("Distance (Predicted, km)"),
         tr("Distance (Actual)"),
-        tr("Energy Consumption (Predicted)"),
+        tr("Energy Consumption (Vehicle Predicted, kWh)"),
+        tr("Energy Consumption (Allocated Predicted, kWh)"),
         tr("Energy Consumption (Actual)"),
-        tr("Risk (Predicted)"),
+        tr("Risk (Vehicle Predicted)"),
         tr("Risk (Actual)"),
-        tr("Travel Time (Predicted)"),
+        tr("Travel Time (Predicted, hr)"),
         tr("Travel Time (Actual)")};
 
     // For each attribute row
@@ -2777,142 +3715,105 @@ void PathReportGenerator::addSegmentPositionAttributeTable(
 
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
 
-                if (segmentIdx < segments.size()
-                    && segments[segmentIdx])
+                if (segmentIdx < segments.size())
                 {
-                    const QJsonObject &attributes =
-                        segments[segmentIdx]
-                            ->getAttributes();
+                    const auto values =
+                        m_viewModel.segmentValues(path, segmentIdx);
+                    const auto predictedCosts =
+                        m_viewModel.segmentPredictedCosts(
+                            path, segmentIdx);
+                    const auto actualCosts =
+                        m_viewModel.segmentActualCosts(
+                            path, segmentIdx);
 
-                    // Handle different attribute types
-                    if (rowIdx % 2 == 0) // Even rows are
-                                         // predicted values
+                    QString valueText = tr("N/A");
+                    switch (rowIdx)
                     {
-                        QJsonObject estimatedValuesObj;
-                        if (attributes.contains(
-                                "estimated_values")
-                            && attributes
-                                   ["estimated_values"]
-                                       .isObject())
-                        {
-                            estimatedValuesObj =
-                                attributes
-                                    ["estimated_values"]
-                                        .toObject();
-                        }
-
-                        // Determine which attribute to
-                        // display based on rowIdx
-                        QString key;
-                        QString format    = "f";
-                        int     precision = 2;
-
-                        switch (rowIdx)
-                        {
-                        case 0:
-                            key       = "carbonEmissions";
-                            precision = 3;
-                            break;
-                        case 2:
-                            key = "cost";
-                            break;
-                        case 4:
-                            key = "distance";
-                            break;
-                        case 6:
-                            key = "energyConsumption";
-                            break;
-                        case 8:
-                            key       = "risk";
-                            precision = 6;
-                            break;
-                        case 10:
-                            key = "travelTime";
-                            break;
-                        }
-
-                        if (!key.isEmpty()
-                            && estimatedValuesObj.contains(
-                                key))
-                        {
-                            styleTableCell(
-                                table, tableRow, tableCol,
-                                QString::number(
-                                    estimatedValuesObj[key]
-                                        .toDouble(),
-                                    'g', precision));
-                        }
-                        else
-                        {
-                            styleTableCell(table, tableRow,
-                                           tableCol,
-                                           tr("N/A"));
-                        }
+                    case 0:
+                        if (values.predictedAvailable)
+                            valueText = QString::number(
+                                values.predictedCarbonEmissions,
+                                'g', 3);
+                        break;
+                    case 1:
+                        if (values.predictedAvailable)
+                            valueText = QString::number(
+                                values.predictedAllocatedCarbonEmissions,
+                                'g', 3);
+                        break;
+                    case 2:
+                        if (values.actualAvailable)
+                            valueText = QString::number(
+                                values.actualCarbonEmissions,
+                                'g', 3);
+                        break;
+                    case 3:
+                        valueText = formatCostComponent(
+                            predictedCosts,
+                            predictedCosts.directCost, 2);
+                        break;
+                    case 4:
+                        valueText = formatCostComponent(
+                            actualCosts,
+                            actualCosts.directCost, 2);
+                        break;
+                    case 5:
+                        if (values.predictedAvailable)
+                            valueText = QString::number(
+                                values.predictedDistanceKm,
+                                'g', 2);
+                        break;
+                    case 6:
+                        if (values.actualAvailable)
+                            valueText = QString::number(
+                                values.actualDistanceKm, 'g', 2);
+                        break;
+                    case 7:
+                        if (values.predictedAvailable)
+                            valueText = QString::number(
+                                values.predictedEnergyConsumption,
+                                'g', 2);
+                        break;
+                    case 8:
+                        if (values.predictedAvailable)
+                            valueText = QString::number(
+                                values.predictedAllocatedEnergyConsumption,
+                                'g', 2);
+                        break;
+                    case 9:
+                        if (values.actualAvailable)
+                            valueText = QString::number(
+                                values.actualEnergyConsumption,
+                                'g', 2);
+                        break;
+                    case 10:
+                        if (values.predictedAvailable)
+                            valueText = QString::number(
+                                values.predictedRisk, 'g', 6);
+                        break;
+                    case 11:
+                        if (values.actualAvailable)
+                            valueText = QString::number(
+                                values.actualRisk, 'g', 6);
+                        break;
+                    case 12:
+                        if (values.predictedAvailable)
+                            valueText = QString::number(
+                                values.predictedTravelTimeHours,
+                                'g', 2);
+                        break;
+                    case 13:
+                        if (values.actualAvailable)
+                            valueText = QString::number(
+                                values.actualTravelTimeHours,
+                                'g', 2);
+                        break;
                     }
-                    else // Odd rows are actual values
-                    {
-                        QJsonObject actualValuesObj;
-                        if (attributes.contains(
-                                "actual_values")
-                            && attributes["actual_values"]
-                                   .isObject())
-                        {
-                            actualValuesObj =
-                                attributes["actual_values"]
-                                    .toObject();
-                        }
-
-                        // Determine which attribute to
-                        // display based on rowIdx
-                        QString key;
-                        QString format    = "f";
-                        int     precision = 2;
-
-                        switch (rowIdx)
-                        {
-                        case 1:
-                            key       = "carbonEmissions";
-                            precision = 3;
-                            break;
-                        case 3:
-                            key = "cost";
-                            break;
-                        case 5:
-                            key = "distance";
-                            break;
-                        case 7:
-                            key = "energyConsumption";
-                            break;
-                        case 9:
-                            key       = "risk";
-                            precision = 6;
-                            break;
-                        case 11:
-                            key = "travelTime";
-                            break;
-                        }
-
-                        if (!key.isEmpty()
-                            && actualValuesObj.contains(
-                                key))
-                        {
-                            styleTableCell(
-                                table, tableRow, tableCol,
-                                QString::number(
-                                    actualValuesObj[key]
-                                        .toDouble(),
-                                    'g', precision));
-                        }
-                        else
-                        {
-                            styleTableCell(table, tableRow,
-                                           tableCol,
-                                           tr("N/A"));
-                        }
-                    }
+                    styleTableCell(table, tableRow,
+                                   tableCol, valueText);
                 }
                 else
                 {
@@ -2935,6 +3836,7 @@ void PathReportGenerator::addSegmentPositionAttributeTable(
 void PathReportGenerator::addSegmentCostComparisonTables(
     KDReports::Report *report)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addSegmentCostComparisonTables";
     // Section title
     KDReports::TextElement sectionTitle(
         tr("Segment-by-Segment Cost Comparison"));
@@ -2945,16 +3847,7 @@ void PathReportGenerator::addSegmentCostComparisonTables(
     report->addVerticalSpacing(5);
 
     // Find the maximum number of segments across all paths
-    int maxSegments = 0;
-    for (const auto &path : m_pathData)
-    {
-        if (path && path->path)
-        {
-            maxSegments =
-                qMax(maxSegments,
-                     path->path->getSegments().size());
-        }
-    }
+    const int maxSegments = m_viewModel.maxSegments();
 
     if (maxSegments == 0)
     {
@@ -2989,30 +3882,23 @@ void PathReportGenerator::addSegmentCostComparisonTables(
         {
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
-                if (segmentIdx < segments.size()
-                    && segments[segmentIdx])
+                const auto summary =
+                    m_viewModel.pathSummary(path);
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
+                if (segmentIdx < segments.size())
                 {
                     if (!segmentDescText.isEmpty())
                         segmentDescText += tr("\n");
 
                     segmentDescText +=
                         tr("Path %1: %2 → %3 (%4)")
-                            .arg(path->path->getPathId())
-                            .arg(getTerminalDisplayNameByID(
-                                path->path,
-                                segments[segmentIdx]
-                                    ->getStart()))
-                            .arg(getTerminalDisplayNameByID(
-                                path->path,
-                                segments[segmentIdx]
-                                    ->getEnd()))
-                            .arg(
-                                Backend::TransportationTypes::
-                                    toString(
-                                        segments[segmentIdx]
-                                            ->getMode()));
+                            .arg(summary.pathId)
+                            .arg(segments[segmentIdx]
+                                     .startTerminalName)
+                            .arg(segments[segmentIdx]
+                                     .endTerminalName)
+                            .arg(segments[segmentIdx].modeName);
                 }
             }
         }
@@ -3032,7 +3918,8 @@ void PathReportGenerator::addSegmentCostComparisonTables(
         addSegmentPositionCostTable(report, segmentIdx);
 
         // Add space between segment sections
-        report->addPageBreak();
+        if (segmentIdx < maxSegments - 1)
+            report->addPageBreak();
 
         // // Add a separator line between segment
         // comparisons if (segmentIdx < maxSegments - 1)
@@ -3049,6 +3936,8 @@ void PathReportGenerator::addSegmentCostComparisonTables(
 void PathReportGenerator::addSegmentPositionCostTable(
     KDReports::Report *report, int segmentIdx)
 {
+    qCDebug(lcGuiUtil) << "PathReportGenerator::addSegmentPositionCostTable: segment"
+                       << segmentIdx;
     // Create column headers (Path ID 1, Path ID 2, etc.)
     QStringList headers;
     headers.append(
@@ -3058,8 +3947,13 @@ void PathReportGenerator::addSegmentPositionCostTable(
     {
         if (path && path->path)
         {
+            const auto summary = m_viewModel.pathSummary(path);
             headers.append(
-                tr("Path %1").arg(path->path->getPathId()));
+                tr("Path %1").arg(summary.pathId));
+        }
+        else
+        {
+            headers.append(tr("Unknown Path"));
         }
     }
 
@@ -3078,17 +3972,17 @@ void PathReportGenerator::addSegmentPositionCostTable(
     // Row labels for cost categories (with both predicted
     // and actual values)
     QStringList costLabels = {
-        tr("Carbon Emissions Cost (Predicted)"),
+        tr("Carbon Emissions Cost (Allocated Predicted)"),
         tr("Carbon Emissions Cost (Actual)"),
-        tr("Direct Cost (Predicted)"),
+        tr("Direct Cost (Allocated Predicted)"),
         tr("Direct Cost (Actual)"),
-        tr("Distance-based Cost (Predicted)"),
+        tr("Distance-based Cost (Allocated Predicted)"),
         tr("Distance-based Cost (Actual)"),
-        tr("Energy Consumption Cost (Predicted)"),
+        tr("Energy Consumption Cost (Allocated Predicted)"),
         tr("Energy Consumption Cost (Actual)"),
-        tr("Risk-based Cost (Predicted)"),
+        tr("Risk-based Cost (Allocated Predicted)"),
         tr("Risk-based Cost (Actual)"),
-        tr("Travel Time Cost (Predicted)"),
+        tr("Travel Time Cost (Allocated Predicted)"),
         tr("Travel Time Cost (Actual)")};
 
     // For each cost category row
@@ -3109,136 +4003,107 @@ void PathReportGenerator::addSegmentPositionCostTable(
 
             if (path && path->path)
             {
-                const auto &segments =
-                    path->path->getSegments();
+                const auto segments =
+                    m_viewModel.segmentEntries(path);
 
-                if (segmentIdx < segments.size()
-                    && segments[segmentIdx])
+                if (segmentIdx < segments.size())
                 {
-                    const QJsonObject &attributes =
-                        segments[segmentIdx]
-                            ->getAttributes();
+                    const auto estimatedCostObj =
+                        m_viewModel.segmentPredictedCosts(
+                            path, segmentIdx);
+                    const auto actualCostObj =
+                        m_viewModel.segmentActualCosts(
+                            path, segmentIdx);
 
                     // Handle different cost categories
                     if (rowIdx % 2 == 0) // Even rows are
                                          // predicted costs
                     {
-                        QJsonObject estimatedCostObj;
-                        if (attributes.contains(
-                                "estimated_cost")
-                            && attributes["estimated_cost"]
-                                   .isObject())
-                        {
-                            estimatedCostObj =
-                                attributes["estimated_cost"]
-                                    .toObject();
-                        }
-
-                        // Determine which cost to display
-                        // based on rowIdx
-                        QString key;
-                        QString format    = "f";
-                        int     precision = 2;
-
+                        QString valueText = tr("N/A");
                         switch (rowIdx)
                         {
                         case 0:
-                            key = "carbonEmissions";
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.carbonEmissions,
+                                    'g', 2);
                             break;
                         case 2:
-                            key = "cost";
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.directCost,
+                                    'g', 2);
                             break;
                         case 4:
-                            key = "distance";
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.distance,
+                                    'g', 2);
                             break;
                         case 6:
-                            key = "energyConsumption";
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.energyConsumption,
+                                    'g', 2);
                             break;
                         case 8:
-                            key       = "risk";
-                            precision = 6;
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.risk, 'g', 6);
                             break;
                         case 10:
-                            key = "travelTime";
+                            if (estimatedCostObj.available)
+                                valueText = QString::number(
+                                    estimatedCostObj.travelTime,
+                                    'g', 2);
                             break;
                         }
-
-                        if (!key.isEmpty()
-                            && estimatedCostObj.contains(
-                                key))
-                        {
-                            styleTableCell(
-                                table, tableRow, tableCol,
-                                QString::number(
-                                    estimatedCostObj[key]
-                                        .toDouble(),
-                                    'g', precision));
-                        }
-                        else
-                        {
-                            styleTableCell(table, tableRow,
-                                           tableCol,
-                                           tr("N/A"));
-                        }
+                        styleTableCell(table, tableRow,
+                                       tableCol, valueText);
                     }
                     else // Odd rows are actual costs
                     {
-                        QJsonObject actualCostObj;
-                        if (attributes.contains(
-                                "actual_cost")
-                            && attributes["actual_cost"]
-                                   .isObject())
-                        {
-                            actualCostObj =
-                                attributes["actual_cost"]
-                                    .toObject();
-                        }
-
-                        // Determine which cost to display
-                        // based on rowIdx
-                        QString key;
-                        QString format    = "f";
-                        int     precision = 2;
-
+                        QString valueText = tr("N/A");
                         switch (rowIdx)
                         {
                         case 1:
-                            key = "carbonEmissions";
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.carbonEmissions,
+                                    'g', 2);
                             break;
                         case 3:
-                            key = "cost";
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.directCost,
+                                    'g', 2);
                             break;
                         case 5:
-                            key = "distance";
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.distance,
+                                    'g', 2);
                             break;
                         case 7:
-                            key = "energyConsumption";
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.energyConsumption,
+                                    'g', 2);
                             break;
                         case 9:
-                            key       = "risk";
-                            precision = 6;
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.risk, 'g', 6);
                             break;
                         case 11:
-                            key = "travelTime";
+                            if (actualCostObj.available)
+                                valueText = QString::number(
+                                    actualCostObj.travelTime,
+                                    'g', 2);
                             break;
                         }
-
-                        if (!key.isEmpty()
-                            && actualCostObj.contains(key))
-                        {
-                            styleTableCell(
-                                table, tableRow, tableCol,
-                                QString::number(
-                                    actualCostObj[key]
-                                        .toDouble(),
-                                    'g', precision));
-                        }
-                        else
-                        {
-                            styleTableCell(table, tableRow,
-                                           tableCol,
-                                           tr("N/A"));
-                        }
+                        styleTableCell(table, tableRow,
+                                       tableCol, valueText);
                     }
                 }
                 else
@@ -3271,61 +4136,41 @@ void PathReportGenerator::addSegmentPositionCostTable(
 
         if (path && path->path)
         {
-            const auto &segments =
-                path->path->getSegments();
+            const auto segments =
+                m_viewModel.segmentEntries(path);
 
-            if (segmentIdx < segments.size()
-                && segments[segmentIdx])
+            if (segmentIdx < segments.size())
             {
-                const QJsonObject &attributes =
-                    segments[segmentIdx]->getAttributes();
-
-                // Get predicted total cost
-                double predictedTotal = 0.0;
-                if (attributes.contains("estimated_cost")
-                    && attributes["estimated_cost"]
-                           .isObject())
-                {
-                    QJsonObject estimatedCostObj =
-                        attributes["estimated_cost"]
-                            .toObject();
-
-                    if (estimatedCostObj.contains("cost"))
-                        predictedTotal =
-                            estimatedCostObj["cost"]
-                                .toDouble();
-                }
-
-                // Get actual total cost if available
-                double actualTotal = -1.0;
-                if (attributes.contains("actual_cost")
-                    && attributes["actual_cost"].isObject())
-                {
-                    QJsonObject actualCostObj =
-                        attributes["actual_cost"]
-                            .toObject();
-
-                    if (actualCostObj.contains("cost"))
-                        actualTotal = actualCostObj["cost"]
-                                          .toDouble();
-                }
+                const auto estimatedCostObj =
+                    m_viewModel.segmentPredictedCosts(
+                        path, segmentIdx);
+                const auto actualCostObj =
+                    m_viewModel.segmentActualCosts(
+                        path, segmentIdx);
+                const double predictedTotal =
+                    costSnapshotTotal(estimatedCostObj);
+                const double actualTotal =
+                    costSnapshotTotal(actualCostObj);
 
                 // Display the costs
                 QString costText;
-                if (actualTotal >= 0)
+                if (estimatedCostObj.available
+                    && actualCostObj.available)
                 {
                     costText =
                         tr("%1 / %2")
-                            .arg(QString::number(
-                                predictedTotal, 'f', 2))
-                            .arg(QString::number(
-                                actualTotal, 'f', 2));
+                            .arg(formatUsd(predictedTotal))
+                            .arg(formatUsd(actualTotal));
+                }
+                else if (estimatedCostObj.available)
+                {
+                    costText =
+                        tr("%1 / -").arg(
+                            formatUsd(predictedTotal));
                 }
                 else
                 {
-                    costText = QString::number(
-                                   predictedTotal, 'f', 2)
-                               + " / -";
+                    costText = tr("N/A");
                 }
 
                 // Add cell with predicted/actual totals
@@ -3400,9 +4245,6 @@ QImage PathReportGenerator::createTransportModeImage(
     QImage image(64, 40, QImage::Format_ARGB32);
     image.fill(Qt::transparent);
 
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing);
-
     // Set color based on transportation mode
     QColor arrowColor = Qt::black; // Default color
 
@@ -3423,48 +4265,34 @@ QImage PathReportGenerator::createTransportModeImage(
         arrowColor = QColor(0, 0, 255); // Blue for ship
     }
 
-    // Draw the mode text
-    painter.setPen(arrowColor);
-    QFont font = painter.font();
-    font.setBold(true);
-    painter.setFont(font);
-    painter.drawText(QRect(0, 0, image.width(), 15),
-                     Qt::AlignCenter, mode);
+    {
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
 
-    // Draw the arrow
-    QPen pen(arrowColor, 2);
-    painter.setPen(pen);
+        // Draw the mode text
+        painter.setPen(arrowColor);
+        QFont font = painter.font();
+        font.setBold(true);
+        painter.setFont(font);
+        painter.drawText(QRect(0, 0, image.width(), 15),
+                         Qt::AlignCenter, mode);
 
-    // Draw arrow shaft
-    painter.drawLine(10, 25, 54, 25);
+        // Draw the arrow
+        QPen pen(arrowColor, 2);
+        painter.setPen(pen);
 
-    // Draw arrow head
-    QPolygon arrowHead;
-    arrowHead << QPoint(48, 20) << QPoint(54, 25)
-              << QPoint(48, 30);
-    painter.setBrush(arrowColor);
-    painter.drawPolygon(arrowHead);
+        // Draw arrow shaft
+        painter.drawLine(10, 25, 54, 25);
+
+        // Draw arrow head
+        QPolygon arrowHead;
+        arrowHead << QPoint(48, 20) << QPoint(54, 25)
+                  << QPoint(48, 30);
+        painter.setBrush(arrowColor);
+        painter.drawPolygon(arrowHead);
+    }
 
     return image;
-}
-
-QString PathReportGenerator::getTerminalDisplayNameByID(
-    Backend::Path *path, const QString &terminalID)
-{
-    if (path)
-    {
-        for (const auto &terminal :
-             path->getTerminalsInPath())
-        {
-            if (terminal
-                && terminal->getCanonicalName()
-                       == terminalID)
-            {
-                return terminal->getDisplayName();
-            }
-        }
-    }
-    return terminalID;
 }
 
 } // namespace GUI

@@ -1,10 +1,16 @@
 #include "MapLine.h"
+#include "Backend/Commons/LogCategories.h"
+#include "GUI/Input/ClickContext.h"
 #include "GUI/Items/AnimationObject.h"
+#include "GUI/Widgets/GraphicsScene.h"
 
 #include <QGraphicsScene>
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
+#include <QLoggingCategory>
 #include <QPainter>
+#include <QPainterPath>
+#include <QPainterPathStroker>
 #include <QStyleOptionGraphicsItem>
 
 namespace CargoNetSim
@@ -25,6 +31,13 @@ MapLine::MapLine(const QString &referenceNetworkID,
     , baseWidth(1)
     , pen(Qt::black, baseWidth)
 {
+    qCInfo(lcGuiScene)
+        << "MapLine::MapLine:"
+        << "networkID=" << referenceNetworkID
+        << "region=" << region
+        << "start=" << startPoint
+        << "end=" << endPoint;
+
     this->m_properties["Network_ID"] = referenceNetworkID;
     this->m_properties["region"]     = region;
 
@@ -40,6 +53,9 @@ void MapLine::setColor(const QColor &color)
 {
     if (pen.color() != color)
     {
+        qCDebug(lcGuiScene)
+            << "MapLine::setColor:"
+            << "color=" << color.name();
         pen.setColor(color);
         emit colorChanged(color);
         update();
@@ -50,6 +66,10 @@ void MapLine::setPen(const QPen &newPen)
 {
     if (pen != newPen)
     {
+        qCDebug(lcGuiScene)
+            << "MapLine::setPen:"
+            << "color=" << newPen.color().name()
+            << "width=" << newPen.width();
         QColor oldColor = pen.color();
         pen             = newPen;
 
@@ -65,6 +85,10 @@ void MapLine::setPen(const QPen &newPen)
 void MapLine::setPoints(const QPointF &newStartPoint,
                         const QPointF &newEndPoint)
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::setPoints:"
+        << "start=" << newStartPoint
+        << "end=" << newEndPoint;
     startPoint = newStartPoint;
     endPoint   = newEndPoint;
     update();
@@ -80,10 +104,35 @@ QRectF MapLine::boundingRect() const
         .adjusted(-2, -2, 2, 2);
 }
 
+QPainterPath MapLine::shape() const
+{
+    // Default shape() returns the bounding rect, which for a diagonal line
+    // covers a large rectangular region that steals clicks from items
+    // rendered beneath the line (e.g. MapPoint nodes, TerminalItems). We
+    // return a narrow stroked path along the line itself so hit-testing
+    // matches what the user sees.
+    QPainterPath line;
+    line.moveTo(startPoint);
+    line.lineTo(endPoint);
+
+    QPainterPathStroker stroker;
+    // Hit tolerance in scene units. The visual pen width comes from paint()
+    // and scales with zoom; we use a fixed tolerance here since shape() is
+    // consulted in item-local (== scene) coordinates for MapLine.
+    stroker.setWidth(8.0);
+    stroker.setCapStyle(Qt::FlatCap);
+    return stroker.createStroke(line);
+}
+
 void MapLine::paint(QPainter                       *painter,
                     const QStyleOptionGraphicsItem *option,
                     QWidget                        *widget)
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::paint:"
+        << "start=" << startPoint
+        << "end=" << endPoint;
+
     // Get the current view scale
     QGraphicsScene *itemScene = scene();
     if (!itemScene || itemScene->views().isEmpty())
@@ -111,42 +160,45 @@ void MapLine::paint(QPainter                       *painter,
     painter->drawLine(startPoint, endPoint);
 }
 
-void MapLine::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+Input::Handled
+MapLine::onLeftClick(const Input::ClickContext &ctx)
 {
-    emit clicked(this);
+    const QString regionName =
+        m_properties.value("region").toString();
+    const QString networkName =
+        m_properties.value("Network_ID").toString();
 
-    // Select all lines in the same region when this line is
-    // clicked
-    selectNetworkLines();
+    qCDebug(lcGuiInputItem)
+        << "MapLine::onLeftClick; region =" << regionName
+        << "network =" << networkName;
 
-    QGraphicsObject::mousePressEvent(event);
-}
-
-void MapLine::selectNetworkLines()
-{
-    if (!scene())
+    if (!ctx.scene)
     {
-        return;
+        return Input::Handled::PassThrough;
     }
 
-    // Loop through all items and select those in the same
-    // region
-    for (QGraphicsItem *item : scene()->items())
+    ctx.scene->clearSelection();
+    for (QGraphicsItem *item : ctx.scene->items())
     {
-        MapLine *line = dynamic_cast<MapLine *>(item);
-        if (line
-            && line->getRegion()
-                   == m_properties.value("region")
-                          .toString())
+        if (auto *m = dynamic_cast<MapLine *>(item))
         {
-            line->setSelected(true);
+            if (m->getRegion() == regionName
+                && m->getReferencedNetworkLinkID()
+                       == networkName)
+            {
+                m->setSelected(true);
+            }
         }
     }
+    return Input::Handled::Yes;
 }
 
 QMap<QString, QVariant> MapLine::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::toDict:"
+        << "networkID=" << m_properties.value("Network_ID").toString();
+
     QMap<QString, QVariant> data;
     data["referenced_network_ID"] =
         m_properties.value("Network_ID");
@@ -174,6 +226,10 @@ QMap<QString, QVariant> MapLine::toDict() const
 MapLine *
 MapLine::fromDict(const QMap<QString, QVariant> &data)
 {
+    qCInfo(lcGuiScene)
+        << "MapLine::fromDict:"
+        << "networkID=" << data.value("referenced_network_ID").toString();
+
     // Extract start and end points
     QMap<QString, QVariant> startPointDict =
         data["start_point"].toMap();
@@ -211,6 +267,10 @@ void MapLine::clearAnimationVisuals()
 
 void MapLine::createAnimationVisual(const QColor &color)
 {
+    qCDebug(lcGuiScene)
+        << "MapLine::createAnimationVisual:"
+        << "color=" << color.name();
+
     // Create a path item as an overlay
     QPainterPath path;
     path.moveTo(startPoint);

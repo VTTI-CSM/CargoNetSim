@@ -1,8 +1,11 @@
 #pragma once
 
 #include "GraphicsObjectBase.h"
+#include "GUI/Input/Interfaces/IClickable.h"
+#include "GUI/Input/Interfaces/IHoverable.h"
 
 #include <QColor>
+#include <QCursor>
 #include <QGraphicsObject>
 #include <QMap>
 #include <QRectF>
@@ -14,11 +17,17 @@ namespace CargoNetSim
 namespace GUI
 {
 
-class ConnectionLabel : public GraphicsObjectBase
+class ConnectionLabel : public GraphicsObjectBase,
+                        public Input::IClickable,
+                        public Input::IHoverable
 {
     Q_OBJECT
 
 public:
+    /// Unique graphics-item type id. See TerminalItem::Type for rationale.
+    enum { Type = UserType + 4 };
+    int type() const override { return Type; }
+
     explicit ConnectionLabel(
         QGraphicsItem *parent = nullptr);
     virtual ~ConnectionLabel() = default;
@@ -48,8 +57,21 @@ public:
     fromDict(const QMap<QString, QVariant> &data,
              QGraphicsItem *parent = nullptr);
 
+    // A label's delete target is its parent ConnectionLine — selecting a
+    // label and pressing Delete removes the connection as a whole.
+    const GraphicsObjectBase* deleteTarget() const override;
+
+    // Input interface overrides
+    Input::Handled
+         onLeftClick(const Input::ClickContext &) override;
+    void onHoverEnter(const Input::ClickContext &) override;
+    void onHoverLeave(const Input::ClickContext &) override;
+    QCursor hoverCursor() const override
+    {
+        return QCursor(Qt::PointingHandCursor);
+    }
+
 signals:
-    void clicked();
     void textChanged(const QString &newText);
     void colorChanged(const QColor &newColor);
     void selectionChanged(bool isSelected);
@@ -60,12 +82,6 @@ protected:
     void   paint(QPainter                       *painter,
                  const QStyleOptionGraphicsItem *option,
                  QWidget *widget = nullptr) override;
-    void   mousePressEvent(
-          QGraphicsSceneMouseEvent *event) override;
-    void hoverEnterEvent(
-        QGraphicsSceneHoverEvent *event) override;
-    void hoverLeaveEvent(
-        QGraphicsSceneHoverEvent *event) override;
 
 private:
     QString m_text;

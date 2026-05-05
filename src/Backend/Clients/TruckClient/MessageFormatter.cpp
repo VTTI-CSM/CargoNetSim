@@ -6,6 +6,7 @@
  */
 
 #include "MessageFormatter.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QJsonDocument>
 
 namespace CargoNetSim
@@ -20,6 +21,25 @@ QString MessageFormatter::formatMessage(
     MessageType messageType, MessageCode messageCode,
     const QString &content)
 {
+    if (msgId < 0)
+    {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::formatMessage:"
+            << "negative msgId=" << msgId;
+    }
+    if (content.isEmpty())
+    {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::formatMessage:"
+            << "empty content for msgId=" << msgId;
+    }
+
+    qCDebug(lcClientTruck)
+        << "MessageFormatter::formatMessage:"
+        << "msgId=" << msgId
+        << "type=" << static_cast<int>(messageType)
+        << "code=" << static_cast<int>(messageCode);
+
     // Standard format:
     // id/ack/type/code/00/00/00/00/content/-1
     return QString("%1/%2/%3/%4/00/00/00/00/%5/-1")
@@ -33,6 +53,21 @@ QString MessageFormatter::formatMessage(
 QString MessageFormatter::formatSyncRequest(
     int msgId, double simTime, double simHorizon)
 {
+    if (msgId < 0 || simTime < 0 || simHorizon < 0)
+    {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::formatSyncRequest:"
+            << "invalid input: msgId=" << msgId
+            << "simTime=" << simTime
+            << "simHorizon=" << simHorizon;
+    }
+
+    qCDebug(lcClientTruck)
+        << "MessageFormatter::formatSyncRequest:"
+        << "msgId=" << msgId
+        << "simTime=" << simTime
+        << "simHorizon=" << simHorizon;
+
     QString content =
         QString("%1/%2").arg(simTime).arg(simHorizon);
 
@@ -44,6 +79,21 @@ QString MessageFormatter::formatSyncGo(int    msgId,
                                        double currentTime,
                                        double nextTime)
 {
+    if (msgId < 0 || currentTime < 0 || nextTime < 0)
+    {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::formatSyncGo:"
+            << "invalid input: msgId=" << msgId
+            << "currentTime=" << currentTime
+            << "nextTime=" << nextTime;
+    }
+
+    qCDebug(lcClientTruck)
+        << "MessageFormatter::formatSyncGo:"
+        << "msgId=" << msgId
+        << "currentTime=" << currentTime
+        << "nextTime=" << nextTime;
+
     QString content =
         QString("%1/%2")
             .arg(static_cast<int>(currentTime))
@@ -56,6 +106,19 @@ QString MessageFormatter::formatSyncGo(int    msgId,
 QString MessageFormatter::formatSyncEnd(int    msgId,
                                         double simTime)
 {
+    if (msgId < 0 || simTime < 0)
+    {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::formatSyncEnd:"
+            << "invalid input: msgId=" << msgId
+            << "simTime=" << simTime;
+    }
+
+    qCDebug(lcClientTruck)
+        << "MessageFormatter::formatSyncEnd:"
+        << "msgId=" << msgId
+        << "simTime=" << simTime;
+
     QString content =
         QString("%1").arg(static_cast<int>(simTime));
 
@@ -67,6 +130,29 @@ QString MessageFormatter::formatAddTrip(
     int msgId, int tripId, int originId, int destinationId,
     double startTime, const QList<int> &linkIds)
 {
+    if (msgId < 0 || tripId < 0 || startTime < 0)
+    {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::formatAddTrip:"
+            << "invalid input: msgId=" << msgId
+            << "tripId=" << tripId
+            << "startTime=" << startTime;
+    }
+    if (linkIds.isEmpty())
+    {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::formatAddTrip:"
+            << "empty linkIds for tripId=" << tripId;
+    }
+
+    qCDebug(lcClientTruck)
+        << "MessageFormatter::formatAddTrip:"
+        << "msgId=" << msgId
+        << "tripId=" << tripId
+        << "origin=" << originId
+        << "dest=" << destinationId
+        << "linkCount=" << linkIds.size();
+
     // Format content with link count and links
     QString content = QString("%1/%2/%3/%4/%5")
                           .arg(tripId)
@@ -89,11 +175,19 @@ QString MessageFormatter::formatAddTrip(
 QJsonObject
 MessageFormatter::parseMessage(const QString &message)
 {
+    qCDebug(lcClientTruck)
+        << "MessageFormatter::parseMessage:"
+        << "messageLength=" << message.length();
+
     QJsonObject result;
     QStringList parts = message.split('/');
 
     if (parts.size() < 9)
     {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::parseMessage:"
+            << "invalid format, parts=" << parts.size()
+            << "(expected >= 9)";
         // Invalid message format
         result["valid"] = false;
         return result;
@@ -131,6 +225,10 @@ MessageFormatter::parseMessage(const QString &message)
 QJsonObject
 MessageFormatter::parseTripInfo(const QString &message)
 {
+    qCDebug(lcClientTruck)
+        << "MessageFormatter::parseTripInfo:"
+        << "messageLength=" << message.length();
+
     QJsonObject parsed = parseMessage(message);
 
     if (!parsed["valid"].toBool()
@@ -139,6 +237,9 @@ MessageFormatter::parseTripInfo(const QString &message)
         || parsed["messageCode"].toInt()
                != static_cast<int>(MessageCode::TRIP_INFO))
     {
+        qCDebug(lcClientTruck)
+            << "MessageFormatter::parseTripInfo:"
+            << "not a valid trip info message";
         // Not a valid trip info message
         return QJsonObject();
     }
@@ -150,6 +251,9 @@ MessageFormatter::parseTripInfo(const QString &message)
 
     if (doc.isNull() || !doc.isObject())
     {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::parseTripInfo:"
+            << "failed to parse JSON content";
         return QJsonObject();
     }
 
@@ -159,6 +263,10 @@ MessageFormatter::parseTripInfo(const QString &message)
 QJsonObject
 MessageFormatter::parseTripEnd(const QString &message)
 {
+    qCDebug(lcClientTruck)
+        << "MessageFormatter::parseTripEnd:"
+        << "messageLength=" << message.length();
+
     QJsonObject parsed = parseMessage(message);
 
     if (!parsed["valid"].toBool()
@@ -167,6 +275,9 @@ MessageFormatter::parseTripEnd(const QString &message)
         || parsed["messageCode"].toInt()
                != static_cast<int>(MessageCode::TRIP_END))
     {
+        qCDebug(lcClientTruck)
+            << "MessageFormatter::parseTripEnd:"
+            << "not a valid trip end message";
         // Not a valid trip end message
         return QJsonObject();
     }
@@ -178,6 +289,9 @@ MessageFormatter::parseTripEnd(const QString &message)
 
     if (doc.isNull() || !doc.isObject())
     {
+        qCWarning(lcClientTruck)
+            << "MessageFormatter::parseTripEnd:"
+            << "failed to parse JSON content";
         return QJsonObject();
     }
 

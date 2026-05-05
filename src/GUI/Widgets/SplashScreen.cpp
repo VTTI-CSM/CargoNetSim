@@ -6,6 +6,7 @@
 #include <QScreen>
 #include <QStyle>
 #include <QVBoxLayout>
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -20,14 +21,15 @@ SplashScreen::SplashScreen()
     , m_statusMessage("Loading...")
     , m_isFinished(false)
 {
+    qCDebug(lcGui) << "SplashScreen::SplashScreen: constructing";
     // Load splash image
     QString imagePath = ":/Splash";
     m_originalPixmap  = QPixmap(imagePath);
 
     if (m_originalPixmap.isNull())
     {
-        qWarning() << "Failed to load splash image:"
-                   << imagePath;
+        qCWarning(lcGuiUtil) << "Failed to load splash image:"
+                             << imagePath;
         // Create a default splash pixmap
         m_originalPixmap = QPixmap(600, 400);
         m_originalPixmap.fill(Qt::white);
@@ -171,6 +173,8 @@ void SplashScreen::setProgress(int progress)
         if (m_progress == 100 && !m_isFinished)
         {
             m_isFinished = true;
+            qCInfo(lcGui) << "SplashScreen::setProgress:"
+                          << "loading complete";
             emit loadingComplete();
         }
 
@@ -200,6 +204,8 @@ void SplashScreen::showMessage(const QString &message,
                                int            alignment,
                                const QColor  &color)
 {
+    qCDebug(lcGui) << "SplashScreen::showMessage:"
+                   << message;
     // Update internal status message
     setStatusMessage(message);
 

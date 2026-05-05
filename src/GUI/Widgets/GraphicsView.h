@@ -11,6 +11,8 @@ namespace CargoNetSim
 namespace GUI
 {
 
+namespace Input { class InteractionController; }
+
 class GraphicsScene;
 class DistanceMeasurementTool;
 
@@ -121,26 +123,6 @@ public:
         }
     }
 
-    bool isInMeasureMode()
-    {
-        return measureMode;
-    }
-
-    void setMeasureMode(bool measureMode)
-    {
-        measureMode = measureMode;
-    }
-
-    DistanceMeasurementTool *getMeasurementTool()
-    {
-        return m_measurementTool;
-    }
-
-    void setMeasurementTool(DistanceMeasurementTool *tool)
-    {
-        m_measurementTool = tool;
-    }
-
     QString getCurrentPanMode()
     {
         return _panMode;
@@ -159,6 +141,11 @@ public:
     void fitInView(const QRectF       &rect,
                    Qt::AspectRatioMode aspectRatioMode =
                        Qt::KeepAspectRatio);
+
+    void setInputController(Input::InteractionController* ctrl)
+    {
+        m_inputController = ctrl;
+    }
 
 signals:
     void coordinateSystemChanged(bool isProjected);
@@ -277,17 +264,6 @@ private:
     QString _panMode;
 
     /**
-     * @brief Flag indicating whether Ctrl+Left drag is
-     * active
-     */
-    bool _ctrlLeftDrag;
-
-    /**
-     * @brief Last drag point for panning
-     */
-    QPointF _lastDragPoint;
-
-    /**
      * @brief Grid size for background grid
      */
     double _gridSize;
@@ -338,16 +314,7 @@ private:
      */
     bool useProjectedCoords;
 
-    /**
-     * @brief Flag indicating whether measurement mode is
-     * active
-     */
-    bool measureMode;
-
-    /**
-     * @brief Pointer to current measurement tool
-     */
-    DistanceMeasurementTool *m_measurementTool;
+    Input::InteractionController *m_inputController = nullptr;
 };
 
 } // namespace GUI

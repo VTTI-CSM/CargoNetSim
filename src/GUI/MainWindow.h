@@ -17,19 +17,36 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QtCore/qdatetime.h>
+#include <atomic>
 
 #include "Controllers/HeartbeatController.h"
+#include "Controllers/StatusReporter.h"
 #include "GUI/Widgets/ScrollableToolBar.h"
 #include "GUI/Widgets/SpinnerWidget.h"
 #include "Items/GlobalTerminalItem.h"
 #include "Items/RegionCenterPoint.h"
 #include "Items/TerminalItem.h"
+#include "Backend/Commons/TransportationMode.h"
 #include "Widgets/CustomMainWindow.h"
 #include "Widgets/NetworkManagerDialog.h"
 #include "Widgets/RegionManagerWidget.h"
+#include "Input/Commands/CommandBus.h"
+#include "Input/InteractionController.h"
+#include "Input/PickCoordinator.h"
+
+#include <memory>
 
 namespace CargoNetSim
 {
+namespace Backend {
+namespace Application {
+class NetworkViewService;
+} // namespace Application
+namespace Scenario {
+class ScenarioRuntime;
+} // namespace Scenario
+} // namespace Backend
+
 namespace GUI
 {
 
@@ -42,20 +59,33 @@ class SplashScreen;
 class ToolbarController;
 class BasicButtonController;
 class NetworkController;
-class ViewController;
 class UtilitiesFunctions;
-class PathFindingWorker;
-class SimulationValidationWorker;
 class TerminalSelectionDialog;
+class SceneVisibilityController;
+class TerminalController;
+class NetworkDrawingController;
+class ConnectionController;
+class RegionController;
+class SettingsController;
+class FleetController;
 
 /**
- * @brief Main application window for CargoNetSim
+ * @class MainWindow
+ * @brief Application main window.
  *
- * The MainWindow class is implemented as a singleton
- * and manages the entire application UI, including
- * views, scenes, docks, and toolbars.
+ * @par Lifetime (Tier 1, Option E)
+ * Stack-allocated in main() after the CargoNetSimController.
+ * Stack unwinding destroys MainWindow before the controller,
+ * giving GUI code access to a fully-alive controller during
+ * widget destructors. Access the singleton via getInstance()
+ * (reference, asserts if uninitialized) or instance() (nullable
+ * pointer).
+ *
+ * @par Invariants
+ * Only one instance may exist at a time (enforced by qFatal in
+ * the constructor).
  */
-class MainWindow : public CustomMainWindow
+class MainWindow : public CustomMainWindow, public StatusReporter
 {
     Q_OBJECT
 
@@ -63,19 +93,32 @@ class MainWindow : public CustomMainWindow
     // BasicButtonController classes as a friend
     friend class ToolbarController;
     friend class BasicButtonController;
-    friend class ViewController;
     friend class NetworkController;
     friend class UtilitiesFunctions;
-    friend class PathFindingWorker;
-    friend class SimulationValidationWorker;
     friend class TerminalSelectionDialog;
+    friend class PropertiesPanel;
 
 public:
     /**
-     * @brief Gets the singleton instance of MainWindow
-     * @return Pointer to the MainWindow instance
+     * @brief Constructor. MainWindow is a Tier 1 lifetime
+     * singleton (one instance per process) owned by main()'s
+     * stack. Construction registers the instance in s_instance;
+     * a second construction triggers qFatal.
      */
-    static MainWindow *getInstance();
+    MainWindow();
+
+    /**
+     * @brief Reference access to the MainWindow singleton.
+     * Asserts (qFatal in release) if no MainWindow has been
+     * constructed yet.
+     */
+    static MainWindow &getInstance();
+
+    /**
+     * @brief Nullable pointer lookup. Returns nullptr before
+     * construction or after destruction.
+     */
+    static MainWindow *instance();
 
     /**
      * @brief Destructor
@@ -87,6 +130,111 @@ public:
      * @return Pointer to the current GraphicsView
      */
     GraphicsView *getCurrentView() const;
+
+    /**
+     * @brief Gets the region (WGS84-projecting) view.
+     * @return Pointer to regionView_ (never null after construction).
+     *
+     * Public accessor exposed for GUI/Scenario factories that are not
+     * friends of MainWindow but need to project lat/lon into scene
+     * coordinates during repopulation.
+     */
+    GraphicsView *regionView() const { return regionView_; }
+
+    /**
+     * @brief Gets the global map view (Mercator-projecting).
+     * @return Pointer to globalMapView_.
+     */
+    GraphicsView *globalMapView() const { return globalMapView_; }
+
+    /**
+     * @brief Gets the currently loaded ScenarioRuntime.
+     *
+     * Normal GUI operation installs an empty ScenarioRuntime during
+     * construction. A null return is reserved for construction/teardown and
+     * focused tests that intentionally bypass MainWindow bootstrapping.
+     *
+     * Consumed by Tasks 14–16 (ViewController mutator delegations)
+     * and Task 21 (document-signal observers).
+     */
+    Backend::Scenario::ScenarioRuntime *runtime() const
+    {
+        return m_runtime.get();
+    }
+
+    /**
+     * @brief Install (or replace) the runtime. Takes ownership.
+     *
+     * Side effects:
+     *   - Before swapping, clears both scenes via GraphicsScene::clearAll
+     *     because scene items hold non-owning pointers into the previous
+     *     runtime's document; destroying the old runtime would leave them
+     *     dangling.
+     *   - Passing a null runtime unloads the current scenario.
+     *
+     * Observer subscription to the document's signals is wired in
+     * Task 21's `subscribeDocumentObservers()`.
+     */
+    void setRuntime(
+        std::unique_ptr<Backend::Scenario::ScenarioRuntime> rt);
+
+    /**
+     * @brief Gets the region scene (QGraphicsScene for the active
+     *        region-view tab).
+     * @return Pointer to regionScene_.
+     */
+    GraphicsScene *regionScene() const { return regionScene_; }
+
+    /**
+     * @brief Gets the global map scene.
+     * @return Pointer to globalMapScene_.
+     */
+    GraphicsScene *globalMapScene() const { return globalMapScene_; }
+
+    /**
+     * @brief Public accessor for the properties panel. Used by
+     *        GUI/Scenario/ItemEventBinder to hook up coordinate
+     *        refresh when a RegionCenterPoint is dragged without
+     *        needing friendship.
+     */
+    PropertiesPanel *propertiesPanel() const { return propertiesPanel_; }
+
+    // Sub-controller accessors
+    SceneVisibilityController *sceneVisibility() const
+    { return m_sceneVisibility; }
+    TerminalController *terminalCtrl() const
+    { return m_terminalCtrl; }
+    NetworkDrawingController *networkDrawing() const
+    { return m_networkDrawing; }
+    ConnectionController *connectionCtrl() const
+    { return m_connectionCtrl; }
+    RegionController *regionCtrl() const
+    { return m_regionCtrl; }
+    SettingsController *settingsCtrl() const
+    { return m_settingsCtrl; }
+    FleetController *fleetCtrl() const
+    { return m_fleetCtrl; }
+    Backend::Application::NetworkViewService *networkViewService() const
+    { return m_networkViewService; }
+
+    Input::CommandBus*            commandBus()             const { return m_commandBus; }
+    Input::PickCoordinator*       pickCoordinator()        const { return m_pickCoordinator; }
+    Input::InteractionController* regionInputController()  const { return m_regionInputController; }
+    Input::InteractionController* globalInputController()  const { return m_globalInputController; }
+
+    /// Convenience — returns whichever controller is bound to the active tab.
+    /// Used by toolbar toggle code that just wants "the currently visible tab".
+    /// Index convention matches getCurrentScene(): 0 = region, 1 = global map.
+    /// Note: tabWidget_->currentWidget() returns the tab CONTAINER widget
+    /// (mainViewTab / globalMapTab), not the view inside it — index comparison
+    /// is the reliable path.
+    Input::InteractionController* inputController() const
+    {
+        if (!tabWidget_) return m_regionInputController;
+        return tabWidget_->currentIndex() == 1    // 1 = global map tab
+             ? m_globalInputController
+             : m_regionInputController;
+    }
 
     /**
      * @brief Gets the currently active scene
@@ -109,18 +257,6 @@ public:
     bool isRegionViewActive() const;
 
     /**
-     * @brief Handles linking terminals to nodes
-     * @param item The item being linked (terminal or node)
-     */
-    void handleTerminalNodeLinking(QGraphicsItem *item);
-
-    /**
-     * @brief Handles unlinking terminals from nodes
-     * @param item The item being unlinked
-     */
-    void handleTerminalNodeUnlinking(QGraphicsItem *item);
-
-    /**
      * @brief Shows or hides the shortest paths table
      * @param show True to show the table, false to hide it
      */
@@ -132,6 +268,17 @@ public:
      */
     void updateAllCoordinates();
 
+    /**
+     * @brief Adds a background photo to the current view
+     */
+    void addBackgroundPhoto();
+
+    /**
+     * @brief Flashes the path lines for a selected path
+     * @param pathKey Stable backend-derived execution path key
+     */
+    void flashPathLines(const QString &pathKey);
+
     void showStatusBarMessage(QString message,
                               int     timeout = 0);
 
@@ -141,21 +288,31 @@ public:
     void startStatusProgress();
     void stopStatusProgress();
 
+    // StatusReporter implementation
+    void showMessage(const QString &msg, int ms = 3000) override;
+    void showError(const QString &msg, int ms = 5000) override;
+    void startProgress() override;
+    void stopProgress() override;
+    void storeButtons() override;
+    void disableButtons() override;
+    void restoreButtons() override;
+
     /**
      * @brief Gets the connection type
      * @return The current connection type
      */
-    QString getConnectionType() const
+    Backend::TransportationTypes::TransportationMode
+    getConnectionType() const
     {
         return currentConnectionType_;
     }
 
 public slots:
     /**
-     * @brief Displays an error message
+     * @brief Displays an error dialog
      * @param errorText The error message to display
      */
-    void showError(const QString &errorText);
+    void showErrorDialog(const QString &errorText);
 
     /**
      * @brief Updates server heartbeat information
@@ -213,6 +370,27 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
+    /// Re-evaluate live prepared-path eligibility after backend availability
+    /// changes. No-op when the shortest-path table is showing archived
+    /// comparison snapshots instead of a live prepared-path set.
+    void refreshPreparedPathAvailability();
+
+    /// Owned ScenarioRuntime. Normal operation keeps this populated after
+    /// MainWindow construction; tests/teardown may observe null.
+    std::unique_ptr<Backend::Scenario::ScenarioRuntime> m_runtime;
+
+    /// Subscribe this MainWindow to every ScenarioDocument signal on
+    /// the currently installed runtime: document mutations drive scene
+    /// rebuild / factory calls / item removal in one place. Called by
+    /// setRuntime() after the runtime swap. Safe to call with a null
+    /// m_runtime (no-ops).
+    ///
+    /// Qt's sender-auto-disconnect semantics: when the old runtime is
+    /// destroyed in setRuntime, its ScenarioDocument is destroyed, and
+    /// all connections that used it as sender tear down automatically.
+    /// No bookkeeping needed on MainWindow's side.
+    void subscribeDocumentObservers();
+
     // Message queue system
     struct StatusMessage
     {
@@ -229,11 +407,6 @@ private:
 
     // New private method to process the queue
     void processMessageQueue();
-
-    /**
-     * @brief Private constructor for singleton pattern
-     */
-    MainWindow();
 
     /**
      * @brief Initializes the UI components
@@ -292,7 +465,9 @@ private:
      * @brief Sets the current connection type
      * @param connectionType The type of connection to set
      */
-    void setConnectionType(const QString &connectionType);
+    void setConnectionType(
+        Backend::TransportationTypes::TransportationMode
+            connectionType);
 
     /**
      * @brief Assigns selected items to the current region
@@ -372,10 +547,12 @@ protected:
 
     // Connection management
     QMenu      *connectionMenu_;
-    QStringList connectionTypes_;
-    QString     currentConnectionType_;
-    TerminalItem *
-        selectedTerminal_; // For linking terminals to nodes
+    /// Available transport modes for user-created connection lines.
+    /// Populated in the constructor with the three concrete modes.
+    QList<Backend::TransportationTypes::TransportationMode>
+        connectionTypes_;
+    Backend::TransportationTypes::TransportationMode
+        currentConnectionType_;
 
     // State management
     QMap<QWidget *, QList<int>>     toolsButtonsVisibility_;
@@ -387,7 +564,20 @@ protected:
     bool         tableWasVisible_;
 
     // Controllers
-    HeartbeatController *heartbeatController_;
+    HeartbeatController        *heartbeatController_;
+    SceneVisibilityController  *m_sceneVisibility  = nullptr;
+    TerminalController         *m_terminalCtrl     = nullptr;
+    NetworkDrawingController   *m_networkDrawing   = nullptr;
+    ConnectionController       *m_connectionCtrl   = nullptr;
+    RegionController           *m_regionCtrl       = nullptr;
+    SettingsController         *m_settingsCtrl     = nullptr;
+    FleetController            *m_fleetCtrl        = nullptr;
+    Backend::Application::NetworkViewService *m_networkViewService = nullptr;
+
+    Input::CommandBus*            m_commandBus            = nullptr;   // shared by both controllers
+    Input::PickCoordinator*       m_pickCoordinator       = nullptr;   // shared by both controllers
+    Input::InteractionController* m_regionInputController = nullptr;
+    Input::InteractionController* m_globalInputController = nullptr;
 
     // Toolbar organization
     ScrollableToolBar *toolbar_;
@@ -431,8 +621,12 @@ protected:
     QToolButton *setGlobalPositionButton_;
     QToolButton *measureButton_;
 
-    // Singleton instance
-    static MainWindow *instance_;
+    // Singleton instance (Tier 1 lifetime: set by constructor via
+    // compare_exchange, cleared by destructor with a release store,
+    // owned by main()'s stack). Atomic for the same reason as
+    // CargoNetSimController::s_instance - cross-thread reads obey
+    // memory ordering.
+    static std::atomic<MainWindow *> s_instance;
 
     // Current project file path
     QString currentProjectPath_;

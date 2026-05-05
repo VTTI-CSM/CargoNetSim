@@ -8,13 +8,24 @@ set(Backend_SOURCES
     Commons/TerminalInterface.cpp
     Commons/TransportationMode.h
     Commons/TransportationMode.cpp
+    Commons/Units.h
+    Commons/NetworkKind.h
+    Commons/NetworkKind.cpp
     Commons/DirectedGraphBase.h
     Commons/DirectedGraphBase.cpp
     Commons/DirectedGraph.h
     Commons/DirectedGraph.cpp
+    Commons/GeoDistance.h
+    Commons/GeoDistance.cpp
+    Commons/GeoProjection.h
+    Commons/GeoProjection.cpp
     Commons/ShortestPathResult.h
     Commons/ThreadSafetyUtils.h
     Commons/ThreadSafetyUtils.cpp
+    Commons/LogCategories.h
+    Commons/LogCategories.cpp
+    Commons/LogMessageHandler.h
+    Commons/LogMessageHandler.cpp
 
     # Models
     Models/TrainSystem.h
@@ -46,11 +57,47 @@ set(Backend_SOURCES
     Controllers/ConfigController.h
     Controllers/ConfigController.cpp
 
+    # Application
+    Application/PreparedPathService.h
+    Application/PreparedPathService.cpp
+    Application/AvailabilityService.h
+    Application/AvailabilityService.cpp
+    Application/NetworkManagementService.h
+    Application/NetworkManagementService.cpp
+    Application/NetworkViewService.h
+    Application/NetworkViewService.cpp
+    Application/PathPresentationService.h
+    Application/PathPresentationService.cpp
+    Application/ScenarioLoadService.h
+    Application/ScenarioLoadService.cpp
+    Application/ScenarioPreviewService.h
+    Application/ScenarioPreviewService.cpp
+    Application/ScenarioEditService.h
+    Application/ScenarioEditService.cpp
+    Application/ScenarioPersistenceService.h
+    Application/ScenarioPersistenceService.cpp
+    Application/SimulationRunService.h
+    Application/SimulationRunService.cpp
+    Application/RouteAuthoringService.h
+    Application/RouteAuthoringService.cpp
+
+    # Bootstrap
+    Bootstrap/BackendBootstrapService.h
+    Bootstrap/BackendBootstrapService.cpp
+
+    # CLI API
+    CliApi/ProgressApi.h
+    CliApi/ResultsApi.h
+    CliApi/ScenarioDocumentApi.h
+    CliApi/ValidationApi.h
+
     # Clients
 
     # BaseClient
     Clients/BaseClient/RabbitMQHandler.h
     Clients/BaseClient/RabbitMQHandler.cpp
+    Clients/BaseClient/SimulatorHealthProbeTransport.h
+    Clients/BaseClient/SimulatorHealthProbeTransport.cpp
     Clients/BaseClient/SimulationClientBase.h
     Clients/BaseClient/SimulationClientBase.cpp
 
@@ -121,8 +168,118 @@ set(Backend_SOURCES
     Utils/Utils.h
 
 
-    # Initialization
-    BackendInit.h
+    # Scenario
+    Scenario/AutoLinkRule.h
+    Scenario/Connection.h
+    Scenario/ContainerAllocator.h
+    Scenario/ContainerAllocator.cpp
+    Scenario/FleetSpec.h
+    Scenario/GlobalLink.h
+    Scenario/InterfaceConversion.h
+    Scenario/InterfaceConversion.cpp
+    Scenario/LatLon.h
+    Scenario/LinkageSource.h
+    Scenario/LinkageStrategy.h
+    Scenario/ModeDelayParams.h
+    Scenario/NetworkLookup.h
+    Scenario/NetworkLookup.cpp
+    Scenario/NetworkSpec.h
+    Scenario/NodeLinkage.h
+    Scenario/OutputSpec.h
+    Scenario/PathSimulationResult.h
+    Scenario/Point2D.h
+    Scenario/PropertyKeys.h
+    Scenario/RouteMetricUnits.h
+    Scenario/RouteMetricUnits.cpp
+    Scenario/RegionSpec.h
+    Scenario/RuntimeArtifactIdentity.h
+    Scenario/RuntimeArtifactIdentity.cpp
+    Scenario/ExecutionContainerIdentity.h
+    Scenario/ExecutionContainerIdentity.cpp
+    Scenario/PathAllocation.h
+    Scenario/PathDiscovery.h
+    Scenario/PathDiscovery.cpp
+    Scenario/PathDemandResolver.h
+    Scenario/PathDemandResolver.cpp
+    Scenario/PathDistancePopulator.h
+    Scenario/PathDistancePopulator.cpp
+    Scenario/SimulationDispatchTypes.h
+    Scenario/SimulationDispatchTypes.cpp
+    Scenario/ExecutionPlanBuilder.h
+    Scenario/ExecutionPlanBuilder.cpp
+    Scenario/ExecutionProgressCalculator.h
+    Scenario/ExecutionProgressCalculator.cpp
+    Scenario/PathExecutionCoordinator.h
+    Scenario/PathExecutionCoordinator.cpp
+    Scenario/TerminalInventoryGateway.h
+    Scenario/TerminalInventoryGateway.cpp
+    Scenario/TerminalPickupCoordinator.h
+    Scenario/TerminalPickupCoordinator.cpp
+    Scenario/ExecutionEventAdapter.h
+    Scenario/ExecutionEventAdapter.cpp
+    Scenario/BufferedExecutionEventQueue.h
+    Scenario/BufferedExecutionEventQueue.cpp
+    Scenario/NetworkExecutionSessionManager.h
+    Scenario/NetworkExecutionSessionManager.cpp
+    Scenario/DispatchableWaveBuilder.h
+    Scenario/DispatchableWaveBuilder.cpp
+    Scenario/ExecutionPlanTypes.h
+    Scenario/PathKey.h
+    Scenario/PreparedPathEligibilityService.h
+    Scenario/PreparedPathEligibilityService.cpp
+    Scenario/PreparedPathStatus.h
+    Scenario/PathPreparationService.h
+    Scenario/PathPreparationService.cpp
+    Scenario/PathMetrics.h
+    Scenario/PathMetricsInputs.h
+    Scenario/PathMetricsCalculator.h
+    Scenario/PathMetricsCalculator.cpp
+    Scenario/ScenarioExecutionResult.h
+    Scenario/ScenarioExecutionResult.cpp
+    Scenario/ResultsExtractor.h
+    Scenario/ResultsExtractor.cpp
+    Scenario/ScenarioApplier.h
+    Scenario/ScenarioApplier.cpp
+    Scenario/ScenarioDocument.h
+    Scenario/ScenarioDocument.cpp
+    Scenario/ScenarioExecutor.h
+    Scenario/ScenarioExecutor.cpp
+    Scenario/ScenarioEndpointResolver.h
+    Scenario/ScenarioEndpointResolver.cpp
+    Scenario/ScenarioLinker.h
+    Scenario/ScenarioLinker.cpp
+    Scenario/ScenarioRegistry.h
+    Scenario/ScenarioRegistry.cpp
+    Scenario/ScenarioRuntime.h
+    Scenario/ScenarioRuntime.cpp
+    Scenario/ScenarioSerializer.h
+    Scenario/ScenarioSerializer.cpp
+    Scenario/ScenarioValidator.h
+    Scenario/ScenarioValidator.cpp
+    Scenario/SegmentCostMath.h
+    Scenario/SegmentCostMath.cpp
+    Scenario/EstimatedPathCostCalculator.h
+    Scenario/EstimatedPathCostCalculator.cpp
+    Scenario/SegmentPhysicsEstimator.h
+    Scenario/SegmentPhysicsEstimator.cpp
+    Scenario/EstimatedPhysicsPopulator.h
+    Scenario/EstimatedPhysicsPopulator.cpp
+    Scenario/ServerStatusProbe.h
+    Scenario/ServerStatusProbe.cpp
+    Scenario/SegmentDispatchFactory.h
+    Scenario/SegmentDispatchFactory.cpp
+    Scenario/TerminalHandoffResolver.h
+    Scenario/TerminalHandoffResolver.cpp
+    Scenario/TerminalGraphBootstrap.h
+    Scenario/TerminalGraphBootstrap.cpp
+    Scenario/SimulationSettings.h
+    Scenario/SystemDynamicsSpec.h
+    Scenario/TerminalPlacement.h
+    Scenario/TerminalPlacement.cpp
+    Scenario/TerminalTypeDefaults.h
+    Scenario/TerminalTypeDefaults.cpp
+    Scenario/TruckFleetSpec.h
+    Scenario/ValidationIssue.h
 )
 
 # Create the GUI library
@@ -133,9 +290,17 @@ target_link_libraries(CargoNetSimBackend
     PUBLIC
     Qt6::Core
     Qt6::Xml
+    CargoNetSim::Units
     Container::Container
     rabbitmq::rabbitmq
+    yaml-cpp::yaml-cpp
 )
+
+# Conditionally link QtKeychain if available
+if(HAVE_QTKEYCHAIN)
+    target_link_libraries(CargoNetSimBackend PUBLIC Qt6Keychain::Qt6Keychain)
+    target_compile_definitions(CargoNetSimBackend PUBLIC HAVE_QTKEYCHAIN)
+endif()
 
 # Set include directories
 target_include_directories(CargoNetSimBackend

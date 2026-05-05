@@ -1,5 +1,6 @@
 #include "ShipState.h"
 #include <QDebug>
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -10,6 +11,7 @@ namespace ShipClient
 
 ShipState::ShipState(const QJsonObject &shipData)
     : m_shipId(shipData.value("shipID").toString("Unknown"))
+    // Note: logging after member init list, see constructor body
     , m_travelledDistance(
           shipData.value("travelledDistance").toDouble(0.0))
     , m_currentAcceleration(
@@ -53,6 +55,11 @@ ShipState::ShipState(const QJsonObject &shipData)
     , m_waveLength(0.0)
     , m_waveAngularFrequency(0.0)
 {
+    qCDebug(lcClientShip) << "ShipState::ShipState:"
+                          << "id=" << m_shipId
+                          << "speed=" << m_currentSpeed
+                          << "containers=" << m_containersCount;
+
     // Parse consumption data
     QJsonObject consumption =
         shipData.value("consumption").toObject();
@@ -138,6 +145,8 @@ ShipState::ShipState(const QJsonObject &shipData)
 QVariant
 ShipState::getMetric(const QString &metricName) const
 {
+    qCDebug(lcClientShip) << "getMetric: metric=" << metricName
+                          << "shipId=" << m_shipId;
     if (metricName == "shipId")
         return m_shipId;
     if (metricName == "travelledDistance")
@@ -196,12 +205,13 @@ ShipState::getMetric(const QString &metricName) const
     // For complex types, we could add special handling here
 
     // If we don't have a direct match
-    qWarning() << "Unknown metric requested:" << metricName;
+    qCWarning(lcClientShip) << "Unknown metric requested:" << metricName;
     return QVariant();
 }
 
 QVariantMap ShipState::info() const
 {
+    qCDebug(lcClientShip) << "info: shipId=" << m_shipId;
     QVariantMap info;
     info["shipId"]               = m_shipId;
     info["travelledDistance"]    = m_travelledDistance;
@@ -258,6 +268,7 @@ QVariantMap ShipState::info() const
 
 QJsonObject ShipState::toJson() const
 {
+    qCDebug(lcClientShip) << "ShipState::toJson:" << m_shipId;
     QJsonObject json;
     json["shipID"]               = m_shipId;
     json["travelledDistance"]    = m_travelledDistance;

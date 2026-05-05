@@ -24,6 +24,7 @@
 
 #include "Backend/Commons/DirectedGraph.h"
 #include "Backend/Commons/ShortestPathResult.h"
+#include "Backend/Commons/Units.h"
 #include "Backend/Models/BaseNetwork.h"
 #include "Backend/Models/BaseObject.h"
 
@@ -69,7 +70,7 @@ public:
      * @param xScale Scaling factor for X-coordinate
      * @param yScale Scaling factor for Y-coordinate
      * @param isTerminal Whether node is a terminal station
-     * @param dwellTime Time spent at this node in hours
+     * @param dwellTime Time spent at this node in seconds
      * @param parent The parent QObject
      */
     NeTrainSimNode(int simulatorId, int userId, float x,
@@ -177,11 +178,16 @@ public:
 
     /**
      * @brief Gets the dwell time
-     * @return Dwell time in hours
+     * @return Dwell time in seconds
      */
     float getDwellTime() const
     {
         return m_dwellTime;
+    }
+
+    Units::TimeSeconds dwellTimeUnits() const
+    {
+        return Units::seconds(m_dwellTime);
     }
 
     /**
@@ -234,9 +240,14 @@ public:
 
     /**
      * @brief Sets the dwell time
-     * @param dwellTime Dwell time in hours
+     * @param dwellTime Dwell time in seconds
      */
     void setDwellTime(float dwellTime);
+
+    void setDwellTimeUnits(Units::TimeSeconds dwellTime)
+    {
+        setDwellTime(static_cast<float>(dwellTime.value()));
+    }
 
 signals:
     /**
@@ -254,7 +265,7 @@ private:
     float   m_yScale; ///< Scaling factor for Y-coordinate
     bool    m_isTerminal; ///< Whether node is a terminal
                           ///< station
-    float m_dwellTime; ///< Time spent at this node in hours
+    float m_dwellTime; ///< Time spent at this node in seconds
 };
 
 /**
@@ -288,8 +299,8 @@ public:
      * @param userId User-defined identifier
      * @param fromNode Source node of the link
      * @param toNode Destination node of the link
-     * @param length Length of the link in km
-     * @param maxSpeed Maximum speed allowed on link in km/h
+     * @param length Length of the link in meters
+     * @param maxSpeed Maximum speed allowed on link in m/s
      * @param signalId Identifier for the signal system
      * @param signalsAtNodes Signal configuration at nodes
      * @param grade Grade percentage (positive = uphill)
@@ -378,20 +389,40 @@ public:
 
     /**
      * @brief Gets the link getLength
-     * @return Length in km
+     * @return Length in meters
      */
     float getLength() const
     {
         return m_length;
     }
 
+    Units::LengthMeters lengthUnits() const
+    {
+        return Units::meters(m_length);
+    }
+
+    Units::LengthMeters scaledLengthUnits() const
+    {
+        return Units::meters(m_length * m_lengthScale);
+    }
+
     /**
      * @brief Gets the maximum speed
-     * @return Speed in km/h
+     * @return Speed in m/s
      */
     float getMaxSpeed() const
     {
         return m_maxSpeed;
+    }
+
+    Units::SpeedMetersPerSecond maxSpeedUnits() const
+    {
+        return Units::metersPerSecond(m_maxSpeed);
+    }
+
+    Units::SpeedMetersPerSecond scaledMaxSpeedUnits() const
+    {
+        return Units::metersPerSecond(m_maxSpeed * m_speedScale);
     }
 
     /**
@@ -510,15 +541,25 @@ public:
 
     /**
      * @brief Sets the link length
-     * @param length Length in km
+     * @param length Length in meters
      */
     void setLength(float length);
 
+    void setLengthUnits(Units::LengthMeters length)
+    {
+        setLength(static_cast<float>(length.value()));
+    }
+
     /**
      * @brief Sets the maximum speed
-     * @param maxSpeed Speed in km/h
+     * @param maxSpeed Speed in m/s
      */
     void setMaxSpeed(float maxSpeed);
+
+    void setMaxSpeedUnits(Units::SpeedMetersPerSecond maxSpeed)
+    {
+        setMaxSpeed(static_cast<float>(maxSpeed.value()));
+    }
 
     /**
      * @brief Sets the signal ID
@@ -593,8 +634,8 @@ private:
     NeTrainSimNode *m_fromNode; ///< Source node of the link
     NeTrainSimNode
          *m_toNode;   ///< Destination node of the link
-    float m_length;   ///< Length of the link in km
-    float m_maxSpeed; ///< Maximum speed allowed in km/h
+    float m_length;   ///< Length of the link in meters
+    float m_maxSpeed; ///< Maximum speed allowed in m/s
     int   m_signalId; ///< Identifier for the signal system
     QString
         m_signalsAtNodes; ///< Signal configuration at nodes

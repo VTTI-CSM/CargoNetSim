@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=CargoNetSim
+GenericName=Cargo Network Simulator
+Comment=Simulation software for cargo networks
+Exec=CargoNetSim
+Icon=CargoNetSim
+Terminal=false
+Categories=Science;Simulation;Education;
+Keywords=cargo;simulation;network;logistics;
