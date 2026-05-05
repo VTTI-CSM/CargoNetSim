@@ -2,10 +2,15 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
 #include "PropertyKeys.h"
+#include "RouteMetricUnits.h"
 #include "ScenarioEndpointResolver.h"
 #include "TerminalTypeDefaults.h"
 
+#include <QMap>
 #include <QSet>
+#include <QVariant>
+
+#include <cmath>
 
 namespace CargoNetSim
 {
@@ -65,6 +70,38 @@ QString modeLabel(TransportationTypes::TransportationMode mode)
     return label.isEmpty() ? QStringLiteral("Any") : label;
 }
 
+bool isNumericVariant(const QVariant &value)
+{
+    bool ok = false;
+    const double numeric = value.toDouble(&ok);
+    return ok && std::isfinite(numeric);
+}
+
+void checkCanonicalRouteMetrics(const QVariantMap &properties,
+                                const QString     &path,
+                                QList<ValidationIssue> &out)
+{
+    for (const QString &key : RouteMetricUnits::routeMetricKeys())
+    {
+        const QString metricPath =
+            path + QStringLiteral(".properties.") + key;
+        if (!properties.contains(key))
+        {
+            err(out, metricPath,
+                QStringLiteral("missing canonical route metric '%1'")
+                    .arg(key));
+            continue;
+        }
+
+        if (!isNumericVariant(properties.value(key)))
+        {
+            err(out, metricPath,
+                QStringLiteral("canonical route metric '%1' must be numeric and finite")
+                    .arg(key));
+        }
+    }
+}
+
 } // namespace
 
 QList<ValidationIssue> ScenarioValidator::validate(const ScenarioDocument &doc)
@@ -114,6 +151,46 @@ void ScenarioValidator::checkRegions(const ScenarioDocument &doc,
              nit != it.value().networks.constEnd(); ++nit)
         {
             const auto &n = nit.value();
+            const QString networkPath =
+                QStringLiteral("regions[%1].networks[%2]")
+                    .arg(it.key(), nit.key());
+            if (nit.key() != n.name)
+                err(out, networkPath,
+                    QStringLiteral(
+                        "Map key '%1' does not match NetworkSpec.name '%2'")
+                        .arg(nit.key(), n.name));
+            if (n.name.trimmed().isEmpty())
+                err(out, networkPath,
+                    QStringLiteral("network name is required"));
+            if (!std::isfinite(n.referencePoint.x)
+                || !std::isfinite(n.referencePoint.y))
+            {
+                err(out, networkPath + QStringLiteral(".reference_point"),
+                    QStringLiteral(
+                        "reference_point coordinates must be numeric and finite"));
+            }
+
+            auto requireFile = [&](const QString &role) {
+                if (n.files.value(role).trimmed().isEmpty())
+                {
+                    err(out,
+                        networkPath
+                            + QStringLiteral(".files.%1").arg(role),
+                        QStringLiteral(
+                            "required network file '%1' is missing")
+                            .arg(role));
+                }
+            };
+            if (n.type == NetworkSpec::Type::Rail)
+            {
+                requireFile(QStringLiteral("nodes"));
+                requireFile(QStringLiteral("links"));
+            }
+            else if (n.type == NetworkSpec::Type::Truck)
+            {
+                requireFile(QStringLiteral("config"));
+            }
+
             if (seen.contains(n.name))
                 err(out, QStringLiteral("regions[%1].networks").arg(it.key()),
                     QStringLiteral("Duplicate network name '%1'").arg(n.name));
@@ -206,6 +283,7 @@ void ScenarioValidator::checkLinkages(const ScenarioDocument &doc,
     qCDebug(lcScenario) << "ScenarioValidator::checkLinkages:"
                         << doc.linkages.size() << "linkages";
     QSet<QString> seen;
+    QMap<QString, QString> activeNodeOwners;
 
     for (int i = 0; i < doc.linkages.size(); ++i)
     {
@@ -230,6 +308,28 @@ void ScenarioValidator::checkLinkages(const ScenarioDocument &doc,
             continue;
         }
         const QString region = doc.terminals[l.terminalId].region;
+        if (!l.excluded)
+        {
+            const QString nodeKey =
+                region + QLatin1Char('|')
+                + l.networkName + QLatin1Char('|')
+                + QString::number(l.nodeId);
+            const auto ownerIt =
+                activeNodeOwners.constFind(nodeKey);
+            if (ownerIt != activeNodeOwners.constEnd()
+                && *ownerIt != l.terminalId)
+            {
+                err(out, path,
+                    QStringLiteral("Network node '%1' node_id %2 in region '%3' is already linked to terminal '%4'")
+                        .arg(l.networkName)
+                        .arg(l.nodeId)
+                        .arg(region, *ownerIt));
+            }
+            else if (ownerIt == activeNodeOwners.constEnd())
+            {
+                activeNodeOwners.insert(nodeKey, l.terminalId);
+            }
+        }
         if (!doc.regions.contains(region)) continue;
         if (!doc.regions[region].networks.contains(l.networkName))
             err(out, path + ".network",
@@ -309,6 +409,8 @@ void ScenarioValidator::checkConnections(const ScenarioDocument &doc,
             err(out, path + ".mode",
                 QStringLiteral("mode must be truck, rail, or ship "
                                "(not Any)"));
+
+        checkCanonicalRouteMetrics(c.properties, path, out);
     }
 }
 
@@ -372,6 +474,8 @@ void ScenarioValidator::checkGlobalLinks(const ScenarioDocument &doc,
             err(out, path + ".mode",
                 QStringLiteral("mode must be truck, rail, or ship "
                                "(not Any)"));
+
+        checkCanonicalRouteMetrics(g.properties, path, out);
     }
 }
 

@@ -20,10 +20,9 @@ namespace Scenario {
 
 namespace {
 
-/// Properties map mirroring the legacy keys read by
-/// ViewController::updateTerminalGlobalPosition (ViewController.cpp:241-258).
-/// Kept so existing property-bag readers keep resolving during the
-/// Plan-4 transition.
+/// Properties map for the visible RegionCenterPoint view. The backend
+/// RegionSpec remains the source of truth; this map is a UI snapshot for
+/// the properties panel and scene item.
 QMap<QString, QVariant>
 buildProperties(const Backend::Scenario::RegionSpec &region)
 {
@@ -36,13 +35,8 @@ buildProperties(const Backend::Scenario::RegionSpec &region)
     return props;
 }
 
-/// Transitional publication: expose the new point under the GUI-owned
-/// legacy key so `RegionData::getVariableAs<RegionCenterPoint*>(
-/// "regionCenterPoint")` continues to work. Isolated here so the call
-/// site in fromRegionSpec stays readable, and so the compat layer is
-/// trivial to delete once Task 21 moves observers to ScenarioDocument
-/// signals. Silently no-ops when the controller / region is absent
-/// (headless tests, early bring-up).
+/// Publish the visible center item under the GUI-owned view key. This is
+/// intentionally separate from serializable backend region state.
 void publishToControllerLegacyKey(RegionCenterPoint *cp,
                                   const QString      &regionName)
 {

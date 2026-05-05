@@ -17,6 +17,8 @@ set(Backend_SOURCES
     Commons/DirectedGraph.cpp
     Commons/GeoDistance.h
     Commons/GeoDistance.cpp
+    Commons/GeoProjection.h
+    Commons/GeoProjection.cpp
     Commons/ShortestPathResult.h
     Commons/ThreadSafetyUtils.h
     Commons/ThreadSafetyUtils.cpp

@@ -10,10 +10,12 @@
 #include "Backend/Scenario/TerminalPlacement.h"
 
 #include <QJsonObject>
+#include <QMap>
 #include <QPointF>
 #include <QList>
 #include <QString>
 #include <QVariant>
+#include <optional>
 
 namespace CargoNetSim
 {
@@ -128,6 +130,22 @@ public:
         Scenario::ScenarioDocument *doc,
         const QString              &region,
         const Scenario::NetworkSpec &spec);
+
+    static std::optional<Scenario::NetworkSpec> buildNetworkSpec(
+        const Scenario::ScenarioDocument *doc,
+        const QString                    &region,
+        const QString                    &networkName,
+        NetworkKind                       kind,
+        const QMap<QString, QString>     &files,
+        QString                          *error = nullptr);
+
+    static bool addNetworkFromFiles(
+        Scenario::ScenarioDocument   *doc,
+        const QString                &region,
+        const QString                &networkName,
+        NetworkKind                   kind,
+        const QMap<QString, QString> &files,
+        QString                      *error = nullptr);
 
     static bool removeNetwork(
         Scenario::ScenarioDocument *doc,

@@ -200,6 +200,18 @@ public:
     /// also returns an invalid QPointF.
     QPointF globalPositionOf(const QString &terminalId) const;
 
+    /// Converts a global WGS84 point to the region-local lat/lon stored on
+    /// terminal placements:
+    ///   local_lat = global_lat - (region.globalPosition.lat
+    ///                             - region.localOrigin.lat)
+    ///   local_lon = global_lon - (region.globalPosition.lon
+    ///                             - region.localOrigin.lon)
+    /// Returns QPointF(lon, lat). Missing regions or non-finite inputs return
+    /// an invalid QPointF (NaN, NaN); callers must not silently persist the
+    /// global point as a local point.
+    QPointF localPositionInRegion(const QString &regionName,
+                                  const QPointF &globalLonLat) const;
+
     /// Terminal IDs for all origins. Derived from `isOrigin(id)` —
     /// works pre- and post-applier. Pre-applier: ids with
     /// `initial_container_count > 0`. Post-applier: identical set
@@ -302,6 +314,9 @@ signals:
     void linkageChanged(const QString &terminalId,
                         const QString &networkName,
                         int nodeId);
+    void simulationSettingsChanged();
+    void fleetChanged();
+    void originContainersChanged(const QString &terminalId);
 
 private:
     /// Origin container pools keyed by origin terminal id. Owned: every

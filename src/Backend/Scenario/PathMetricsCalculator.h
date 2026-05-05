@@ -4,12 +4,12 @@
 #include "Backend/Commons/TransportationMode.h"
 #include "PathMetrics.h"
 #include "PathMetricsInputs.h"
+#include "SimulationSettings.h"
 
 namespace CargoNetSim {
 namespace Backend {
 
 class ConfigController;
-class VehicleController;
 
 namespace Scenario {
 
@@ -46,14 +46,21 @@ namespace PathMetricsCalculator
                              int          containerCount,
                              int          capacity);
 
-    /// The one place that reaches into controllers. GUI authoring,
+    /// The one place that reaches into ConfigController. GUI authoring,
     /// prediction, and reconciliation code all call the same adapter to
-    /// build `PathMetricsInputs` — no duplication of
-    /// controller-access code.
+    /// build `PathMetricsInputs` — no duplication of config-access code.
+    PathMetricsInputs gatherInputs(
+        TransportationTypes::TransportationMode          mode,
+        const ConfigController                          &config);
+
+    /// Same adapter as above, but with scenario YAML overrides applied on top
+    /// of config.xml defaults without mutating ConfigController. Use this for
+    /// headless/preview flows that need route metrics before ScenarioApplier
+    /// commits the scenario settings into the live controller.
     PathMetricsInputs gatherInputs(
         TransportationTypes::TransportationMode          mode,
         const ConfigController                          &config,
-        const VehicleController                         *vehicles);
+        const SimulationSettings                        &settings);
 } // namespace PathMetricsCalculator
 
 } // namespace Scenario

@@ -40,8 +40,17 @@ void UpdateRegionGlobalPositionCommand::redo()
                               it->globalPosition.latitude);
         m_captured  = true;
     }
-    Backend::Application::ScenarioEditService::updateRegionGlobalPosition(
-        m_doc.data(), m_regionName, m_newLatLon);
+    const bool updated =
+        Backend::Application::ScenarioEditService::updateRegionGlobalPosition(
+            m_doc.data(), m_regionName, m_newLatLon);
+    if (!updated) {
+        qCWarning(lcGuiInputCmd)
+            << "UpdateRegionGlobalPositionCommand::redo:"
+            << "backend update rejected"
+            << m_regionName;
+        setObsolete(true);
+        return;
+    }
     qCInfo(lcGuiInputCmd) << "UpdateRegionGlobalPositionCommand::redo"
                           << m_regionName
                           << "lon=" << m_newLatLon.x()
@@ -51,8 +60,16 @@ void UpdateRegionGlobalPositionCommand::redo()
 void UpdateRegionGlobalPositionCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Backend::Application::ScenarioEditService::updateRegionGlobalPosition(
-        m_doc.data(), m_regionName, m_oldLatLon);
+    const bool updated =
+        Backend::Application::ScenarioEditService::updateRegionGlobalPosition(
+            m_doc.data(), m_regionName, m_oldLatLon);
+    if (!updated) {
+        qCWarning(lcGuiInputCmd)
+            << "UpdateRegionGlobalPositionCommand::undo:"
+            << "backend update rejected"
+            << m_regionName;
+        return;
+    }
     qCInfo(lcGuiInputCmd) << "UpdateRegionGlobalPositionCommand::undo"
                           << m_regionName;
 }

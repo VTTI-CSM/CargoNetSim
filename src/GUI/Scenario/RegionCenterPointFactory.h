@@ -21,18 +21,17 @@ namespace Scenario {
  * @brief Build a RegionCenterPoint that is a VIEW of a RegionSpec.
  *
  * The factory:
- *   1. Builds the legacy properties map (keys: "Region", "Latitude",
- *      "Longitude", "Shared Latitude", "Shared Longitude") mirroring
- *      what ViewController::updateTerminalGlobalPosition reads.
+ *   1. Builds the view properties map (keys: "Region", "Latitude",
+ *      "Longitude", "Shared Latitude", "Shared Longitude") from the
+ *      backend RegionSpec.
  *   2. Parses RegionSpec.color ("#RRGGBB") into a QColor.
  *   3. Constructs the RegionCenterPoint.
  *   4. Adds it to the scene with its auto-generated UUID.
  *   5. Wires click signals via ItemEventBinder (currently a no-op for
  *      RegionCenterPoint — hook kept for pattern uniformity).
- *   6. Publishes the pointer under the legacy GUI-runtime key
- *      ("regionCenterPoint") via NetworkViewService, so callers using
- *      `getVariableAs<RegionCenterPoint*>("regionCenterPoint", ...)`
- *      continue to resolve correctly during the Plan-4 transition.
+ *   6. Publishes the pointer under the GUI-runtime key
+ *      ("regionCenterPoint") via NetworkViewService for view code that
+ *      needs the visible center item.
  *
  * Returns nullptr when @p region or @p scene is null. @p mainWindow may
  * be null for headless usage.

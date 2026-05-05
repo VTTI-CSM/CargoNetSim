@@ -6,6 +6,7 @@
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/TerminalTypeDefaults.h"
 
+#include <QDir>
 #include <QSet>
 #include <QUuid>
 
@@ -506,6 +507,106 @@ bool ScenarioEditService::addNetwork(
     return doc->addNetwork(region, spec);
 }
 
+std::optional<Scenario::NetworkSpec> ScenarioEditService::buildNetworkSpec(
+    const Scenario::ScenarioDocument *doc,
+    const QString                    &region,
+    const QString                    &networkName,
+    NetworkKind                       kind,
+    const QMap<QString, QString>     &files,
+    QString                          *error)
+{
+    auto fail = [error](const QString &message)
+        -> std::optional<Scenario::NetworkSpec>
+    {
+        if (error)
+            *error = message;
+        return std::nullopt;
+    };
+
+    if (error)
+        error->clear();
+    if (!doc)
+        return fail(QStringLiteral("Scenario document is not available."));
+    if (!doc->regions.contains(region))
+        return fail(QStringLiteral("Region '%1' does not exist.")
+                        .arg(region));
+
+    const QString normalizedName = networkName.trimmed();
+    if (normalizedName.isEmpty())
+        return fail(QStringLiteral("Network name is required."));
+    if (doc->regions.value(region).networks.contains(normalizedName))
+        return fail(QStringLiteral("Network '%1' already exists in region '%2'.")
+                        .arg(normalizedName, region));
+
+    auto cleanFile = [](const QString &path) {
+        const QString trimmed = path.trimmed();
+        return trimmed.isEmpty() ? QString()
+                                 : QDir::cleanPath(trimmed);
+    };
+
+    Scenario::NetworkSpec spec;
+    spec.name = normalizedName;
+    spec.type = kind;
+
+    const auto &origin = doc->regions.value(region).localOrigin;
+    spec.referencePoint.x = origin.longitude;
+    spec.referencePoint.y = origin.latitude;
+
+    switch (kind)
+    {
+    case NetworkKind::Rail: {
+        const QString nodes = cleanFile(files.value(QStringLiteral("nodes")));
+        const QString links = cleanFile(files.value(QStringLiteral("links")));
+        if (nodes.isEmpty() || links.isEmpty())
+        {
+            return fail(QStringLiteral(
+                "Rail network '%1' requires both nodes and links files.")
+                            .arg(normalizedName));
+        }
+        spec.files.insert(QStringLiteral("nodes"), nodes);
+        spec.files.insert(QStringLiteral("links"), links);
+        break;
+    }
+    case NetworkKind::Truck: {
+        const QString config =
+            cleanFile(files.value(QStringLiteral("config")));
+        if (config.isEmpty())
+        {
+            return fail(QStringLiteral(
+                "Truck network '%1' requires a config file.")
+                            .arg(normalizedName));
+        }
+        spec.files.insert(QStringLiteral("config"), config);
+        break;
+    }
+    }
+
+    return spec;
+}
+
+bool ScenarioEditService::addNetworkFromFiles(
+    Scenario::ScenarioDocument   *doc,
+    const QString                &region,
+    const QString                &networkName,
+    NetworkKind                   kind,
+    const QMap<QString, QString> &files,
+    QString                      *error)
+{
+    const auto spec =
+        buildNetworkSpec(doc, region, networkName, kind, files, error);
+    if (!spec)
+        return false;
+    if (!doc->addNetwork(region, spec.value()))
+    {
+        if (error)
+            *error = QStringLiteral(
+                "Failed to add network '%1' to region '%2'.")
+                         .arg(spec->name, region);
+        return false;
+    }
+    return true;
+}
+
 bool ScenarioEditService::removeNetwork(
     Scenario::ScenarioDocument *doc,
     const QString              &region,
@@ -545,6 +646,7 @@ bool ScenarioEditService::updateSimulationSettings(
         << "timeStep="
         << (timeStep.has_value() ? timeStep->value() : -1.0);
     doc->simulation = settings;
+    emit doc->simulationSettingsChanged();
     return true;
 }
 
@@ -558,6 +660,7 @@ bool ScenarioEditService::updateFleet(
                        << "trainFiles=" << fleet.trainsFiles.size()
                        << "shipFiles=" << fleet.shipsFiles.size();
     doc->fleet = fleet;
+    emit doc->fleetChanged();
     return true;
 }
 

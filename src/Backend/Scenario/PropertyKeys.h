@@ -39,6 +39,7 @@ namespace Terminal {
 namespace Segment {
     // Sub-object container names
     inline const QString Estimated               = QStringLiteral("estimated");
+    inline const QString EstimatedAllocated      = QStringLiteral("estimated_allocated");
     inline const QString EstimatedCost           = QStringLiteral("estimated_cost");
 
     // Metric keys inside the sub-objects

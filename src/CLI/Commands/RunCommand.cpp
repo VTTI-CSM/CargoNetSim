@@ -43,6 +43,7 @@ struct Options
     QString      scenarioPath;
     bool         selectAll = false;
     bool         verbose = false;
+    bool         allErrors = false;
     bool         hasTopOverride = false;
     int          topOverride = 0;
     QVector<int> selectedPathIndexes;
@@ -149,6 +150,11 @@ bool parseArgs(const QStringList &args, Options &o, QString *err)
             o.verbose = true;
             continue;
         }
+        if (arg == QLatin1String("--all-errors"))
+        {
+            o.allErrors = true;
+            continue;
+        }
         if (arg == QLatin1String("--top"))
         {
             if (i + 1 >= args.size())
@@ -178,7 +184,7 @@ bool parseArgs(const QStringList &args, Options &o, QString *err)
         {
             *err = QStringLiteral(
                 "run: unsupported flag '%1' "
-                "(supported: --all, --paths LIST, --top N, --verbose)\n")
+                "(supported: --all, --paths LIST, --top N, --verbose, --all-errors)\n")
                 .arg(arg);
             return false;
         }
@@ -221,9 +227,9 @@ ExitCode exitCodeForRunServiceFailure(
     case Status::InvalidSelection:
         return ExitCode::BadArgs;
     case Status::ValidationFailed:
-        // SimulationRunService validation includes simulator command
-        // availability checks for the selected path modes. Surface that
-        // as the public "required simulator unavailable" exit contract.
+        // SimulationRunService validation includes required simulator and
+        // fleet-readiness checks for the selected path modes. Surface that as
+        // the public "required execution dependency unavailable" contract.
         return ExitCode::ConnectTimeout;
     case Status::StartFailed:
         return ExitCode::RunFailed;
@@ -662,7 +668,9 @@ int RunCommand::execute(const QStringList &args)
 
     bool hasError = false;
     const QString buffer =
-        formatValidationIssues(parseResult.issues, &hasError);
+        formatValidationIssues(
+            parseResult.issues, &hasError,
+            validationIssueFormatOptions(opt.allErrors));
     if (!buffer.isEmpty())
         streamToOr(m_err, stderr, buffer);
     if (!parseResult.succeeded())

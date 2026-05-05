@@ -24,7 +24,6 @@ class GraphicsView;
 class MainWindow;
 class StatusReporter;
 class TerminalItem;
-class RegionCenterPoint;
 
 class TerminalController : public QObject
 {
@@ -59,15 +58,14 @@ public:
     /// lifecycle events, never mutate the mirror directly.
     void removeGlobalMirror(const QString &terminalId);
 
-    /// Reposition every existing GlobalTerminalItem mirror whose bound
-    /// TerminalItem lives in @p regionName. Sibling of
+    /// Reconcile every TerminalItem mirror in @p regionName. Sibling of
     /// updateGlobalMapItem: that one reconciles a single terminal on
     /// `terminalAdded`/`terminalChanged`; this one handles the
     /// `regionChanged` case where the region's globalPosition or
     /// localOrigin moved and every mirror in the region has to follow.
-    /// Does NOT create or remove mirrors — lifecycle stays with
-    /// updateGlobalMapItem / removeGlobalMirror. No-ops for regions
-    /// that have no mirrored terminals.
+    /// Lifecycle is still centralized in updateGlobalMapItem, which is
+    /// called for each terminal to create, move, or remove mirrors as the
+    /// "Show on Global Map" flag requires.
     void refreshGlobalMirrorsForRegion(const QString &regionName);
 
     TerminalItem *createTerminalAtPoint(
@@ -76,23 +74,6 @@ public:
         const QPointF &point,
         Backend::Scenario::TerminalPlacement::TerminalRole role =
             Backend::Scenario::TerminalPlacement::TerminalRole::Transit);
-
-    bool updateTerminalPositionByGlobalPosition(
-        TerminalItem *terminal,
-        QPointF       globalGeoPos);
-
-    /**
-     * @brief Convert a global WGS84 point to the given region's local
-     *        lat/lon (x = lon, y = lat).
-     *
-     * The conversion subtracts the region's shared-origin offset
-     * (Shared − local origin) from the global point, mirroring the
-     * inverse of the offset that `sceneToWGS84` applies in the region
-     * view. Returns the input unchanged if the region center cannot be
-     * resolved.
-     */
-    QPointF globalToLocalLatLon(const QString &region,
-                                const QPointF &globalLatLon) const;
 
     bool linkTerminalToClosestNetworkPoint(
         TerminalItem             *terminal,
@@ -113,9 +94,7 @@ public slots:
         Backend::Scenario::ScenarioRuntime *rt);
 
 private:
-    void updateTerminalGlobalPosition(
-        RegionCenterPoint *regionCenterPoint,
-        TerminalItem      *terminal);
+    void updateTerminalGlobalPosition(TerminalItem *terminal);
 
     GraphicsScene  *m_regionScene;
     GraphicsView   *m_regionView;

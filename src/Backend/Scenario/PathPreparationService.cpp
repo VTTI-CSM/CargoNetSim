@@ -298,6 +298,8 @@ PreparedPathSet PathPreparationService::prepareDiscoveredPaths(
         path->setRankingCost(estimatedCost.totalCost);
         path->setCostBreakdown(estimatedCost.costBreakdown);
         record.predictedMetrics = estimatedCost.metrics;
+        record.predictedSegmentCosts =
+            estimatedCost.segmentCosts;
         if (record.predictedMetrics.previewVehicleBreakdown.isEmpty())
         {
             record.predictedMetrics.previewVehicleBreakdown =

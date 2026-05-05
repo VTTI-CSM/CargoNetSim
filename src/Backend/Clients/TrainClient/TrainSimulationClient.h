@@ -364,6 +364,10 @@ private:
         const QStringList &containersDestinationNames,
         QString           *errorMessage = nullptr);
 
+    QString cacheTrainStateSnapshot(const QString &networkName,
+                                    const QJsonObject &stateJson,
+                                    const QString &sourceEvent);
+
     /**
      * @brief Handles simulation created event
      *

@@ -2,8 +2,6 @@
 
 #include "Backend/Commons/TransportationMode.h"
 #include <QObject>
-#include <QVariantMap>
-#include <optional>
 
 class QGraphicsItem;
 
@@ -54,9 +52,7 @@ public:
         QGraphicsItem *startItem,
         QGraphicsItem *endItem,
         Backend::TransportationTypes::TransportationMode
-            connectionType,
-        std::optional<QVariantMap> canonicalProperties =
-            std::nullopt);
+            connectionType);
 
     /**
      * @brief Removes a connection line from its scene.

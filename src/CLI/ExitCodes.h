@@ -25,7 +25,7 @@ enum class ExitCode : int
     Success            = 0,   ///< Subcommand completed normally.
     RunFailed          = 1,   ///< `run` subcommand: simulation failed at runtime.
     ValidationFailed   = 2,   ///< `validate`/`run`/`preview`: scenario YAML has errors.
-    ConnectTimeout     = 3,   ///< `run`: simulators unreachable within timeout.
+    ConnectTimeout     = 3,   ///< `run`: required execution dependency unavailable.
     NoRunningSim       = 4,   ///< `status`/`stop`: no live simulation to address.
     ServerDisconnected = 5,   ///< `connections`: at least one simulator disconnected.
     BadArgs            = 64,  ///< Misuse of command line (EX_USAGE).

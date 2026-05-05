@@ -87,6 +87,18 @@ private:
     void addTableOfContents(KDReports::Report *report);
 
     /**
+     * @brief Adds a high-level report summary
+     * @param report KDReports report object
+     */
+    void addExecutiveSummary(KDReports::Report *report);
+
+    /**
+     * @brief Adds notes explaining predicted/actual semantics
+     * @param report KDReports report object
+     */
+    void addReportNotes(KDReports::Report *report);
+
+    /**
      * @brief Adds individual path sections
      * @param report KDReports report object
      */
@@ -112,11 +124,29 @@ private:
         const PathData    *pathData);
 
     /**
+     * @brief Adds path-level physical metrics
+     * @param report KDReports report object
+     * @param pathData Pointer to the path data
+     */
+    void addPathMetricsOverview(
+        KDReports::Report *report,
+        const PathData    *pathData);
+
+    /**
      * @brief Adds path terminal information
      * @param report KDReports report object
      * @param pathData Pointer to the path data
      */
     void addPathTerminals(
+        KDReports::Report *report,
+        const PathData    *pathData);
+
+    /**
+     * @brief Adds detailed terminal predicted/actual values
+     * @param report KDReports report object
+     * @param pathData Pointer to the path data
+     */
+    void addPathTerminalDetails(
         KDReports::Report *report,
         const PathData    *pathData);
 
@@ -166,6 +196,11 @@ private:
      */
     void
     addTerminalComparisonTable(KDReports::Report *report);
+
+    void addTerminalAttributeComparisonTables(
+        KDReports::Report *report);
+    void addTerminalPositionAttributeTable(
+        KDReports::Report *report, int terminalIdx);
 
     /**
      * @brief Adds segment comparison table

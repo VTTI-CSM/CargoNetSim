@@ -4,7 +4,7 @@ USAGE
     cargonetsim-cli <subcommand> [options]
 
 SUBCOMMANDS
-    run         [--all|--paths LIST] [--top N] [--verbose] <scenario.yml>
+    run         [--all|--paths LIST] [--top N] [--verbose] [--all-errors] <scenario.yml>
                                  Execute the scenario end-to-end.
                                  `--all` selects every discovered
                                  candidate path and simulates each as
@@ -19,16 +19,26 @@ SUBCOMMANDS
                                  candidates discovered before selection.
                                  `--verbose` enables Qt logs and
                                  per-path progress details.
+                                 `--all-errors` prints every validation
+                                 issue instead of grouped summaries.
 
-    validate    <scenario.yml>   Parse + validate; exit non-zero on error.
+    validate    [--all-errors] <scenario.yml>
+                                 Parse + validate; exit non-zero on
+                                 error. Large issue sets are grouped by
+                                 default; `--all-errors` prints every
+                                 issue.
 
-    preview     <scenario.yml>   Load, validate, run linker, emit JSON to stdout.
+    preview     [--all-errors] <scenario.yml>
+                                 Load, validate, run linker, emit JSON
+                                 to stdout.
 
-    discover    [--top N] [--json|--details] [--verbose] <scenario.yml>
+    discover    [--top N] [--json|--details] [--verbose] [--all-errors] <scenario.yml>
                                  Discover and print candidate paths with
                                  prepared numeric values only. The Select
                                  column is accepted by `run --paths`.
                                  Does not start simulation or write results.
+                                 `--all-errors` prints every validation
+                                 issue instead of grouped summaries.
 
     connections [--watch]        Show per-server RabbitMQ connection status.
 
@@ -39,7 +49,7 @@ EXIT CODES
     0   success
     1   simulation run failed at runtime
     2   scenario validation failed
-    3   required simulator unavailable before simulation start
+    3   required simulator or fleet dependency unavailable before simulation start
     5   at least one simulator disconnected (for connections)
    64   misuse / bad command-line arguments
 

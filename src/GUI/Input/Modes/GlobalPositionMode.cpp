@@ -2,7 +2,6 @@
 
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
-#include "../../Controllers/TerminalController.h"
 #include "../../Items/GlobalTerminalItem.h"
 #include "../../Items/TerminalItem.h"
 #include "../../MainWindow.h"
@@ -18,6 +17,7 @@
 #include <QGraphicsItem>
 #include <QLoggingCategory>
 #include <QStatusBar>
+#include <cmath>
 
 namespace CargoNetSim::GUI::Input {
 
@@ -57,8 +57,10 @@ Handled GlobalPositionMode::onPress(const PressEvent& e, const ClickContext& ctx
     }
 
     TerminalItem* terminal = gItem->getLinkedTerminalItem();
-    if (!terminal || !ctx.mainWindow || !ctx.mainWindow->globalMapView()) {
-        qCWarning(lcGuiInputMode) << "GlobalPositionMode: missing mainWindow/view/terminal";
+    if (!terminal || !ctx.mainWindow || !ctx.mainWindow->globalMapView()
+        || !ctx.document) {
+        qCWarning(lcGuiInputMode)
+            << "GlobalPositionMode: missing mainWindow/view/terminal/document";
         ctx.controller->setMode<NormalMode>();
         return Handled::Yes;
     }
@@ -80,9 +82,19 @@ Handled GlobalPositionMode::onPress(const PressEvent& e, const ClickContext& ctx
     // Convert user-entered global WGS84 → terminal's region-local lat/lon
     // and submit as a reversible command on the undo stack.
     const QPointF userGeoPoint = dialog.getCoordinates();
-    const QPointF newLocal     = ctx.mainWindow->terminalCtrl()
-                                     ->globalToLocalLatLon(
-                                         terminal->getRegion(), userGeoPoint);
+    const QPointF newLocal =
+        ctx.document->localPositionInRegion(
+            terminal->getRegion(), userGeoPoint);
+    if (!std::isfinite(newLocal.x()) || !std::isfinite(newLocal.y())) {
+        qCWarning(lcGuiInputMode)
+            << "GlobalPositionMode:"
+            << "cannot convert global lon/lat to region-local position"
+            << "terminalId=" << terminal->getTerminalId()
+            << "region=" << terminal->getRegion()
+            << "globalLonLat=" << userGeoPoint;
+        ctx.controller->setMode<NormalMode>();
+        return Handled::Yes;
+    }
     if (ctx.document && ctx.commandBus) {
         ctx.commandBus->submit(std::make_unique<UpdateTerminalPositionCommand>(
             ctx.document.data(), terminal->getTerminalId(), newLocal));

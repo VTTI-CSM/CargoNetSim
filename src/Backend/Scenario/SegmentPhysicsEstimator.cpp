@@ -39,6 +39,10 @@ SegmentPhysicsEstimator::Result SegmentPhysicsEstimator::estimate(
     const QVariantMap modeProps    = transportModes.value(modeKey).toMap();
     const double fuelRateLperKm    = modeProps.value(PK::Mode::AverageFuelConsumption, 0.0).toDouble();
     const int vehicleCapacity      = qMax(1, modeProps.value(PK::Mode::AverageContainerNumber, 1).toInt());
+    const double locomotiveCount   =
+        mode == M::Train
+            ? qMax(1.0, modeProps.value(PK::Mode::AverageLocomotiveCount, 1.0).toDouble())
+            : 1.0;
     const double riskFactor        = modeProps.value(PK::Mode::RiskFactor, 0.0).toDouble();
     const QString fuelType         = modeProps.value(PK::Mode::FuelType).toString();
 
@@ -57,16 +61,26 @@ SegmentPhysicsEstimator::Result SegmentPhysicsEstimator::estimate(
             .convert<units::length::kilometer>();
     const int vehicleCount =
         static_cast<int>(qCeil(static_cast<double>(containerCount) / vehicleCapacity));
+    const double loadShare =
+        vehicleCount > 0
+            ? static_cast<double>(containerCount)
+                  / static_cast<double>(vehicleCount * vehicleCapacity)
+            : 0.0;
 
     const double fuelLitres =
-        fuelRateLperKm * distanceKm.value() * vehicleCount;
+        fuelRateLperKm * locomotiveCount * distanceKm.value()
+        * vehicleCount;
 
     Result r;
+    r.vehicleCount = vehicleCount;
+    r.loadShare    = loadShare;
     r.energyKWh    = fuelLitres * fuelEnergyKWhPerL;
     r.carbonTonnes =
         Units::MassKilograms(fuelLitres * fuelCarbonKgPerL)
             .convert<units::mass::metric_ton>()
             .value();
+    r.allocatedEnergyKWh = r.energyKWh * loadShare;
+    r.allocatedCarbonTonnes = r.carbonTonnes * loadShare;
     r.risk         = riskFactor * vehicleCount;
     return r;
 }

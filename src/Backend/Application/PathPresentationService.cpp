@@ -1,6 +1,7 @@
 #include "PathPresentationService.h"
 
 #include "Backend/Application/ScenarioPersistenceService.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Commons/Units.h"
 #include "Backend/Scenario/PathPreparationService.h"
@@ -11,6 +12,8 @@
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
+
+#include <cmath>
 
 namespace CargoNetSim
 {
@@ -47,6 +50,7 @@ QJsonObject filteredSegmentAttributes(
 {
     QJsonObject filtered = attributes;
     filtered.remove(PK::Segment::Estimated);
+    filtered.remove(PK::Segment::EstimatedAllocated);
     filtered.remove(PK::Segment::EstimatedCost);
     return filtered;
 }
@@ -119,6 +123,72 @@ QJsonObject metricsToJson(const Scenario::PathMetrics &metrics)
     o[QStringLiteral("vehicles_needed")] =
         metrics.vehiclesNeeded;
     return o;
+}
+
+QJsonObject segmentCostToJson(
+    const Backend::PathSegment::SegmentCostSnapshot &cost)
+{
+    QJsonObject o;
+    o[QStringLiteral("available")] = cost.available;
+    o[QStringLiteral("travel_time_cost")] = cost.travelTime;
+    o[QStringLiteral("distance_cost")] = cost.distance;
+    o[QStringLiteral("carbon_cost")] = cost.carbonEmissions;
+    o[QStringLiteral("energy_cost")] = cost.energyConsumption;
+    o[QStringLiteral("risk_cost")] = cost.risk;
+    o[QStringLiteral("direct_cost")] = cost.directCost;
+    return o;
+}
+
+Backend::PathSegment::SegmentCostSnapshot segmentCostFromJson(
+    const QJsonObject &json)
+{
+    Backend::PathSegment::SegmentCostSnapshot cost;
+    cost.available =
+        json.value(QStringLiteral("available")).toBool(false);
+    cost.travelTime =
+        json.value(QStringLiteral("travel_time_cost")).toDouble(0.0);
+    cost.distance =
+        json.value(QStringLiteral("distance_cost")).toDouble(0.0);
+    cost.carbonEmissions =
+        json.value(QStringLiteral("carbon_cost")).toDouble(0.0);
+    cost.energyConsumption =
+        json.value(QStringLiteral("energy_cost")).toDouble(0.0);
+    cost.risk =
+        json.value(QStringLiteral("risk_cost")).toDouble(0.0);
+    cost.directCost =
+        json.value(QStringLiteral("direct_cost")).toDouble(0.0);
+    return cost;
+}
+
+QJsonArray segmentCostsToJson(
+    const QList<Backend::PathSegment::SegmentCostSnapshot> &costs)
+{
+    QJsonArray json;
+    for (const auto &cost : costs)
+        json.append(segmentCostToJson(cost));
+    return json;
+}
+
+QList<Backend::PathSegment::SegmentCostSnapshot>
+segmentCostsFromJson(const QJsonValue &value)
+{
+    QList<Backend::PathSegment::SegmentCostSnapshot> costs;
+    if (!value.isArray())
+        return costs;
+
+    const auto json = value.toArray();
+    costs.reserve(json.size());
+    for (const auto &entry : json)
+    {
+        if (!entry.isObject())
+        {
+            costs.append(
+                Backend::PathSegment::SegmentCostSnapshot{});
+            continue;
+        }
+        costs.append(segmentCostFromJson(entry.toObject()));
+    }
+    return costs;
 }
 
 Scenario::PathMetrics metricsFromJson(const QJsonObject &o)
@@ -463,15 +533,11 @@ PathPresentationCostSnapshot sumExecutionCosts(
 }
 
 PathPresentationCostSnapshot sumCostSnapshots(
-    const QList<Backend::PathSegment *> &segments)
+    const QList<Backend::PathSegment::SegmentCostSnapshot> &costs)
 {
     PathPresentationCostSnapshot total;
-    for (const auto *segment : segments)
+    for (const auto &snapshot : costs)
     {
-        if (!segment)
-            continue;
-
-        const auto snapshot = segment->estimatedCosts();
         if (!snapshot.available)
             continue;
 
@@ -484,6 +550,62 @@ PathPresentationCostSnapshot sumCostSnapshots(
         total.directCost += snapshot.directCost;
     }
     return total;
+}
+
+double totalCost(const PathPresentationCostSnapshot &costs)
+{
+    return costs.travelTime + costs.distance
+           + costs.carbonEmissions + costs.energyConsumption
+           + costs.risk + costs.directCost;
+}
+
+void validatePredictedSegmentCosts(
+    const PathPresentationRecord &record,
+    const QString                &source)
+{
+    if (!record.path)
+        return;
+
+    const int segmentCount = record.path->getSegments().size();
+    if (record.predictedSegmentCosts.size() != segmentCount)
+    {
+        qCWarning(lcScenario)
+            << "PathPresentationService::validatePredictedSegmentCosts:"
+            << "predicted segment cost count mismatch"
+            << "source=" << source
+            << "pathKey=" << record.executionPathKey
+            << "segmentCount=" << segmentCount
+            << "predictedSegmentCostCount="
+            << record.predictedSegmentCosts.size();
+        return;
+    }
+
+    const auto totals = sumCostSnapshots(record.predictedSegmentCosts);
+    if (!totals.available)
+    {
+        qCWarning(lcScenario)
+            << "PathPresentationService::validatePredictedSegmentCosts:"
+            << "missing typed predicted segment costs"
+            << "source=" << source
+            << "pathKey=" << record.executionPathKey;
+        return;
+    }
+
+    const double typedTotal = totalCost(totals);
+    const double pathEdgeTotal = record.path->getTotalEdgeCosts();
+    const double tolerance =
+        qMax(0.01, std::abs(pathEdgeTotal) * 1.0e-6);
+    if (std::abs(typedTotal - pathEdgeTotal) > tolerance)
+    {
+        qCWarning(lcScenario)
+            << "PathPresentationService::validatePredictedSegmentCosts:"
+            << "typed predicted segment costs do not match path edge cost"
+            << "source=" << source
+            << "pathKey=" << record.executionPathKey
+            << "typedTotal=" << typedTotal
+            << "pathEdgeTotal=" << pathEdgeTotal
+            << "difference=" << (typedTotal - pathEdgeTotal);
+    }
 }
 
 } // namespace
@@ -553,8 +675,12 @@ PathPresentationService::recordsFromPreparedPaths(
             eligibility.value(preparedRecord.executionPathKey,
                               Scenario::PreparedPathEligibility{});
         record.predictedMetrics = preparedRecord.predictedMetrics;
+        record.predictedSegmentCosts =
+            preparedRecord.predictedSegmentCosts;
         record.actualMetrics =
             actual.value(preparedRecord.executionPathKey);
+        validatePredictedSegmentCosts(
+            record, QStringLiteral("recordsFromPreparedPaths"));
         records.append(std::move(record));
     }
 
@@ -597,8 +723,11 @@ QList<QJsonObject> PathPresentationService::buildComparisonSnapshots(
         if (!record.path)
             continue;
 
+        validatePredictedSegmentCosts(
+            record, QStringLiteral("buildComparisonSnapshots"));
+
         QJsonObject snapshot;
-        snapshot[QStringLiteral("schema_version")] = 3;
+        snapshot[QStringLiteral("schema_version")] = 4;
         snapshot[QStringLiteral("execution_path_key")] =
             record.executionPathKey;
         snapshot[QStringLiteral("canonical_path_key")] =
@@ -646,6 +775,8 @@ QList<QJsonObject> PathPresentationService::buildComparisonSnapshots(
 
         snapshot[QStringLiteral("predicted_metrics")] =
             metricsToJson(record.predictedMetrics);
+        snapshot[QStringLiteral("predicted_segment_costs")] =
+            segmentCostsToJson(record.predictedSegmentCosts);
         snapshot[QStringLiteral("actual_metrics")] =
             metricsToJson(record.actualMetrics);
 
@@ -708,6 +839,8 @@ PathPresentationService::loadComparisonSnapshots(
         record.predictedMetrics = metricsFromJson(
             snapshot.value(QStringLiteral("predicted_metrics"))
                 .toObject());
+        record.predictedSegmentCosts = segmentCostsFromJson(
+            snapshot.value(QStringLiteral("predicted_segment_costs")));
         record.actualMetrics = metricsFromJson(
             snapshot.value(QStringLiteral("actual_metrics"))
                 .toObject());
@@ -745,6 +878,8 @@ PathPresentationService::loadComparisonSnapshots(
                     executionResult);
         }
 
+        validatePredictedSegmentCosts(
+            record, QStringLiteral("loadComparisonSnapshots"));
         records.append(std::move(record));
     }
 
@@ -945,7 +1080,9 @@ PathPresentationService::terminalValues(
     const auto &terminal = terminals[terminalIndex];
     out.predictedAvailable = true;
     out.predictedHandlingSeconds = terminal.handlingTime;
-    out.predictedDirectCostUsd = terminal.rawCost;
+    out.predictedRawDirectCostUsd = terminal.rawCost;
+    out.predictedDirectCostUsd =
+        terminal.costsSkipped ? 0.0 : terminal.rawCost;
     out.predictedWeightedDelayContribution =
         terminal.weightedTerminalDelayContribution;
     out.predictedWeightedCostContribution =
@@ -1049,6 +1186,18 @@ PathPresentationService::segmentValues(
     out.predictedEnergyConsumption =
         predicted.energyConsumption;
     out.predictedRisk = predicted.risk;
+    const auto predictedAllocated =
+        segment->estimatedAllocatedValues();
+    out.predictedAllocatedAvailable =
+        predictedAllocated.available;
+    out.predictedAllocatedCarbonEmissions =
+        predictedAllocated.available
+            ? predictedAllocated.carbonEmissions
+            : predicted.carbonEmissions;
+    out.predictedAllocatedEnergyConsumption =
+        predictedAllocated.available
+            ? predictedAllocated.energyConsumption
+            : predicted.energyConsumption;
 
     const auto actual =
         actualMetricsForSegment(path, segmentIndex);
@@ -1082,8 +1231,11 @@ PathPresentationService::segmentPredictedCosts(
     {
         return {};
     }
+    if (segmentIndex >= path.predictedSegmentCosts.size())
+        return {};
+
     return costSnapshotFromSegmentCost(
-        segments[segmentIndex]->estimatedCosts());
+        path.predictedSegmentCosts[segmentIndex]);
 }
 
 PathPresentationCostSnapshot
@@ -1102,8 +1254,7 @@ PathPresentationService::pathCostTotals(
     if (!path.path)
         return out;
 
-    const auto segments = path.path->getSegments();
-    out.predicted = sumCostSnapshots(segments);
+    out.predicted = sumCostSnapshots(path.predictedSegmentCosts);
     if (const auto *result = executionResultFor(path))
         out.actual = sumExecutionCosts(result->segmentResults);
     return out;

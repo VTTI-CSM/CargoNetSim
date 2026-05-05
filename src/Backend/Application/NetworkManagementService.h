@@ -2,8 +2,11 @@
 
 #include "Backend/Commons/NetworkKind.h"
 #include "Backend/Commons/ShortestPathResult.h"
+#include "Backend/Scenario/LinkageSource.h"
 
+#include <QList>
 #include <QString>
+#include <QMap>
 #include <QVariant>
 
 namespace CargoNetSim
@@ -13,8 +16,38 @@ class CargoNetSimController;
 
 namespace Backend
 {
+namespace Scenario
+{
+class ScenarioDocument;
+}
+
 namespace Application
 {
+
+enum class LinkTerminalToNodeStatus
+{
+    Success,
+    InvalidRequest,
+    AlreadyLinked,
+    NoAvailableNode,
+    CommitFailed,
+};
+
+struct LinkTerminalToNodeResult
+{
+    LinkTerminalToNodeStatus status =
+        LinkTerminalToNodeStatus::InvalidRequest;
+    QString message;
+    QString networkName;
+    int nodeId = -1;
+    NetworkKind kind = NetworkKind::Rail;
+    double distanceMeters = 0.0;
+
+    bool succeeded() const
+    {
+        return status == LinkTerminalToNodeStatus::Success;
+    }
+};
 
 class NetworkManagementService
 {
@@ -26,14 +59,12 @@ public:
         const QString &regionName,
         const QString &networkName) const;
 
-    bool addTrainNetwork(const QString &regionName,
-                         const QString &networkName,
-                         const QString &nodeFile,
-                         const QString &linkFile) const;
-
-    bool addTruckNetwork(const QString &regionName,
-                         const QString &networkName,
-                         const QString &configFile) const;
+    bool importNetwork(Scenario::ScenarioDocument   *doc,
+                       const QString                &regionName,
+                       const QString                &networkName,
+                       NetworkKind                   kind,
+                       const QMap<QString, QString> &files,
+                       QString                      *error = nullptr) const;
 
     bool removeNetwork(const QString &regionName,
                        const QString &networkName,
@@ -60,6 +91,17 @@ public:
         NetworkKind    kind,
         int            startNodeId,
         int            endNodeId) const;
+
+    /// Link a terminal to the nearest available node among document-owned
+    /// networks of the requested kinds. Availability is evaluated against
+    /// scenario linkages, not GUI MapPoint state, so manual, batch, CLI, and
+    /// GUI paths obey the same one-terminal-per-node invariant.
+    LinkTerminalToNodeResult linkTerminalToClosestNetworkNode(
+        Scenario::ScenarioDocument &doc,
+        const QString              &terminalId,
+        const QList<NetworkKind>   &kinds,
+        Scenario::LinkageSource     source =
+            Scenario::LinkageSource::Manual) const;
 
 private:
     ::CargoNetSim::CargoNetSimController *controller() const;

@@ -39,6 +39,7 @@ struct SimulationSettings
         std::optional<QString> fuelType;
         std::optional<double>  fuelRate;
         std::optional<int>     containers;
+        std::optional<int>     locomotives; ///< Rail only: locomotives per train.
         std::optional<double>  risk;
         std::optional<double>  timeValue;
         std::optional<bool>    useNetwork;

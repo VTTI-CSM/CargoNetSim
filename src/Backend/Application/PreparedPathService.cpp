@@ -131,9 +131,25 @@ PreparedPathServiceResult PreparedPathService::discoverAndPrepare(
 }
 
 PreparedPathServiceResult PreparedPathService::discoverAndPrepare(
-    const Scenario::ScenarioRuntime &runtime,
-    int                              topN) const
+    Scenario::ScenarioRuntime &runtime,
+    int                        topN) const
 {
+    PreparedPathServiceResult result;
+    result.topNRequested = topN;
+
+    QString applyError;
+    if (!runtime.ensureApplied(&applyError))
+    {
+        result.status = PreparedPathServiceStatus::DiscoveryFailed;
+        result.message = applyError.isEmpty()
+            ? QStringLiteral("Scenario could not be applied before path discovery")
+            : applyError;
+        qCWarning(lcScenario)
+            << "PreparedPathService::discoverAndPrepare:"
+            << "runtime apply failed -" << result.message;
+        return result;
+    }
+
     return discoverAndPrepare(runtime.document(), runtime.registry(), topN);
 }
 

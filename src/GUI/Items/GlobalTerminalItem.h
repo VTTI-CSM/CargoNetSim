@@ -14,7 +14,6 @@
 #include <QPointF>
 #include <QPointer>
 #include <QString>
-#include <optional>
 
 namespace CargoNetSim
 {
@@ -114,24 +113,6 @@ public:
      * properties from linked terminal
      */
     void updateFromLinkedTerminal();
-
-    /**
-     * @brief Compute this item's global WGS84 position from its
-     *        linked TerminalItem's placement + the matching
-     *        RegionCenterPoint's RegionSpec model (found in the scene).
-     *
-     * Formula (design spec §4):
-     *   global_lon = region.globalPosition.longitude
-     *              + (placement.latLon.longitude - region.localOrigin.longitude)
-     *   global_lat = region.globalPosition.latitude
-     *              + (placement.latLon.latitude  - region.localOrigin.latitude)
-     *
-     * Pure computation — kept public and separate from the projection
-     * step so tests can exercise it without a live GraphicsView. Returns
-     * std::nullopt when the linked terminal / placement / matching
-     * RegionCenterPoint isn't reachable.
-     */
-    std::optional<QPointF> computeGlobalLatLon() const;
 
     /**
      * @brief Serializes the GlobalTerminalItem to a

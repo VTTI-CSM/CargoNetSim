@@ -62,8 +62,8 @@ public:
         int                               topN) const;
 
     PreparedPathServiceResult discoverAndPrepare(
-        const Scenario::ScenarioRuntime &runtime,
-        int                              topN) const;
+        Scenario::ScenarioRuntime &runtime,
+        int                        topN) const;
 
 private:
     ConfigController     *m_config = nullptr;

@@ -27,12 +27,17 @@ namespace Scenario
  * Estimation model
  * ----------------
  * 1. vehicleCount  = ceil(containerCount / vehicleCapacity)
- * 2. fuelLitres    = fuelRate_L_per_km × (distanceMetres / 1000) × vehicleCount
- * 3. energyKWh     = fuelLitres × fuelEnergyKWhPerL
- * 4. carbonTonnes  = fuelLitres × fuelCarbonKgPerL / 1000
- * 5. risk          = riskFactor × vehicleCount
+ * 2. locomotiveFactor = average_locomotive_count for rail, otherwise 1
+ * 3. fuelLitres    = fuelRate_L_per_km × locomotiveFactor
+ *                    × (distanceMetres / 1000) × vehicleCount
+ * 4. energyKWh     = fuelLitres × fuelEnergyKWhPerL
+ * 5. carbonTonnes  = fuelLitres × fuelCarbonKgPerL / 1000
+ * 6. loadShare     = containerCount / (vehicleCount × vehicleCapacity)
+ * 7. allocated     = vehicle total × loadShare
+ * 8. risk          = riskFactor × vehicleCount
  *
- * Unit verification: `average_fuel_consumption` in config.xml is in L/km.
+ * Unit verification: `average_fuel_consumption` in config.xml is in L/km
+ * per locomotive for rail and per vehicle for ship/truck.
  * Confirmed from PathMetricsCalculator.cpp lines 102-123 which computes
  * energyPerVehicle = fuelRate × distanceKm × calorific.
  *
@@ -44,9 +49,11 @@ namespace Scenario
  * --------------
  * Input  distanceMetres  : metres
  * Input  containerCount  : integer (≥ 0); returns zero Result when 0
- * Output energyKWh       : kWh
- * Output carbonTonnes    : tonnes CO₂
- * Output risk            : dimensionless (riskFactor × vehicleCount)
+ * Output energyKWh              : kWh, full vehicle fleet estimate
+ * Output carbonTonnes           : tonnes CO₂, full vehicle fleet estimate
+ * Output allocatedEnergyKWh     : kWh allocated to this path's containers
+ * Output allocatedCarbonTonnes  : tonnes CO₂ allocated to this path's containers
+ * Output risk                   : dimensionless (riskFactor × vehicleCount)
  *
  * Failure behaviour
  * -----------------
@@ -59,9 +66,13 @@ class SegmentPhysicsEstimator
 {
 public:
     struct Result {
-        double energyKWh    = 0.0;
-        double carbonTonnes = 0.0;
-        double risk         = 0.0;
+        double energyKWh              = 0.0;
+        double carbonTonnes           = 0.0;
+        double allocatedEnergyKWh     = 0.0;
+        double allocatedCarbonTonnes  = 0.0;
+        double risk                   = 0.0;
+        int    vehicleCount           = 0;
+        double loadShare              = 0.0;
     };
 
     /**

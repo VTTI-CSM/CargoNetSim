@@ -316,6 +316,12 @@ void SettingsWidget::initUI()
         tr("Fuel Consumption per Locomotive:"),
         trainFuelLayout);
 
+    trainLocomotives = new QSpinBox(trainGroup);
+    trainLocomotives->setRange(1, 1000);
+    trainLocomotives->setValue(1);
+    trainLayout->addRow(tr("Average Locomotives per Train:"),
+                        trainLocomotives);
+
     trainContainers = new QSpinBox(trainGroup);
     trainContainers->setRange(1, 10000000);
     trainContainers->setSingleStep(10);
@@ -886,6 +892,13 @@ void SettingsWidget::refreshFromConfig()
                                 .toDouble());
 
                 if (railSettings.contains(
+                        PK::Mode::AverageLocomotiveCount))
+                    trainLocomotives->setValue(
+                        railSettings
+                            [PK::Mode::AverageLocomotiveCount]
+                                .toInt());
+
+                if (railSettings.contains(
                         PK::Mode::AverageContainerNumber))
                     trainContainers->setValue(
                         railSettings
@@ -1019,6 +1032,7 @@ void SettingsWidget::applySettings()
         Backend::Units::kilometersPerHour(
             trainSpeedSpin->value()));
     s.rail.fuelRate   = trainFuelSpin->value();
+    s.rail.locomotives = trainLocomotives->value();
     s.rail.containers = trainContainers->value();
     s.rail.setRisk(
         Backend::Units::scalar(trainRiskSpin->value()));
@@ -1117,7 +1131,10 @@ void SettingsWidget::showEnergyCalculator(
     fuelSpin->setSuffix(tr(" %1/km").arg(unit));
 
     fuelLayout->addWidget(
-        new QLabel(tr("Fuel Consumption:"), &dialog));
+        new QLabel(mode == QStringLiteral("rail")
+                       ? tr("Fuel Consumption per Locomotive:")
+                       : tr("Fuel Consumption:"),
+                   &dialog));
     fuelLayout->addWidget(fuelSpin);
     layout->addLayout(fuelLayout);
 

@@ -244,6 +244,7 @@ public:
         return Units::seconds(estimatedTravelTime());
     }
     SegmentMetricSnapshot estimatedValues() const;
+    SegmentMetricSnapshot estimatedAllocatedValues() const;
 
     SegmentCostSnapshot estimatedCosts() const;
 
@@ -267,6 +268,9 @@ public:
     void setEstimatedPhysicalMetrics(double energyKWh,
                                       double carbonTonnes,
                                       double risk);
+    void setEstimatedAllocatedPhysicalMetrics(double energyKWh,
+                                              double carbonTonnes,
+                                              double risk);
     void setEstimatedPhysicalMetrics(
         Units::EnergyKilowattHours energy,
         Units::MassMetricTons      carbon,

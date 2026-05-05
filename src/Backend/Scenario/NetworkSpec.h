@@ -25,7 +25,11 @@ struct NetworkSpec
 
     QString name;
     Type    type = Type::Rail;
-    Point2D referencePoint;     ///< Scene anchor where the network is pinned.
+    /// Region-local anchor recorded with imported network declarations.
+    /// Runtime drawing currently derives node scene positions from the
+    /// network data itself; this value is document metadata, not a GUI-only
+    /// placement override.
+    Point2D referencePoint;
 
     /// File paths (relative to the scenario YAML's directory, resolved at
     /// parse time). Contract:

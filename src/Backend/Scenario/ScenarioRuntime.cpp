@@ -28,6 +28,7 @@ ScenarioRuntime::ScenarioRuntime(
     : QObject(parent)
     , m_document(std::move(doc))
 {
+    attachDocumentInvalidationObservers();
 }
 
 ScenarioRuntime::~ScenarioRuntime()
@@ -44,9 +45,18 @@ bool ScenarioRuntime::load()
         emit failed(QStringLiteral("No document to load"));
         return false;
     }
+    if (isRunning())
+    {
+        qCWarning(lcScenario)
+            << "ScenarioRuntime::load: cannot reload while simulation is running";
+        emit failed(QStringLiteral(
+            "Cannot apply scenario while simulation is running"));
+        return false;
+    }
 
     // Plan-deviation: ScenarioValidator::validate and
     // ScenarioApplier::apply are static — call directly, no instance.
+    m_loaded = false;
     qCDebug(lcScenario) << "ScenarioRuntime::load: validating document";
     const auto issues = ScenarioValidator::validate(*m_document);
     qCDebug(lcScenario) << "ScenarioRuntime::load: validation returned" << issues.size() << "issues";
@@ -65,31 +75,59 @@ bool ScenarioRuntime::load()
     auto &controller =
         CargoNetSim::CargoNetSimController::getInstance();
     QString err;
+    m_applyingDocument = true;
     if (!ScenarioApplier::apply(*m_document, controller,
                                 m_registry, &err))
     {
+        m_applyingDocument = false;
         qCWarning(lcScenario) << "ScenarioRuntime::load: apply failed:" << err;
         emit failed(QString("Apply failed: %1").arg(err));
         return false;
     }
+    m_applyingDocument = false;
 
     const auto endTimeUnits = m_document->simulation.endTimeUnits();
     m_endTime = endTimeUnits.has_value()
         ? std::optional<double>(endTimeUnits->value())
         : std::nullopt;
-    m_preparedPaths = PreparedPathSet();
-    m_preparedPathEligibility.clear();
-    m_paths.clear();
-    m_selectedPathKeys.clear();
+    clearPreparedPathState(QStringLiteral("scenario applied"),
+                           /*notify=*/false);
     m_demandPolicy = ExecutionDemandPolicy::AllocatedOnly;
-    m_lastExecutionResults = ScenarioExecutionResultSet();
     m_loaded = true;
+    m_documentDirty = false;
     qCInfo(lcScenario)
         << "ScenarioRuntime::load: succeeded, endTime:"
         << (m_endTime.has_value()
                 ? QString::number(m_endTime.value())
                 : QStringLiteral("<unbounded>"));
     return true;
+}
+
+bool ScenarioRuntime::ensureApplied(QString *error)
+{
+    if (error)
+        error->clear();
+    if (m_loaded && !m_documentDirty)
+        return true;
+
+    QString loadError;
+    const auto failureConnection = QObject::connect(
+        this, &ScenarioRuntime::failed, this,
+        [&loadError](const QString &message) {
+            loadError = message;
+        },
+        Qt::DirectConnection);
+
+    const bool ok = load();
+    QObject::disconnect(failureConnection);
+
+    if (!ok && error)
+    {
+        *error = loadError.isEmpty()
+            ? QStringLiteral("Scenario runtime apply failed")
+            : loadError;
+    }
+    return ok;
 }
 
 void ScenarioRuntime::setPreparedPaths(
@@ -103,6 +141,126 @@ void ScenarioRuntime::setPreparedPaths(
     qCDebug(lcScenario)
         << "ScenarioRuntime::setPreparedPaths: prepared"
         << m_preparedPaths.size() << "path(s)";
+}
+
+void ScenarioRuntime::attachDocumentInvalidationObservers()
+{
+    if (!m_document)
+        return;
+
+    auto dirty = [this](const QString &reason) {
+        markDocumentDirty(reason);
+    };
+
+    connect(m_document.get(), &ScenarioDocument::documentReset, this,
+            [dirty] { dirty(QStringLiteral("document reset")); });
+    connect(m_document.get(), &ScenarioDocument::regionAdded, this,
+            [dirty](const QString &) { dirty(QStringLiteral("region added")); });
+    connect(m_document.get(), &ScenarioDocument::regionRemoved, this,
+            [dirty](const QString &) { dirty(QStringLiteral("region removed")); });
+    connect(m_document.get(), &ScenarioDocument::regionRenamed, this,
+            [dirty](const QString &, const QString &) {
+                dirty(QStringLiteral("region renamed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::regionChanged, this,
+            [dirty](const QString &) { dirty(QStringLiteral("region changed")); });
+    connect(m_document.get(), &ScenarioDocument::networkAdded, this,
+            [dirty](const QString &, const QString &) {
+                dirty(QStringLiteral("network added"));
+            });
+    connect(m_document.get(), &ScenarioDocument::networkRemoved, this,
+            [dirty](const QString &, const QString &) {
+                dirty(QStringLiteral("network removed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::networkRenamed, this,
+            [dirty](const QString &, const QString &, const QString &) {
+                dirty(QStringLiteral("network renamed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::terminalAdded, this,
+            [dirty](const QString &) { dirty(QStringLiteral("terminal added")); });
+    connect(m_document.get(), &ScenarioDocument::terminalRemoved, this,
+            [dirty](const QString &) { dirty(QStringLiteral("terminal removed")); });
+    connect(m_document.get(), &ScenarioDocument::terminalChanged, this,
+            [dirty](const QString &) { dirty(QStringLiteral("terminal changed")); });
+    connect(m_document.get(), &ScenarioDocument::linkageAdded, this,
+            [dirty](const NodeLinkage &) { dirty(QStringLiteral("linkage added")); });
+    connect(m_document.get(), &ScenarioDocument::linkageRemoved, this,
+            [dirty](const QString &, const QString &, int) {
+                dirty(QStringLiteral("linkage removed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::linkageChanged, this,
+            [dirty](const QString &, const QString &, int) {
+                dirty(QStringLiteral("linkage changed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::connectionAdded, this,
+            [dirty](const Connection &) { dirty(QStringLiteral("connection added")); });
+    connect(m_document.get(), &ScenarioDocument::connectionRemoved, this,
+            [dirty](const QString &, const QString &,
+                    TransportationTypes::TransportationMode) {
+                dirty(QStringLiteral("connection removed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::connectionChanged, this,
+            [dirty](const QString &, const QString &,
+                    TransportationTypes::TransportationMode) {
+                dirty(QStringLiteral("connection changed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::globalLinkAdded, this,
+            [dirty](const GlobalLink &) {
+                dirty(QStringLiteral("global link added"));
+            });
+    connect(m_document.get(), &ScenarioDocument::globalLinkRemoved, this,
+            [dirty](const QString &, const QString &,
+                    TransportationTypes::TransportationMode) {
+                dirty(QStringLiteral("global link removed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::globalLinkChanged, this,
+            [dirty](const QString &, const QString &,
+                    TransportationTypes::TransportationMode) {
+                dirty(QStringLiteral("global link changed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::simulationSettingsChanged,
+            this, [dirty] {
+                dirty(QStringLiteral("simulation settings changed"));
+            });
+    connect(m_document.get(), &ScenarioDocument::fleetChanged, this,
+            [dirty] { dirty(QStringLiteral("fleet changed")); });
+    connect(m_document.get(), &ScenarioDocument::originContainersChanged, this,
+            [dirty](const QString &) {
+                dirty(QStringLiteral("origin containers changed"));
+            });
+}
+
+void ScenarioRuntime::markDocumentDirty(const QString &reason)
+{
+    if (m_applyingDocument)
+        return;
+    m_documentDirty = true;
+    clearPreparedPathState(reason, /*notify=*/true);
+}
+
+void ScenarioRuntime::clearPreparedPathState(const QString &reason,
+                                             bool notify)
+{
+    const bool hadPreparedState =
+        !m_preparedPaths.isEmpty()
+        || !m_preparedPathEligibility.isEmpty()
+        || !m_paths.isEmpty()
+        || !m_selectedPathKeys.isEmpty()
+        || !m_lastExecutionResults.isEmpty();
+
+    m_preparedPaths = PreparedPathSet();
+    m_preparedPathEligibility.clear();
+    m_paths.clear();
+    m_selectedPathKeys.clear();
+    m_lastExecutionResults = ScenarioExecutionResultSet();
+
+    if (notify && hadPreparedState)
+    {
+        qCInfo(lcScenario)
+            << "ScenarioRuntime::clearPreparedPathState:"
+            << "invalidated prepared paths, reason=" << reason;
+        emit preparedPathsInvalidated(reason);
+    }
 }
 
 void ScenarioRuntime::refreshPreparedPathEligibility()

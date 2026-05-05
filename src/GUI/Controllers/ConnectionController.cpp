@@ -13,10 +13,10 @@
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ConnectionLineFactory.h"
 #include "GUI/Widgets/GraphicsScene.h"
-#include "GUI/Widgets/GraphicsView.h"
 #include "GUI/Widgets/InterfaceSelectionDialog.h"
 #include "StatusReporter.h"
 #include "UtilityFunctions.h"
+#include <QVariantMap>
 #include <QtWidgets/qapplication.h>
 
 namespace CargoNetSim
@@ -156,8 +156,7 @@ ConnectionLine *ConnectionController::createConnectionLine(
     QGraphicsItem *startItem,
     QGraphicsItem *endItem,
     Backend::TransportationTypes::TransportationMode
-        connectionType,
-    std::optional<QVariantMap> canonicalProperties)
+        connectionType)
 {
     qCDebug(lcGuiView)
         << "ConnectionController::createConnectionLine:"
@@ -213,38 +212,13 @@ ConnectionLine *ConnectionController::createConnectionLine(
                 Scenario::ConnectionLineFactory::findRegionConnection(
                     m_regionScene, sId, eId, connectionType))
         {
-            if (canonicalProperties.has_value())
-            {
-                const auto updateResult =
-                    routeAuthoringService.setCanonicalRouteProperties(
-                        *doc, sId, eId, connectionType,
-                        canonicalProperties.value());
-                if (updateResult.succeeded())
-                    applyCanonicalPropertiesToLine(
-                        existingLine, canonicalProperties.value());
-            }
             return existingLine;
         }
         if (auto *existing = doc->findConnection(
                 sId, eId, connectionType))
         {
-            if (canonicalProperties.has_value())
-            {
-                const auto updateResult =
-                    routeAuthoringService.setCanonicalRouteProperties(
-                        *doc, sId, eId, connectionType,
-                        canonicalProperties.value());
-                if (updateResult.succeeded())
-                    existing = doc->findConnection(
-                        sId, eId, connectionType);
-            }
-            auto *line =
-                Scenario::ConnectionLineFactory::fromConnection(
-                    doc, existing, m_regionScene, m_mainWindow);
-            if (line && canonicalProperties.has_value())
-                applyCanonicalPropertiesToLine(
-                    line, canonicalProperties.value());
-            return line;
+            return Scenario::ConnectionLineFactory::fromConnection(
+                doc, existing, m_regionScene, m_mainWindow);
         }
         if (checkExistingConnection(startItem, endItem, connectionType))
         {
@@ -252,12 +226,27 @@ ConnectionLine *ConnectionController::createConnectionLine(
                 << "createConnectionLine: visual connection already exists in reverse direction";
             return nullptr;
         }
+        QVariantMap routeProperties;
+        const auto propertyResult =
+            routeAuthoringService
+                .computeEndpointCanonicalRouteProperties(
+                    *doc, sId, eId, connectionType);
+        if (!propertyResult.succeeded())
+        {
+            if (m_status)
+                m_status->showError(
+                    propertyResult.message.isEmpty()
+                        ? QStringLiteral(
+                              "Failed to compute connection metrics.")
+                        : propertyResult.message,
+                    3000);
+            return nullptr;
+        }
+        routeProperties = propertyResult.canonicalProperties;
         const auto createResult =
             routeAuthoringService.createConnection(
                 *doc, sId, eId, connectionType,
-                canonicalProperties.value_or(
-                    Backend::Scenario::RouteMetricUnits::
-                        defaultCanonicalProperties()),
+                routeProperties,
                 Backend::Scenario::LinkageSource::Manual);
         if (!createResult.succeeded())
         {
@@ -271,9 +260,8 @@ ConnectionLine *ConnectionController::createConnectionLine(
         auto *line = Scenario::ConnectionLineFactory::
             findRegionConnection(m_regionScene, sId, eId,
                                  connectionType);
-        if (line && canonicalProperties.has_value())
-            applyCanonicalPropertiesToLine(
-                line, canonicalProperties.value());
+        if (line)
+            applyCanonicalPropertiesToLine(line, routeProperties);
         return line;
     }
 
@@ -344,38 +332,13 @@ ConnectionLine *ConnectionController::createConnectionLine(
                 Scenario::ConnectionLineFactory::findGlobalLink(
                     m_globalMapScene, sId, eId, connectionType))
         {
-            if (canonicalProperties.has_value())
-            {
-                const auto updateResult =
-                    routeAuthoringService.setCanonicalRouteProperties(
-                        *doc, sId, eId, connectionType,
-                        canonicalProperties.value());
-                if (updateResult.succeeded())
-                    applyCanonicalPropertiesToLine(
-                        existingLine, canonicalProperties.value());
-            }
             return existingLine;
         }
         if (auto *existing = doc->findGlobalLink(
                 sId, eId, connectionType))
         {
-            if (canonicalProperties.has_value())
-            {
-                const auto updateResult =
-                    routeAuthoringService.setCanonicalRouteProperties(
-                        *doc, sId, eId, connectionType,
-                        canonicalProperties.value());
-                if (updateResult.succeeded())
-                    existing = doc->findGlobalLink(
-                        sId, eId, connectionType);
-            }
-            auto *line =
-                Scenario::ConnectionLineFactory::fromGlobalLink(
-                    doc, existing, m_globalMapScene, m_mainWindow);
-            if (line && canonicalProperties.has_value())
-                applyCanonicalPropertiesToLine(
-                    line, canonicalProperties.value());
-            return line;
+            return Scenario::ConnectionLineFactory::fromGlobalLink(
+                doc, existing, m_globalMapScene, m_mainWindow);
         }
         if (checkExistingConnection(startItem, endItem, connectionType))
         {
@@ -383,12 +346,27 @@ ConnectionLine *ConnectionController::createConnectionLine(
                 << "createConnectionLine: visual global link already exists in reverse direction";
             return nullptr;
         }
+        QVariantMap routeProperties;
+        const auto propertyResult =
+            routeAuthoringService
+                .computeEndpointCanonicalRouteProperties(
+                    *doc, sId, eId, connectionType);
+        if (!propertyResult.succeeded())
+        {
+            if (m_status)
+                m_status->showError(
+                    propertyResult.message.isEmpty()
+                        ? QStringLiteral(
+                              "Failed to compute connection metrics.")
+                        : propertyResult.message,
+                    3000);
+            return nullptr;
+        }
+        routeProperties = propertyResult.canonicalProperties;
         const auto createResult =
             routeAuthoringService.createGlobalLink(
                 *doc, sId, eId, connectionType,
-                canonicalProperties.value_or(
-                    Backend::Scenario::RouteMetricUnits::
-                        defaultCanonicalProperties()),
+                routeProperties,
                 Backend::Scenario::LinkageSource::Manual);
         if (!createResult.succeeded())
         {
@@ -402,9 +380,8 @@ ConnectionLine *ConnectionController::createConnectionLine(
         auto *found = Scenario::ConnectionLineFactory::
             findGlobalLink(m_globalMapScene, sId, eId,
                            connectionType);
-        if (found && canonicalProperties.has_value())
-            applyCanonicalPropertiesToLine(
-                found, canonicalProperties.value());
+        if (found)
+            applyCanonicalPropertiesToLine(found, routeProperties);
         qCDebug(lcGuiView) << "createConnectionLine: findGlobalLink=" << found;
         return found;
     }
@@ -727,7 +704,6 @@ void ConnectionController::
     QApplication::processEvents();
 
     bool anyConnectionCreated = false;
-    bool errorOccurred        = false;
     int  processCount         = 0;
 
     if (!isGlobalView)
@@ -824,9 +800,6 @@ void ConnectionController::
                 continue;
             }
 
-            if (errorOccurred)
-                break;
-
             for (auto &targetTerminal : globalTerminals)
             {
                 TerminalItem *targetLinkedTerminal =
@@ -839,9 +812,6 @@ void ConnectionController::
                 {
                     continue;
                 }
-
-                if (errorOccurred)
-                    break;
 
                 if (sourceTerminal == targetTerminal)
                 {
@@ -863,9 +833,6 @@ void ConnectionController::
 
                 for (auto mode : commonModes)
                 {
-                    if (errorOccurred)
-                        break;
-
                     const QString selectKey =
                         Backend::
                             interfaceModeCanonicalString(
@@ -886,47 +853,11 @@ void ConnectionController::
 
                     if (handled)
                     {
-                        auto &controller =
-                            CargoNetSim::CargoNetSimController::getInstance();
-                        Backend::Application::RouteAuthoringService routeAuthoringService(
-                            &controller);
-
-                        CargoNetSim::Backend::ShortestPathResult result;
-
-                        QPointF sourceGeoPoint =
-                            m_mainWindow->globalMapView()
-                                ->sceneToWGS84(
-                                    sourceTerminal
-                                        ->pos());
-                        QPointF targetGeoPoint =
-                            m_mainWindow->globalMapView()
-                                ->sceneToWGS84(
-                                    targetTerminal
-                                        ->pos());
-
-                        result.totalLength =
-                            UtilitiesFunctions::
-                                getApproximateGeoDistance(
-                                    sourceGeoPoint,
-                                    targetGeoPoint);
-                        result.optimizationCriterion =
-                            "distance";
-
-                        const auto propertyResult =
-                            routeAuthoringService.computeCanonicalRouteProperties(
-                                result, connectionType);
-                        if (!propertyResult.succeeded())
-                        {
-                            errorOccurred = true;
-                            break;
-                        }
-
                         auto connectionLine =
                             createConnectionLine(
                                 sourceTerminal,
                                 targetTerminal,
-                                connectionType,
-                                propertyResult.canonicalProperties);
+                                connectionType);
                         if (connectionLine)
                         {
                             anyConnectionCreated = true;
@@ -947,7 +878,7 @@ void ConnectionController::
             "Terminal connections created based on "
             "selected networks and terminal types.");
     }
-    else if (!errorOccurred)
+    else
     {
         m_status->showMessage(
             "No new connections were created.", 3000);
@@ -1149,9 +1080,6 @@ void ConnectionController::
     QMap<QString, bool> includedTerminalTypes =
         dialog.getIncludedTerminalTypes();
 
-    bool useCoordinateDistance =
-        dialog.useCoordinateDistance();
-
     if (selectedInterfaces.isEmpty())
     {
         m_status->showMessage(
@@ -1305,74 +1233,6 @@ void ConnectionController::
                         && selectedInterfaces.contains(
                             modeLabel))
                     {
-                        std::optional<QVariantMap> canonicalProperties;
-                        if (useCoordinateDistance)
-                        {
-                        auto &controller =
-                            CargoNetSim::CargoNetSimController::getInstance();
-                        Backend::Application::RouteAuthoringService routeAuthoringService(
-                                &controller);
-
-                            QPointF sourcePos;
-                            QPointF targetPos;
-
-                            if (isGlobalView)
-                            {
-                                sourcePos =
-                                    m_mainWindow
-                                        ->globalMapView()
-                                        ->sceneToWGS84(
-                                            sourceItem
-                                                ->pos());
-                                targetPos =
-                                    m_mainWindow
-                                        ->globalMapView()
-                                        ->sceneToWGS84(
-                                            targetItem
-                                                ->pos());
-                            }
-                            else
-                            {
-                                sourcePos =
-                                    m_mainWindow
-                                        ->regionView()
-                                        ->sceneToWGS84(
-                                            sourceItem
-                                                ->pos());
-                                targetPos =
-                                    m_mainWindow
-                                        ->regionView()
-                                        ->sceneToWGS84(
-                                            targetItem
-                                                ->pos());
-                            }
-
-                            double distanceMeters =
-                                UtilitiesFunctions::
-                                    getApproximateGeoDistance(
-                                        sourcePos,
-                                        targetPos);
-
-                            CargoNetSim::Backend::
-                                ShortestPathResult
-                                    result;
-                            result.totalLength =
-                                distanceMeters;
-                            result
-                                .optimizationCriterion =
-                                "distance";
-
-                            const auto propertyResult =
-                                routeAuthoringService.computeCanonicalRouteProperties(
-                                    result, mode, false);
-                            if (!propertyResult.succeeded())
-                            {
-                                continue;
-                            }
-                            canonicalProperties =
-                                propertyResult.canonicalProperties;
-                        }
-
                         qCDebug(lcGuiView)
                             << "connectVisibleTerminalsByInterfaces:"
                             << "calling createConnectionLine mode="
@@ -1380,8 +1240,7 @@ void ConnectionController::
                         ConnectionLine *connection =
                             createConnectionLine(
                                 sourceItem, targetItem,
-                                mode,
-                                canonicalProperties);
+                                mode);
                         qCDebug(lcGuiView)
                             << "connectVisibleTerminalsByInterfaces:"
                             << "createConnectionLine returned"

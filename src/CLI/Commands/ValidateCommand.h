@@ -8,10 +8,13 @@ namespace CargoNetSim {
 namespace Cli {
 
 /**
- * @brief `cargonetsim-cli validate <scenario.yml>` — parse a scenario
- *        YAML file, run the scenario validator, print every issue to
- *        stderr, and exit with a status code reflecting whether any
- *        errors were found.
+ * @brief `cargonetsim-cli validate [--all-errors] <scenario.yml>` — parse a scenario
+ *        YAML file, run the scenario validator, print validation diagnostics
+ *        to stderr, and exit with a status code reflecting whether any errors
+ *        were found.
+ *
+ * Large issue sets are grouped by default for terminal readability.
+ * `--all-errors` restores one-line-per-issue output.
  *
  * Plan 5 Task 12. Exit codes:
  *   * `ExitCode::Success (0)`        — file parsed, zero errors
@@ -20,7 +23,7 @@ namespace Cli {
  *     least one validator issue has `Severity::Error`.
  *   * `ExitCode::BadArgs (64)`       — no scenario path supplied.
  *
- * Issue output format (one line per issue):
+ * Full issue output format (`--all-errors` or small issue sets):
  * @code
  *   ERROR <path>: <message>
  *   WARN  <path>: <message>

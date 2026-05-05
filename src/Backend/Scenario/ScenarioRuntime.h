@@ -64,6 +64,16 @@ public:
      *  Idempotent — calling a second time re-validates and re-applies. */
     bool load();
 
+    /** @brief Ensure the owned document has been validated and applied.
+     *
+     *  GUI authoring mutates ScenarioDocument after the runtime is created.
+     *  Path discovery and execution consume the applied ScenarioRegistry, so
+     *  callers must pass through this gate before reading runtime.registry().
+     */
+    bool ensureApplied(QString *error = nullptr);
+
+    bool hasPendingDocumentChanges() const { return m_documentDirty; }
+
     /** @brief Backend-owned prepared paths become the runtime source
      *         of truth for later selection and execution. */
     void setPreparedPaths(const PreparedPathSet &preparedPaths);
@@ -139,6 +149,7 @@ public:
     }
 
 signals:
+    void preparedPathsInvalidated(const QString &reason);
     void progressChanged(double currentTime, double percent);
     void progressSnapshotChanged(
         double currentTime,
@@ -166,6 +177,9 @@ private:
     };
 
     void cleanupWorker();
+    void attachDocumentInvalidationObservers();
+    void markDocumentDirty(const QString &reason);
+    void clearPreparedPathState(const QString &reason, bool notify);
 
     std::unique_ptr<ScenarioDocument>   m_document;
     ScenarioRegistry                    m_registry;
@@ -179,6 +193,8 @@ private:
         ExecutionDemandPolicy::AllocatedOnly;
     ScenarioExecutionResultSet          m_lastExecutionResults;
     bool                                m_loaded       = false;
+    bool                                m_documentDirty = true;
+    bool                                m_applyingDocument = false;
     bool                                m_terminalSignaled = false;
     TerminalOutcome                     m_terminalOutcome = TerminalOutcome::None;
     QString                             m_failureMessage;

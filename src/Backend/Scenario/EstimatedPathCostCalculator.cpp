@@ -52,6 +52,16 @@ double fuelRateForMode(const QVariantMap &transportModes, Mode mode)
         .toDouble();
 }
 
+double locomotiveCountForMode(const QVariantMap &transportModes, Mode mode)
+{
+    if (mode != Mode::Train)
+        return 1.0;
+    return qMax(1.0,
+                propertiesForMode(transportModes, mode)
+                    .value(PK::Mode::AverageLocomotiveCount, 1.0)
+                    .toDouble());
+}
+
 QString fuelTypeForMode(const QVariantMap &transportModes, Mode mode)
 {
     return propertiesForMode(transportModes, mode)
@@ -165,11 +175,16 @@ EstimatedPathCost compute(const Path &path,
     weightedTerminal[QStringLiteral("direct_cost")] = 0.0;
 
     auto segments = path.getSegments();
+    out.segmentCosts.reserve(segments.size());
     for (int i = 0; i < segments.size(); ++i)
     {
         const auto *segment = segments.at(i);
         if (!segment)
+        {
+            out.segmentCosts.append(
+                PathSegment::SegmentCostSnapshot{});
             continue;
+        }
 
         const auto metrics = segment->estimatedValues();
         if (metrics.available)
@@ -196,6 +211,7 @@ EstimatedPathCost compute(const Path &path,
                 loadShare(containerCount, vehicleCount, capacity);
             const double segmentFuelPerVehicle =
                 fuelRateForMode(transportModes, segment->getMode())
+                * locomotiveCountForMode(transportModes, segment->getMode())
                 * distanceKm;
             const double segmentFuelTotal =
                 segmentFuelPerVehicle * vehicleCount;
@@ -225,6 +241,7 @@ EstimatedPathCost compute(const Path &path,
         const auto costs = computeSegmentCost(
             *segment, costFunctionWeights, transportModes,
             containerCount);
+        out.segmentCosts.append(costs);
         if (!costs.available)
             continue;
 

@@ -1,5 +1,6 @@
 #include "TerminalController.h"
 
+#include "Backend/Application/NetworkManagementService.h"
 #include "Backend/Application/ScenarioEditService.h"
 #include "Backend/Application/NetworkViewService.h"
 #include "Backend/Commons/LogCategories.h"
@@ -10,7 +11,6 @@
 #include "GUI/Controllers/UtilityFunctions.h"
 #include "GUI/Items/GlobalTerminalItem.h"
 #include "GUI/Items/MapPoint.h"
-#include "GUI/Items/RegionCenterPoint.h"
 #include "GUI/Items/TerminalItem.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Scenario/ItemEventBinder.h"
@@ -20,7 +20,7 @@
 
 #include <QApplication>
 #include <QMessageBox>
-#include <limits>
+#include <cmath>
 
 namespace CargoNetSim
 {
@@ -30,32 +30,45 @@ namespace GUI
 namespace
 {
 
-RegionCenterPoint *regionCenterPointForRegion(
-    MainWindow *mainWindow,
-    const QString &regionName,
-    bool *regionExists = nullptr)
-{
-    auto *networkView =
-        mainWindow ? mainWindow->networkViewService() : nullptr;
-    const bool exists =
-        networkView && networkView->regionExists(regionName);
-    if (regionExists)
-        *regionExists = exists;
-    if (!networkView || !exists)
-        return nullptr;
-
-    return networkView
-        ->regionVariable(regionName,
-                         QStringLiteral("regionCenterPoint"))
-        .value<RegionCenterPoint *>();
-}
-
 QString currentRegionName(MainWindow *mainWindow)
 {
     auto *networkView =
         mainWindow ? mainWindow->networkViewService() : nullptr;
     return networkView ? networkView->currentRegionName()
                        : QString();
+}
+
+bool isFinitePoint(const QPointF &point)
+{
+    return std::isfinite(point.x()) && std::isfinite(point.y());
+}
+
+QList<Backend::NetworkKind> selectedNetworkKinds(
+    const QList<NetworkType> &networkTypes)
+{
+    QList<Backend::NetworkKind> kinds;
+    for (NetworkType type : networkTypes)
+    {
+        const Backend::NetworkKind kind =
+            type == NetworkType::Train
+                ? Backend::NetworkKind::Rail
+                : Backend::NetworkKind::Truck;
+        if (!kinds.contains(kind))
+            kinds.append(kind);
+    }
+    return kinds;
+}
+
+QString networkKindLabel(Backend::NetworkKind kind)
+{
+    switch (kind)
+    {
+    case Backend::NetworkKind::Rail:
+        return QStringLiteral("train");
+    case Backend::NetworkKind::Truck:
+        return QStringLiteral("truck");
+    }
+    return QStringLiteral("transport");
 }
 
 } // namespace
@@ -115,23 +128,18 @@ void TerminalController::updateGlobalMapItem(
 
     if (show)
     {
-        bool regionExists = false;
-        auto *regionCenterPoint = regionCenterPointForRegion(
-            m_mainWindow, terminal->getRegion(), &regionExists);
-
-        if (!regionExists)
+        auto *globalScene =
+            m_globalMapView ? m_globalMapView->getScene()
+                            : m_globalMapScene;
+        if (!m_runtime || !m_globalMapView || !globalScene)
         {
-            qCDebug(lcGuiView)
+            qCWarning(lcGuiView)
                 << "TerminalController::updateGlobalMapItem:"
-                << "regionData null, returning";
-            return;
-        }
-
-        if (!regionCenterPoint)
-        {
-            qCDebug(lcGuiView)
-                << "TerminalController::updateGlobalMapItem:"
-                << "regionCenterPoint null, returning";
+                << "missing runtime or global map view/scene"
+                << "terminalId=" << terminal->getTerminalId()
+                << "hasRuntime=" << (m_runtime != nullptr)
+                << "hasGlobalView=" << (m_globalMapView != nullptr)
+                << "hasGlobalScene=" << (globalScene != nullptr);
             return;
         }
 
@@ -140,8 +148,9 @@ void TerminalController::updateGlobalMapItem(
             qCDebug(lcGuiView)
                 << "TerminalController::updateGlobalMapItem:"
                 << "existing global item, updating position";
-            updateTerminalGlobalPosition(
-                regionCenterPoint, terminal);
+            terminal->getGlobalTerminalItem()
+                ->updateFromLinkedTerminal();
+            updateTerminalGlobalPosition(terminal);
         }
         else
         {
@@ -155,9 +164,9 @@ void TerminalController::updateGlobalMapItem(
                 << "TerminalController::updateGlobalMapItem:"
                 << "GlobalTerminalItem constructed";
 
-            m_globalMapView->getScene()
-                ->addItemWithId(global_terminal,
-                                global_terminal->sceneRegistryKey());
+            globalScene->addItemWithId(
+                global_terminal,
+                global_terminal->sceneRegistryKey());
             qCDebug(lcGuiView)
                 << "TerminalController::updateGlobalMapItem:"
                 << "addItemWithId ok";
@@ -166,21 +175,16 @@ void TerminalController::updateGlobalMapItem(
 
             QObject::connect(
                 terminal, &TerminalItem::positionChanged,
-                [this, regionCenterPoint,
-                 terminal]() {
-                    if (!regionCenterPoint)
-                    {
-                        return;
-                    }
-                    updateTerminalGlobalPosition(
-                        regionCenterPoint, terminal);
+                global_terminal,
+                [this, terminal]() {
+                    updateTerminalGlobalPosition(terminal);
                 });
 
             qCDebug(lcGuiView)
                 << "TerminalController::updateGlobalMapItem:"
                 << "calling updateTerminalGlobalPosition";
-            updateTerminalGlobalPosition(
-                regionCenterPoint, terminal);
+            global_terminal->updateFromLinkedTerminal();
+            updateTerminalGlobalPosition(terminal);
             qCDebug(lcGuiView)
                 << "TerminalController::updateGlobalMapItem:"
                 << "updateTerminalGlobalPosition ok";
@@ -199,12 +203,29 @@ void TerminalController::updateGlobalMapItem(
             GlobalTerminalItem *item =
                 terminal->getGlobalTerminalItem();
             terminal->setGlobalTerminalItem(nullptr);
-            m_globalMapView->getScene()
-                ->removeItemWithId<GlobalTerminalItem>(
-                    item->sceneRegistryKey());
-            qCDebug(lcGuiView)
-                << "TerminalController::updateGlobalMapItem:"
-                << "removeItemWithId ok";
+            auto *globalScene =
+                m_globalMapView ? m_globalMapView->getScene()
+                                : m_globalMapScene;
+            if (globalScene
+                && globalScene
+                       ->removeItemWithId<GlobalTerminalItem>(
+                           item->sceneRegistryKey()))
+            {
+                qCDebug(lcGuiView)
+                    << "TerminalController::updateGlobalMapItem:"
+                    << "removeItemWithId ok";
+            }
+            else
+            {
+                if (auto *ownerScene = item->scene())
+                    ownerScene->removeItem(item);
+                delete item;
+                qCWarning(lcGuiView)
+                    << "TerminalController::updateGlobalMapItem:"
+                    << "global mirror registry removal missed;"
+                    << "deleted direct scene item for"
+                    << terminal->getTerminalId();
+            }
         }
         else
         {
@@ -228,8 +249,10 @@ void TerminalController::removeGlobalMirror(
         << "TerminalController::removeGlobalMirror:"
         << "terminalId=" << terminalId;
 
-    if (terminalId.isEmpty() || !m_globalMapView) return;
-    auto *scene = m_globalMapView->getScene();
+    if (terminalId.isEmpty()) return;
+    auto *scene =
+        m_globalMapView ? m_globalMapView->getScene()
+                        : m_globalMapScene;
     if (!scene) return;
 
     // Lookup by terminal id through the scene's own registry.
@@ -254,26 +277,17 @@ void TerminalController::refreshGlobalMirrorsForRegion(
     if (regionName.isEmpty() || !m_regionScene) return;
 
     // Drive the refresh from the regionScene's TerminalItems (the
-    // primary entities). Each one that is both (a) in this region
-    // and (b) currently mirrored pushes its mirror to recompute via
-    // updateFromLinkedTerminal(), which in turn reads the region's
-    // (now-updated) globalPosition / localOrigin from the bound doc.
-    // Lifecycle is out of scope here — we do not create mirrors for
-    // terminals that weren't previously mirrored (that remains
-    // updateGlobalMapItem's responsibility, triggered by
-    // terminalAdded / terminalChanged).
+    // primary entities). Region global/local origin changes affect every
+    // terminal mirror in the region, so reconcile each mirror through the
+    // same lifecycle path used for terminal add/change events.
     const auto terminals =
         m_regionScene->getItemsByType<TerminalItem>();
     int refreshed = 0;
     for (TerminalItem *t : terminals)
     {
         if (!t || t->getRegion() != regionName) continue;
-        if (GlobalTerminalItem *mirror =
-                t->getGlobalTerminalItem())
-        {
-            mirror->updateFromLinkedTerminal();
-            ++refreshed;
-        }
+        updateGlobalMapItem(t);
+        if (t->getGlobalTerminalItem()) ++refreshed;
     }
     qCDebug(lcGuiView)
         << "TerminalController::refreshGlobalMirrorsForRegion:"
@@ -286,48 +300,19 @@ void TerminalController::refreshGlobalMirrorsForRegion(
 // ----------------------------------------------------------------
 
 void TerminalController::updateTerminalGlobalPosition(
-    RegionCenterPoint *regionCenterPoint,
-    TerminalItem      *terminal)
+    TerminalItem *terminal)
 {
-    if (!regionCenterPoint || !terminal)
+    if (!terminal || !m_runtime || !m_globalMapView)
     {
-        qCDebug(lcGuiView)
+        qCWarning(lcGuiView)
             << "TerminalController::updateTerminalGlobalPosition:"
-            << "null argument, returning";
+            << "missing terminal/runtime/global view"
+            << "terminalId=" << (terminal ? terminal->getTerminalId()
+                                           : QString())
+            << "hasRuntime=" << (m_runtime != nullptr)
+            << "hasGlobalView=" << (m_globalMapView != nullptr);
         return;
     }
-
-    auto props = regionCenterPoint->getProperties();
-    auto center_shared_lat =
-        props.contains("Shared Latitude")
-            ? props.value("Shared Latitude").toDouble()
-            : 0.0;
-    auto center_shared_lon =
-        props.contains("Shared Longitude")
-            ? props.value("Shared Longitude").toDouble()
-            : 0;
-
-    auto center_lon =
-        props.contains("Longitude")
-            ? props.value("Longitude").toDouble()
-            : 0;
-    auto center_lat =
-        props.contains("Latitude")
-            ? props.value("Latitude").toDouble()
-            : 0;
-
-    auto out = m_regionView->sceneToWGS84(terminal->pos());
-
-    double terminal_lon = out.x();
-    double terminal_lat = out.y();
-
-    double delta_lat = terminal_lat - center_lat;
-    double delta_lon = terminal_lon - center_lon;
-
-    double item_global_view_lon =
-        center_shared_lon + delta_lon;
-    double item_global_view_lat =
-        center_shared_lat + delta_lat;
 
     GlobalTerminalItem *globalITem =
         terminal->getGlobalTerminalItem();
@@ -339,134 +324,29 @@ void TerminalController::updateTerminalGlobalPosition(
         return;
     }
 
-    QPointF globalPos =
-        m_globalMapView->wgs84ToScene(QPointF(
-            item_global_view_lon, item_global_view_lat));
+    const QString terminalId = terminal->getTerminalId();
+    if (terminalId.isEmpty())
+    {
+        qCWarning(lcGuiView)
+            << "TerminalController::updateTerminalGlobalPosition:"
+            << "terminal is not bound to a ScenarioDocument placement";
+        return;
+    }
+
+    const QPointF globalLonLat =
+        m_runtime->document().globalPositionOf(terminalId);
+    if (!isFinitePoint(globalLonLat))
+    {
+        qCWarning(lcGuiView)
+            << "TerminalController::updateTerminalGlobalPosition:"
+            << "document has no valid global lat/lon for terminal"
+            << terminalId;
+        return;
+    }
+
+    const QPointF globalPos =
+        m_globalMapView->wgs84ToScene(globalLonLat);
     globalITem->setPos(globalPos);
-}
-
-// ----------------------------------------------------------------
-// updateTerminalPositionByGlobalPosition
-// ----------------------------------------------------------------
-
-bool TerminalController::updateTerminalPositionByGlobalPosition(
-    TerminalItem *terminal,
-    QPointF       globalGeoPos)
-{
-    qCDebug(lcGuiView)
-        << "TerminalController::updateTerminalPositionByGlobalPosition:"
-        << "begin";
-    if (!terminal || !terminal->getGlobalTerminalItem())
-    {
-        qCDebug(lcGuiView)
-            << "TerminalController::updateTerminalPositionByGlobalPosition:"
-            << "null argument, returning false";
-        return false;
-    }
-
-    QString currentRegion = terminal->getRegion();
-
-    bool regionExists = false;
-    auto *regionCenterPoint = regionCenterPointForRegion(
-        m_mainWindow, currentRegion, &regionExists);
-
-    if (!regionCenterPoint)
-    {
-        qCWarning(lcGuiView)
-            << "TerminalController::updateTerminalPositionByGlobalPosition:"
-            << "regionCenterPoint is null for region"
-            << currentRegion;
-        return false;
-    }
-
-    auto props = regionCenterPoint->getProperties();
-
-    auto center_lon =
-        props.contains("Longitude")
-            ? props.value("Longitude").toDouble()
-            : 0;
-    auto center_lat =
-        props.contains("Latitude")
-            ? props.value("Latitude").toDouble()
-            : 0;
-
-    QPointF terminalGeoPos =
-        m_regionView->sceneToWGS84(terminal->pos());
-
-    double delta_lat = terminalGeoPos.y() - center_lat;
-    double delta_lon = terminalGeoPos.x() - center_lon;
-
-    double new_shared_lat = globalGeoPos.y() - delta_lat;
-    double new_shared_lon = globalGeoPos.x() - delta_lon;
-
-    regionCenterPoint->setProperty("Shared Latitude",
-                                   new_shared_lat);
-    regionCenterPoint->setProperty("Shared Longitude",
-                                   new_shared_lon);
-
-    UtilitiesFunctions::updateGlobalMapForRegion(
-        m_mainWindow, currentRegion);
-
-    return true;
-}
-
-// ----------------------------------------------------------------
-// globalToLocalLatLon
-// ----------------------------------------------------------------
-
-QPointF TerminalController::globalToLocalLatLon(
-    const QString &region,
-    const QPointF &globalLatLon) const
-{
-    bool regionExists = false;
-    auto *regionCenterPoint = regionCenterPointForRegion(
-        m_mainWindow, region, &regionExists);
-    if (!regionExists)
-    {
-        qCWarning(lcGuiView)
-            << "TerminalController::globalToLocalLatLon:"
-            << "no region data for" << region
-            << "— returning input unchanged";
-        return globalLatLon;
-    }
-
-    if (!regionCenterPoint)
-    {
-        qCWarning(lcGuiView)
-            << "TerminalController::globalToLocalLatLon:"
-            << "no regionCenterPoint for" << region
-            << "— returning input unchanged";
-        return globalLatLon;
-    }
-
-    const auto props = regionCenterPoint->getProperties();
-    const double localLat =
-        props.contains("Latitude")
-            ? props.value("Latitude").toDouble()
-            : 0.0;
-    const double localLon =
-        props.contains("Longitude")
-            ? props.value("Longitude").toDouble()
-            : 0.0;
-    const double sharedLat =
-        props.contains("Shared Latitude")
-            ? props.value("Shared Latitude").toDouble()
-            : 0.0;
-    const double sharedLon =
-        props.contains("Shared Longitude")
-            ? props.value("Shared Longitude").toDouble()
-            : 0.0;
-
-    // Offset between shared (global) origin and local origin is the
-    // region-to-world translation; subtracting it converts a global
-    // WGS84 point to the region-local lat/lon the document stores.
-    const double newLocalLat =
-        globalLatLon.y() - (sharedLat - localLat);
-    const double newLocalLon =
-        globalLatLon.x() - (sharedLon - localLon);
-
-    // QPointF convention: x = lon, y = lat.
-    return QPointF(newLocalLon, newLocalLat);
 }
 
 // ----------------------------------------------------------------
@@ -535,205 +415,50 @@ bool TerminalController::linkTerminalToClosestNetworkPoint(
         return false;
     }
 
-    QString           region = terminal->getRegion();
-    QList<MapPoint *> networkPoints;
-    QMap<NetworkType, QList<MapPoint *>>
-        alreadyLinkedPointsByType;
-
-    QList<MapPoint *> allMapPoints =
-        m_regionScene->getItemsByType<MapPoint>();
-
-    for (MapPoint *point : allMapPoints)
+    const QString terminalId = terminal->getTerminalId();
+    if (!m_runtime || terminalId.isEmpty())
     {
-        if (point->getRegion() != region)
-        {
-            continue;
-        }
-
-        QObject *network = point->getReferenceNetwork();
-        if (!network)
-        {
-            continue;
-        }
-
-        NetworkType matchedType = NetworkType::Train;
-        bool        isMatchingType = false;
-        {
-            Backend::Application::NetworkViewService
-                networkView;
-            Backend::NetworkKind kind{};
-            const bool recognised =
-                !networkView.networkNameOf(network, &kind)
-                     .isEmpty();
-            if (recognised
-                && kind == Backend::NetworkKind::Rail
-                && networkTypes.contains(NetworkType::Train))
-            {
-                isMatchingType = true;
-                matchedType    = NetworkType::Train;
-            }
-            else if (recognised
-                     && kind == Backend::NetworkKind::Truck
-                     && networkTypes.contains(NetworkType::Truck))
-            {
-                isMatchingType = true;
-                matchedType    = NetworkType::Truck;
-            }
-        }
-
-        if (isMatchingType)
-        {
-            if (point->getLinkedTerminal())
-            {
-                alreadyLinkedPointsByType[matchedType]
-                    .append(point);
-            }
-            else
-            {
-                networkPoints.append(point);
-            }
-        }
-    }
-
-    QApplication::processEvents();
-
-    if (networkPoints.isEmpty())
-    {
-        QString networkTypeStr;
-        if (networkTypes.size() == 1)
-        {
-            networkTypeStr =
-                networkTypes.first() == NetworkType::Train
-                    ? "train"
-                    : "truck";
-        }
-        else
-        {
-            networkTypeStr = "transport";
-        }
-
+        qCWarning(lcGuiView)
+            << "TerminalController::linkTerminalToClosestNetworkPoint:"
+            << "missing backend binding"
+            << "terminalId=" << terminalId
+            << "hasRuntime=" << (m_runtime != nullptr);
         m_status->showError(
-            QString("No available %1 network points found "
-                    "in region '%2'")
-                .arg(networkTypeStr)
-                .arg(region),
+            QString("Cannot link unbound terminal '%1'.")
+                .arg(terminal->getProperty("Name").toString()),
             3000);
         return false;
     }
 
-    for (NetworkType type : networkTypes)
-    {
-        const QList<MapPoint *> &typeLinkedPoints =
-            alreadyLinkedPointsByType[type];
-        for (MapPoint *point : typeLinkedPoints)
-        {
-            if (point->getLinkedTerminal() == terminal)
-            {
-                return false;
-            }
-        }
+    Backend::Application::NetworkManagementService networkService;
+    const auto result =
+        networkService.linkTerminalToClosestNetworkNode(
+            m_runtime->document(),
+            terminalId,
+            selectedNetworkKinds(networkTypes),
+            Backend::Scenario::LinkageSource::Manual);
 
-        QApplication::processEvents();
+    if (!result.succeeded())
+    {
+        qCWarning(lcGuiView)
+            << "TerminalController::linkTerminalToClosestNetworkPoint:"
+            << "backend link failed"
+            << "terminalId=" << terminalId
+            << "status=" << static_cast<int>(result.status)
+            << "message=" << result.message;
+        m_status->showError(result.message, 3000);
+        return false;
     }
 
-    MapPoint *closestPoint = nullptr;
-    qreal minDistance = std::numeric_limits<qreal>::max();
-
-    QPointF terminalPos = terminal->pos();
-    for (MapPoint *point : networkPoints)
-    {
-        QPointF pointPos = point->pos();
-        qreal   distance =
-            QLineF(terminalPos, pointPos).length();
-
-        if (distance < minDistance)
-        {
-            minDistance  = distance;
-            closestPoint = point;
-        }
-    }
-
-    if (closestPoint)
-    {
-        Backend::Application::NetworkViewService networkView;
-        Backend::NetworkKind networkKind{};
-        QString              networkName =
-            networkView.networkNameOf(
-                closestPoint->getReferenceNetwork(),
-                &networkKind);
-        QString networkTypeStr = "transport";
-        if (networkName.isEmpty())
-        {
-            networkName = "Unknown Network";
-        }
-        else
-        {
-            networkTypeStr =
-                networkKind == Backend::NetworkKind::Rail
-                    ? "train"
-                    : "truck";
-        }
-
-        const QString terminalId = terminal->getTerminalId();
-        if (!m_runtime || terminalId.isEmpty()
-            || networkName == "Unknown Network")
-        {
-            qCWarning(lcGuiView)
-                << "linkTerminalToNetwork:"
-                << "missing backend binding"
-                << "terminalId=" << terminalId
-                << "networkName=" << networkName
-                << "hasRuntime=" << (m_runtime != nullptr);
-            m_status->showError(
-                QString("Cannot link unbound terminal '%1'.")
-                    .arg(terminal->getProperty("Name").toString()),
-                3000);
-            return false;
-        }
-
-        const int nodeId = closestPoint
-                               ->getReferencedNetworkNodeID()
-                               .toInt();
-        const bool linked =
-            Backend::Application::ScenarioEditService::linkTerminalToNode(
-                &m_runtime->document(),
-                terminalId, networkName, nodeId,
-                Backend::Scenario::LinkageSource::Manual);
-        if (!linked)
-        {
-            qCWarning(lcGuiView)
-                << "linkTerminalToNetwork:"
-                << "backend link failed"
-                << "terminalId=" << terminalId
-                << "networkName=" << networkName
-                << "nodeId=" << nodeId;
-            m_status->showError(
-                QString("Failed to link terminal '%1' to network '%2'.")
-                    .arg(terminal->getProperty("Name").toString())
-                    .arg(networkName),
-                3000);
-            return false;
-        }
-
-        UtilitiesFunctions::linkMapPointToTerminal(
-            m_mainWindow, closestPoint, terminal);
-
-        m_status->showMessage(
-            QString("Terminal '%1' successfully linked to "
-                    "%2 network '%3'")
-                .arg(terminal->getProperty("Name")
-                         .toString())
-                .arg(networkTypeStr)
-                .arg(networkName),
-            3000);
-
-        return true;
-    }
-
-    m_status->showError(
-        "Failed to find a suitable network point to link.",
+    m_status->showMessage(
+        QString("Terminal '%1' successfully linked to "
+                "%2 network '%3'")
+            .arg(terminal->getProperty("Name").toString())
+            .arg(networkKindLabel(result.kind))
+            .arg(result.networkName),
         3000);
-    return false;
+
+    return true;
 }
 
 // ----------------------------------------------------------------

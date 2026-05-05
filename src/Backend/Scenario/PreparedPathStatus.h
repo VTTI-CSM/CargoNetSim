@@ -15,6 +15,10 @@ struct SimulatorAvailability
     bool trainAvailable    = false;
     bool shipAvailable     = false;
     bool truckAvailable    = false;
+
+    bool trainFleetAvailable = false;
+    bool shipFleetAvailable  = false;
+    bool truckFleetAvailable = false;
 };
 
 struct PreparedPathRequirements

@@ -2,6 +2,7 @@
 
 #include <QIODevice>
 #include <QString>
+#include <QStringList>
 
 #include <cstdio>
 
@@ -15,6 +16,55 @@
 namespace CargoNetSim {
 namespace Cli {
 
+namespace {
+
+struct ValidateOptions
+{
+    QString scenarioPath;
+    bool    allErrors = false;
+};
+
+bool parseValidateArgs(const QStringList &args,
+                       ValidateOptions  *options,
+                       QString          *error)
+{
+    QStringList positional;
+    for (const QString &arg : args)
+    {
+        if (arg == QLatin1String("--all-errors"))
+        {
+            options->allErrors = true;
+            continue;
+        }
+        if (arg.startsWith(QLatin1Char('-')))
+        {
+            *error = QStringLiteral(
+                "validate: unsupported flag '%1' (supported: --all-errors)\n")
+                .arg(arg);
+            return false;
+        }
+        positional.append(arg);
+    }
+
+    if (positional.isEmpty())
+    {
+        *error = QStringLiteral("validate: missing scenario.yml path\n");
+        return false;
+    }
+
+    if (positional.size() != 1)
+    {
+        *error = QStringLiteral(
+            "validate: expected exactly one scenario.yml path\n");
+        return false;
+    }
+
+    options->scenarioPath = positional.first();
+    return true;
+}
+
+} // namespace
+
 ValidateCommand::ValidateCommand(QIODevice *errSink)
     : m_err(errSink)
 {
@@ -24,15 +74,17 @@ int ValidateCommand::execute(const QStringList &args)
 {
     qCInfo(lcCli) << "ValidateCommand::execute: entry, args =" << args;
 
-    if (args.isEmpty())
+    ValidateOptions options;
+    QString parseError;
+    if (!parseValidateArgs(args, &options, &parseError))
     {
-        qCWarning(lcCli) << "ValidateCommand::execute: missing scenario path";
-        streamToOr(m_err, stderr,
-                   QStringLiteral("validate: missing scenario.yml path\n"));
+        qCWarning(lcCli) << "ValidateCommand::execute: bad arguments —"
+                         << parseError.trimmed();
+        streamToOr(m_err, stderr, parseError);
         return static_cast<int>(ExitCode::BadArgs);
     }
 
-    const QString path = args.first();
+    const QString path = options.scenarioPath;
     qCInfo(lcCli) << "ValidateCommand::execute: scenario path =" << path;
 
     Backend::Application::ScenarioLoadService loadService;
@@ -61,13 +113,14 @@ int ValidateCommand::execute(const QStringList &args)
                        << ", linkages =" << parseResult.document->linkages.size();
     }
 
-    // Format every issue via the shared helper — same line format
-    // the `preview` command uses. Warnings are reported but do not
-    // change the exit code (per spec §8.3); only Error severity
-    // bumps the exit to ValidationFailed.
+    // Format issues via the shared helper so validate/preview/run/discover
+    // all use the same summary-vs-full-output policy. Warnings are reported
+    // but do not change the exit code; only Error severity fails validation.
     bool          hasError = false;
     const QString buffer   =
-        formatValidationIssues(parseResult.issues, &hasError);
+        formatValidationIssues(
+            parseResult.issues, &hasError,
+            validationIssueFormatOptions(options.allErrors));
     if (!buffer.isEmpty())
         streamToOr(m_err, stderr, buffer);
 

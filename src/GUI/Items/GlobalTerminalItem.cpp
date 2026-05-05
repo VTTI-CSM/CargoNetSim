@@ -5,9 +5,6 @@
 #include "TerminalItem.h"
 
 #include "Backend/GuiApi/ScenarioDocumentApi.h"
-#include "GUI/Items/RegionCenterPoint.h"
-#include "GUI/MainWindow.h"
-#include "GUI/Widgets/GraphicsView.h"
 
 #include <QCursor>
 #include <QGraphicsSceneHoverEvent>
@@ -102,43 +99,6 @@ GlobalTerminalItem::availableInterfaces() const
                : Backend::Scenario::InterfaceConversion::InterfaceMap{};
 }
 
-std::optional<QPointF>
-GlobalTerminalItem::computeGlobalLatLon() const
-{
-    qCDebug(lcGuiScene)
-        << "GlobalTerminalItem::computeGlobalLatLon: entry";
-
-    if (!linkedTerminalItem) return std::nullopt;
-    auto *placement = linkedTerminalItem->placement();
-    if (!placement) return std::nullopt;
-
-    auto *s = scene();
-    if (!s) return std::nullopt;
-
-    // Find the RegionCenterPoint whose regionSpecModel matches this
-    // placement's region. O(N) over scene items — cheap enough since
-    // this only runs on linked-terminal position changes, not per-tick.
-    const QString &regionName = placement->region;
-    for (auto *item : s->items())
-    {
-        auto *rcp = dynamic_cast<RegionCenterPoint *>(item);
-        if (!rcp) continue;
-        auto *spec = rcp->regionSpecModel();
-        if (!spec || spec->name != regionName) continue;
-
-        const double globalLon =
-            spec->globalPosition.longitude
-            + (placement->latLon.longitude
-               - spec->localOrigin.longitude);
-        const double globalLat =
-            spec->globalPosition.latitude
-            + (placement->latLon.latitude
-               - spec->localOrigin.latitude);
-        return QPointF(globalLon, globalLat);
-    }
-    return std::nullopt;
-}
-
 void GlobalTerminalItem::updateFromLinkedTerminal()
 {
     qCDebug(lcGuiScene)
@@ -147,45 +107,17 @@ void GlobalTerminalItem::updateFromLinkedTerminal()
 
     if (linkedTerminalItem)
     {
-        // When the linked terminal is bound to a placement, derive our
-        // scene position from the model directly via the region's
-        // globalPosition / localOrigin carried by the matching
-        // RegionCenterPoint (Task 12's binding). Projection uses the
-        // MainWindow's global map view.
-        if (const auto globalLatLon = computeGlobalLatLon())
-        {
-            if (auto *s = scene())
-            {
-                if (auto *mw =
-                        qobject_cast<MainWindow *>(s->parent()))
-                {
-                    if (auto *view = mw->globalMapView())
-                        setPos(view->wgs84ToScene(*globalLatLon));
-                }
-            }
-        }
-
-        // Get terminal name for tooltip
         QString terminalName =
-            linkedTerminalItem->property("Name").toString();
+            linkedTerminalItem
+                ->getProperty(QStringLiteral("Name"),
+                              QStringLiteral("Terminal"));
         if (terminalName.isEmpty())
-        {
-            // Try to get name from properties if not
-            // available as property
-            QMap<QString, QVariant> props =
-                linkedTerminalItem->property("properties")
-                    .toMap();
-            terminalName =
-                props.value("Name", "Terminal").toString();
-        }
+            terminalName = QStringLiteral("Terminal");
 
-        // Update tooltip
         setToolTip(terminalName);
 
-        // Update pixmap if needed
-        QPixmap terminalPixmap =
-            linkedTerminalItem->property("pixmap")
-                .value<QPixmap>();
+        const QPixmap terminalPixmap =
+            linkedTerminalItem->getPixmap();
         if (!terminalPixmap.isNull()
             && terminalPixmap.cacheKey()
                    != originalPixmap.cacheKey())

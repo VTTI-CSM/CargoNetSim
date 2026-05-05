@@ -6,6 +6,7 @@
 #include <containerLib/container.h>  // ContainerCore::Container full definition
 
 #include <QtMath>   // qQNaN()
+#include <cmath>
 
 namespace CargoNetSim
 {
@@ -129,6 +130,24 @@ bool linkageIdentityMatches(const NodeLinkage &linkage,
         && linkage.networkName == networkName
         && linkage.nodeId == nodeId;
 }
+
+bool activeLinkageUsesNetworkNode(const NodeLinkage &linkage,
+                                  const QString     &networkName,
+                                  int                nodeId)
+{
+    return !linkage.excluded
+        && linkage.networkName == networkName
+        && linkage.nodeId == nodeId;
+}
+
+QString linkageRegion(const ScenarioDocument &doc,
+                      const NodeLinkage      &linkage)
+{
+    const auto it = doc.terminals.constFind(linkage.terminalId);
+    return it == doc.terminals.constEnd()
+               ? QString()
+               : it->region;
+}
 } // namespace
 
 ScenarioDocument::~ScenarioDocument()
@@ -222,6 +241,43 @@ QPointF ScenarioDocument::globalPositionOf(const QString &terminalId) const
                      + (t.latLon.latitude  - r.localOrigin.latitude);
     const double lon = r.globalPosition.longitude
                      + (t.latLon.longitude - r.localOrigin.longitude);
+    return QPointF(lon, lat);  // Qt convention: x=lon, y=lat
+}
+
+QPointF ScenarioDocument::localPositionInRegion(
+    const QString &regionName,
+    const QPointF &globalLonLat) const
+{
+    qCDebug(lcScenario)
+        << "ScenarioDocument::localPositionInRegion:"
+        << "region=" << regionName
+        << "globalLonLat=" << globalLonLat;
+
+    if (!std::isfinite(globalLonLat.x())
+        || !std::isfinite(globalLonLat.y()))
+    {
+        qCWarning(lcScenario)
+            << "ScenarioDocument::localPositionInRegion:"
+            << "non-finite global lon/lat for region" << regionName;
+        return QPointF(qQNaN(), qQNaN());
+    }
+
+    const auto it = regions.constFind(regionName);
+    if (it == regions.constEnd())
+    {
+        qCWarning(lcScenario)
+            << "ScenarioDocument::localPositionInRegion:"
+            << "region not found:" << regionName;
+        return QPointF(qQNaN(), qQNaN());
+    }
+
+    const RegionSpec &r = *it;
+    const double lat = globalLonLat.y()
+                     - (r.globalPosition.latitude
+                        - r.localOrigin.latitude);
+    const double lon = globalLonLat.x()
+                     - (r.globalPosition.longitude
+                        - r.localOrigin.longitude);
     return QPointF(lon, lat);  // Qt convention: x=lon, y=lat
 }
 
@@ -373,6 +429,7 @@ void ScenarioDocument::setOriginContainers(
     {
         m_containersByTerminal.insert(terminalId, std::move(containers));
     }
+    emit originContainersChanged(terminalId);
 }
 
 bool ScenarioDocument::addRegion(const RegionSpec &r)
@@ -668,6 +725,7 @@ bool ScenarioDocument::addLinkage(const NodeLinkage &l)
                         << "network:" << l.networkName << "node:" << l.nodeId;
     if (l.terminalId.isEmpty())                 return false;
     if (!terminals.contains(l.terminalId))      return false;
+    const QString newRegion = terminals.value(l.terminalId).region;
     for (const NodeLinkage &existing : linkages)
     {
         if (linkageIdentityMatches(existing, l.terminalId,
@@ -676,6 +734,20 @@ bool ScenarioDocument::addLinkage(const NodeLinkage &l)
             qCWarning(lcScenario)
                 << "ScenarioDocument::addLinkage: duplicate linkage rejected"
                 << l.terminalId << l.networkName << "node=" << l.nodeId;
+            return false;
+        }
+        if (!l.excluded
+            && linkageRegion(*this, existing) == newRegion
+            && activeLinkageUsesNetworkNode(existing,
+                                            l.networkName,
+                                            l.nodeId))
+        {
+            qCWarning(lcScenario)
+                << "ScenarioDocument::addLinkage:"
+                << "network node already linked to terminal"
+                << existing.terminalId
+                << "network=" << l.networkName
+                << "node=" << l.nodeId;
             return false;
         }
     }
@@ -914,6 +986,29 @@ bool ScenarioDocument::updateLinkage(
                     << "linkage identity changes are not allowed; use"
                     << "removeLinkage/addLinkage";
                 return false;
+            }
+            if (!updated.excluded)
+            {
+                for (int j = 0; j < linkages.size(); ++j)
+                {
+                    if (j == i)
+                        continue;
+                    const NodeLinkage &existing = linkages.at(j);
+                    if (activeLinkageUsesNetworkNode(
+                            existing, updated.networkName,
+                            updated.nodeId)
+                        && linkageRegion(*this, existing)
+                               == linkageRegion(*this, updated))
+                    {
+                        qCWarning(lcScenario)
+                            << "ScenarioDocument::updateLinkage:"
+                            << "network node already linked to terminal"
+                            << existing.terminalId
+                            << "network=" << updated.networkName
+                            << "node=" << updated.nodeId;
+                        return false;
+                    }
+                }
             }
             linkages[i] = updated;
             emit linkageChanged(terminalId, networkName, nodeId);

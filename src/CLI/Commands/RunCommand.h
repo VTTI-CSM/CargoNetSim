@@ -55,6 +55,8 @@ namespace Cli {
  * `--top N` overrides the discovery count exactly like `discover --top N`
  * so a larger discovery table can be selected from without editing the
  * scenario.
+ * `--all-errors` restores one-line-per-issue validation output; large
+ * validation issue sets are grouped by default.
  * Every selected alternative executes as an isolated what-if run under
  * duplicate-demand comparison policy. A bare scenario path is treated
  * as an alias for `--all`.

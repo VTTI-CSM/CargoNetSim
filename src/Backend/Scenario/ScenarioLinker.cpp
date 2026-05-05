@@ -3,16 +3,27 @@
 #include "Backend/Clients/TrainClient/TrainNetwork.h"
 #include "Backend/Clients/TruckClient/TruckNetwork.h"
 #include "Backend/Commons/GeoDistance.h"
+#include "Backend/Commons/GeoProjection.h"
 #include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/ShortestPathResult.h"
+#include "Backend/Commons/Units.h"
+#include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Controllers/ConfigController.h"
 #include "InterfaceConversion.h"
 #include "NetworkLookup.h"
+#include "PathMetricsCalculator.h"
+#include "PropertyKeys.h"
+#include "RouteMetricUnits.h"
+#include "ScenarioEndpointResolver.h"
 #include "TerminalTypeDefaults.h"
 
 #include <QMap>
 #include <QPair>
+#include <QPointF>
 #include <QSet>
 #include <QtMath>
 #include <cmath>
+#include <optional>
 
 namespace CargoNetSim
 {
@@ -71,6 +82,38 @@ double sceneDistance(double ax, double ay, double bx, double by)
     return std::sqrt(dx * dx + dy * dy);
 }
 
+QPair<double, double> projectedTrainNode(
+    const TrainClient::NeTrainSimNode &node)
+{
+    return { node.getX() * node.getXScale(),
+             node.getY() * node.getYScale() };
+}
+
+QPair<double, double> projectedTruckNode(
+    const TruckClient::IntegrationNode &node)
+{
+    return {
+        Units::toMeters(
+            Units::kilometers(node.getXCoordinate()
+                              * node.getXScale()))
+            .value(),
+        Units::toMeters(
+            Units::kilometers(node.getYCoordinate()
+                              * node.getYScale()))
+            .value()
+    };
+}
+
+QPair<double, double> projectedLatLon(
+    const TerminalPlacement &terminal)
+{
+    const QPointF point =
+        Commons::GeoProjection::wgs84ToWebMercatorMeters(
+            QPointF(terminal.latLon.longitude,
+                    terminal.latLon.latitude));
+    return { point.x(), point.y() };
+}
+
 // Helper: given a terminal placement, return its (sceneX, sceneY). For
 // LatLon / NetworkNode placements, a best-effort conversion is applied.
 QPair<double, double> terminalSceneCoords(const TerminalPlacement &t,
@@ -89,13 +132,11 @@ QPair<double, double> terminalSceneCoords(const TerminalPlacement &t,
             const auto nodes = railForResolve->getNodes();
             for (auto *n : nodes)
                 if (n && n->getUserId() == t.nodeId)
-                    return { n->getX(), n->getY() };
+                    return projectedTrainNode(*n);
         }
         return { 0.0, 0.0 };
     case TerminalPlacement::PositionMode::LatLon:
-        // Fallback: use lat/lon as raw XY when no projection resolver is
-        // available.
-        return { t.latLon.longitude, t.latLon.latitude };
+        return projectedLatLon(t);
     }
     return { 0.0, 0.0 };
 }
@@ -140,8 +181,10 @@ LinkageRuleFn landTerminalToRailNodeRule()
                 for (auto *n : nodes)
                 {
                     if (!n) continue;
+                    const auto nodeCoords = projectedTrainNode(*n);
                     const double d = sceneDistance(coords.first, coords.second,
-                                                   n->getX(),     n->getY());
+                                                   nodeCoords.first,
+                                                   nodeCoords.second);
                     if (d < bestDist)
                     {
                         bestDist = d;
@@ -194,14 +237,295 @@ QPair<double, double> terminalSceneCoordsForTruck(
             const auto nodes = truckForResolve->getNodes();
             for (auto *n : nodes)
                 if (n && n->getNodeId() == t.nodeId)
-                    return { static_cast<double>(n->getXCoordinate()),
-                             static_cast<double>(n->getYCoordinate()) };
+                    return projectedTruckNode(*n);
         }
         return { 0.0, 0.0 };
     case TerminalPlacement::PositionMode::LatLon:
-        return { t.latLon.longitude, t.latLon.latitude };
+        return projectedLatLon(t);
     }
     return { 0.0, 0.0 };
+}
+
+namespace PK = PropertyKeys;
+using Mode = TransportationTypes::TransportationMode;
+
+bool isPositiveFinite(double value)
+{
+    return std::isfinite(value) && value > 0.0;
+}
+
+std::optional<Mode> transportationModeForNetworkType(NetworkSpec::Type type)
+{
+    switch (type)
+    {
+    case NetworkSpec::Type::Rail:
+        return Mode::Train;
+    case NetworkSpec::Type::Truck:
+        return Mode::Truck;
+    }
+    return std::nullopt;
+}
+
+bool hasCompleteRouteMetrics(const QVariantMap &properties)
+{
+    return RouteMetricUnits::missingCanonicalRouteMetricKeys(
+        properties).isEmpty();
+}
+
+void mergeMissingRouteMetrics(QVariantMap       &properties,
+                              const QVariantMap &computedProperties)
+{
+    for (const QString &key : RouteMetricUnits::routeMetricKeys())
+    {
+        bool ok = false;
+        properties.value(key).toDouble(&ok);
+        if (!properties.contains(key) || !ok)
+            properties.insert(key, computedProperties.value(key));
+    }
+}
+
+std::optional<QPointF> terminalGlobalPositionForRoute(
+    const ScenarioDocument &doc,
+    const QString          &terminalId)
+{
+    const auto endpoint = resolveTerminalEndpoint(doc, terminalId);
+    if (!endpoint.found || !endpoint.terminal)
+        return std::nullopt;
+
+    const QPointF stored = doc.globalPositionOf(endpoint.terminalId);
+    if (std::isfinite(stored.x()) && std::isfinite(stored.y()))
+        return stored;
+
+    const auto regionIt = doc.regions.constFind(endpoint.region);
+    if (regionIt == doc.regions.constEnd())
+        return std::nullopt;
+
+    const double lon = regionIt->globalPosition.longitude;
+    const double lat = regionIt->globalPosition.latitude;
+    if (!std::isfinite(lon) || !std::isfinite(lat))
+        return std::nullopt;
+
+    qCDebug(lcScenario)
+        << "ScenarioLinker: using region global position as"
+           " approximate route coordinate for terminal"
+        << endpoint.terminalId;
+    return QPointF(lon, lat);
+}
+
+std::optional<QVariantMap> canonicalPropertiesFromEstimate(
+    const ScenarioDocument &doc,
+    Mode                    mode,
+    double                  distanceMeters,
+    double                  travelTimeSeconds,
+    bool                    useNetworkTravelTime)
+{
+    if (!isPositiveFinite(distanceMeters))
+        return std::nullopt;
+
+    auto *controller = CargoNetSim::CargoNetSimController::instance();
+    auto *config = controller ? controller->getConfigController()
+                              : nullptr;
+    if (!config)
+    {
+        qCWarning(lcScenario)
+            << "ScenarioLinker: cannot compute route metrics;"
+            << "ConfigController unavailable";
+        return std::nullopt;
+    }
+
+    auto inputs =
+        PathMetricsCalculator::gatherInputs(mode, *config,
+                                            doc.simulation);
+    if (inputs.modeProperties.isEmpty())
+        return std::nullopt;
+
+    if (!useNetworkTravelTime
+        || !isPositiveFinite(travelTimeSeconds))
+    {
+        inputs.modeProperties[PK::Mode::UseNetwork] = false;
+        travelTimeSeconds = 0.0;
+    }
+
+    const PathMetrics metrics =
+        PathMetricsCalculator::compute(distanceMeters,
+                                       travelTimeSeconds,
+                                       mode,
+                                       inputs);
+    if (!metrics.valid
+        || !isPositiveFinite(metrics.distanceKm)
+        || !std::isfinite(metrics.travelTimeHours))
+    {
+        return std::nullopt;
+    }
+
+    return RouteMetricUnits::canonicalPropertiesFromMetrics(metrics);
+}
+
+std::optional<QVariantMap> approximatePropertiesFromTerminalPositions(
+    const ScenarioDocument &doc,
+    const QString          &fromTerminalId,
+    const QString          &toTerminalId,
+    Mode                    mode)
+{
+    const auto from = terminalGlobalPositionForRoute(doc, fromTerminalId);
+    const auto to = terminalGlobalPositionForRoute(doc, toTerminalId);
+    if (!from || !to)
+        return std::nullopt;
+
+    const double distanceMeters =
+        Commons::GeoDistance::haversineMeters(
+            from->y(), from->x(), to->y(), to->x());
+    return canonicalPropertiesFromEstimate(
+        doc, mode, distanceMeters, 0.0, false);
+}
+
+std::optional<QVariantMap> networkBackedPropertiesForConnection(
+    const ScenarioDocument &doc,
+    const ScenarioRegistry &registry,
+    const Connection       &connection,
+    NetworkSpec::Type       networkType)
+{
+    const auto fromIt =
+        doc.terminals.constFind(connection.fromTerminalId);
+    const auto toIt =
+        doc.terminals.constFind(connection.toTerminalId);
+    if (fromIt == doc.terminals.constEnd()
+        || toIt == doc.terminals.constEnd())
+    {
+        return std::nullopt;
+    }
+
+    const auto fromLinks =
+        doc.linkagesFor(connection.fromTerminalId, networkType);
+    const auto toLinks =
+        doc.linkagesFor(connection.toTerminalId, networkType);
+
+    for (const NodeLinkage &fromLink : fromLinks)
+    {
+        for (const NodeLinkage &toLink : toLinks)
+        {
+            if (fromLink.networkName != toLink.networkName)
+                continue;
+
+            ShortestPathResult path;
+            if (networkType == NetworkSpec::Type::Rail)
+            {
+                auto *network = NetworkLookup::findRail(
+                    registry, fromIt->region, fromLink.networkName);
+                if (!network)
+                    continue;
+                path = network->findShortestPath(
+                    fromLink.nodeId, toLink.nodeId,
+                    QStringLiteral("distance"));
+            }
+            else
+            {
+                auto *network = NetworkLookup::findTruck(
+                    registry, fromIt->region, fromLink.networkName);
+                if (!network)
+                    continue;
+                path = network->findShortestPath(
+                    fromLink.nodeId, toLink.nodeId);
+            }
+
+            auto properties = canonicalPropertiesFromEstimate(
+                doc, connection.mode, path.totalLength,
+                path.minTravelTime, true);
+            if (properties)
+                return properties;
+        }
+    }
+
+    return std::nullopt;
+}
+
+void enrichConnectionRouteMetrics(Connection             &connection,
+                                  const ScenarioDocument &doc,
+                                  const ScenarioRegistry &registry)
+{
+    if (hasCompleteRouteMetrics(connection.properties))
+        return;
+
+    std::optional<QVariantMap> computedProperties;
+    if (connection.mode == Mode::Train)
+    {
+        computedProperties =
+            networkBackedPropertiesForConnection(
+                doc, registry, connection, NetworkSpec::Type::Rail);
+    }
+    else if (connection.mode == Mode::Truck)
+    {
+        computedProperties =
+            networkBackedPropertiesForConnection(
+                doc, registry, connection, NetworkSpec::Type::Truck);
+    }
+
+    if (!computedProperties)
+    {
+        computedProperties =
+            approximatePropertiesFromTerminalPositions(
+                doc, connection.fromTerminalId,
+                connection.toTerminalId, connection.mode);
+    }
+
+    if (!computedProperties)
+    {
+        qCWarning(lcScenario)
+            << "ScenarioLinker: route metrics unavailable for connection"
+            << connection.fromTerminalId << "->"
+            << connection.toTerminalId
+            << "mode=" << static_cast<int>(connection.mode);
+        return;
+    }
+
+    mergeMissingRouteMetrics(connection.properties,
+                             computedProperties.value());
+}
+
+void enrichGlobalLinkRouteMetrics(GlobalLink             &globalLink,
+                                  const ScenarioDocument &doc)
+{
+    if (hasCompleteRouteMetrics(globalLink.properties))
+        return;
+
+    const auto fromEndpoint =
+        resolveTerminalEndpoint(doc, globalLink.fromTerminalId);
+    const auto toEndpoint =
+        resolveTerminalEndpoint(doc, globalLink.toTerminalId);
+    if (!fromEndpoint.found || !toEndpoint.found)
+        return;
+
+    const auto computedProperties =
+        approximatePropertiesFromTerminalPositions(
+            doc, fromEndpoint.terminalId,
+            toEndpoint.terminalId, globalLink.mode);
+    if (!computedProperties)
+    {
+        qCWarning(lcScenario)
+            << "ScenarioLinker: route metrics unavailable for global link"
+            << globalLink.fromTerminalId << "->"
+            << globalLink.toTerminalId
+            << "mode=" << static_cast<int>(globalLink.mode);
+        return;
+    }
+
+    mergeMissingRouteMetrics(globalLink.properties,
+                             computedProperties.value());
+}
+
+void enrichConnectionRouteMetrics(QList<Connection>      &connections,
+                                  const ScenarioDocument &doc,
+                                  const ScenarioRegistry &registry)
+{
+    for (Connection &connection : connections)
+        enrichConnectionRouteMetrics(connection, doc, registry);
+}
+
+void enrichGlobalLinkRouteMetrics(QList<GlobalLink>      &globalLinks,
+                                  const ScenarioDocument &doc)
+{
+    for (GlobalLink &globalLink : globalLinks)
+        enrichGlobalLinkRouteMetrics(globalLink, doc);
 }
 
 LinkageRuleFn truckParkingToTruckNodeRule()
@@ -239,9 +563,10 @@ LinkageRuleFn truckParkingToTruckNodeRule()
                 for (auto *n : nodes)
                 {
                     if (!n) continue;
+                    const auto nodeCoords = projectedTruckNode(*n);
                     const double d = sceneDistance(coords.first, coords.second,
-                                                   static_cast<double>(n->getXCoordinate()),
-                                                   static_cast<double>(n->getYCoordinate()));
+                                                   nodeCoords.first,
+                                                   nodeCoords.second);
                     if (d < bestDist)
                     {
                         bestDist = d;
@@ -311,8 +636,10 @@ LinkageRuleFn seaPortToNearestRailRule()
                 for (auto *n : nodes)
                 {
                     if (!n) continue;
+                    const auto nodeCoords = projectedTrainNode(*n);
                     const double d = sceneDistance(coords.first, coords.second,
-                                                   n->getX(),     n->getY());
+                                                   nodeCoords.first,
+                                                   nodeCoords.second);
                     if (d < bestDist)
                     {
                         bestDist = d;
@@ -371,16 +698,46 @@ ConnectionRuleFn byNetworksRule()
                                         & networksPerTerminal[terminalIds[j]];
                 if (shared.isEmpty()) continue;
 
-                Connection c;
-                c.fromTerminalId = terminalIds[i];
-                c.toTerminalId   = terminalIds[j];
-                c.mode = TransportationTypes::TransportationMode::Train;  // by_networks default; refined by by_interfaces if both rules present
-                c.region         = region;
-                c.source         = LinkageSource::Auto;
-                out.append(c);
-                qCDebug(lcScenario) << "byNetworksRule:"
-                                    << "connection created:" << terminalIds[i]
-                                    << "->" << terminalIds[j] << "in" << region;
+                const auto regionIt = doc.regions.constFind(region);
+                if (regionIt == doc.regions.constEnd())
+                    continue;
+
+                QSet<int> emittedModeValues;
+                for (const QString &networkName : shared)
+                {
+                    const auto networkIt =
+                        regionIt->networks.constFind(networkName);
+                    if (networkIt == regionIt->networks.constEnd())
+                    {
+                        qCWarning(lcScenario)
+                            << "byNetworksRule: shared network has no"
+                            << "specification in region" << region
+                            << "network=" << networkName;
+                        continue;
+                    }
+
+                    const auto mode =
+                        transportationModeForNetworkType(networkIt->type);
+                    const int modeValue =
+                        mode ? static_cast<int>(*mode) : -1;
+                    if (!mode || emittedModeValues.contains(modeValue))
+                        continue;
+
+                    emittedModeValues.insert(modeValue);
+                    Connection c;
+                    c.fromTerminalId = terminalIds[i];
+                    c.toTerminalId   = terminalIds[j];
+                    c.mode           = *mode;
+                    c.region         = region;
+                    c.source         = LinkageSource::Auto;
+                    out.append(c);
+                    qCDebug(lcScenario)
+                        << "byNetworksRule: connection created:"
+                        << terminalIds[i] << "->" << terminalIds[j]
+                        << "network=" << networkName
+                        << "mode=" << static_cast<int>(*mode)
+                        << "in" << region;
+                }
             }
         }
         return out;
@@ -479,16 +836,31 @@ GlobalRuleFn seaPortPairsWithinKmRule()
         const double kmThreshold = param.toDouble(&ok);
         if (!ok || kmThreshold <= 0.0) return out;
 
-        auto latLonOf = [&](const TerminalPlacement &t) -> QPair<double, double>
+        auto latLonOf =
+            [&](const TerminalPlacement &t) -> std::optional<QPair<double, double>>
         {
             if (t.mode == TerminalPlacement::PositionMode::LatLon)
-                return { t.latLon.latitude, t.latLon.longitude };
+            {
+                const QPointF global = doc.globalPositionOf(t.id);
+                if (std::isfinite(global.x())
+                    && std::isfinite(global.y()))
+                {
+                    return QPair<double, double>(global.y(),
+                                                 global.x());
+                }
+            }
             if (doc.regions.contains(t.region))
             {
                 const auto &r = doc.regions[t.region];
-                return { r.globalPosition.latitude, r.globalPosition.longitude };
+                if (std::isfinite(r.globalPosition.latitude)
+                    && std::isfinite(r.globalPosition.longitude))
+                {
+                    return QPair<double, double>(
+                        r.globalPosition.latitude,
+                        r.globalPosition.longitude);
+                }
             }
-            return { 0, 0 };
+            return std::nullopt;
         };
 
         QList<const TerminalPlacement *> seaPorts;
@@ -504,8 +876,10 @@ GlobalRuleFn seaPortPairsWithinKmRule()
 
                 const auto p = latLonOf(*seaPorts[i]);
                 const auto q = latLonOf(*seaPorts[j]);
+                if (!p || !q)
+                    continue;
                 const double d = CargoNetSim::Backend::Commons::GeoDistance::haversineKm(
-                    p.first, p.second, q.first, q.second);
+                    p->first, p->second, q->first, q->second);
                 if (d > kmThreshold) continue;
 
                 GlobalLink g;
@@ -545,6 +919,38 @@ bool isExcluded(const QList<NodeLinkage> &all,
             l.networkName == networkName && l.nodeId == nodeId)
             return true;
     return false;
+}
+
+QString networkNodeKey(const NodeLinkage &linkage)
+{
+    return linkage.networkName
+        + QLatin1Char('|')
+        + QString::number(linkage.nodeId);
+}
+
+void appendIfNetworkNodeAvailable(QList<NodeLinkage> &out,
+                                  QSet<QString>      &usedNodes,
+                                  const NodeLinkage  &linkage,
+                                  const QString      &context)
+{
+    if (linkage.excluded)
+        return;
+
+    const QString key = networkNodeKey(linkage);
+    if (usedNodes.contains(key))
+    {
+        qCWarning(lcScenario)
+            << "ScenarioLinker::resolveLinkages:"
+            << "skipping duplicate active network-node assignment"
+            << "context=" << context
+            << "terminal=" << linkage.terminalId
+            << "network=" << linkage.networkName
+            << "node=" << linkage.nodeId;
+        return;
+    }
+
+    usedNodes.insert(key);
+    out.append(linkage);
 }
 
 bool manualConnectionBelongsToRegion(const ScenarioDocument &doc,
@@ -600,22 +1006,29 @@ ScenarioLinker::resolveLinkages(const ScenarioDocument &doc,
                             << region << "manual=" << manual.size()
                             << "auto=" << autoFromRules.size()
                             << "strategy=" << linkageStrategyToString(r.linkageStrategy);
+        QSet<QString> usedNodes;
 
         switch (r.linkageStrategy)
         {
         case LinkageStrategy::Manual:
-            out.append(manual);
+            for (const NodeLinkage &l : manual)
+                appendIfNetworkNodeAvailable(out, usedNodes, l,
+                                             QStringLiteral("manual"));
             break;
         case LinkageStrategy::Auto:
             for (const NodeLinkage &l : autoFromRules)
                 if (!isExcluded(doc.linkages, l.terminalId, l.networkName, l.nodeId))
-                    out.append(l);
+                    appendIfNetworkNodeAvailable(out, usedNodes, l,
+                                                 QStringLiteral("auto"));
             break;
         case LinkageStrategy::Hybrid:
-            out.append(manual);
+            for (const NodeLinkage &l : manual)
+                appendIfNetworkNodeAvailable(out, usedNodes, l,
+                                             QStringLiteral("hybrid/manual"));
             for (const NodeLinkage &l : autoFromRules)
                 if (!isExcluded(doc.linkages, l.terminalId, l.networkName, l.nodeId))
-                    out.append(l);
+                    appendIfNetworkNodeAvailable(out, usedNodes, l,
+                                                 QStringLiteral("hybrid/auto"));
             break;
         }
     }
@@ -667,6 +1080,7 @@ ScenarioLinker::resolveConnections(const ScenarioDocument &doc,
         case LinkageStrategy::Hybrid: out.append(manual); out.append(autoFromRules); break;
         }
     }
+    enrichConnectionRouteMetrics(out, doc, registry);
     qCDebug(lcScenario) << "ScenarioLinker::resolveConnections: total resolved"
                         << out.size();
     return out;
@@ -706,6 +1120,7 @@ ScenarioLinker::resolveGlobalLinks(const ScenarioDocument &doc,
     case LinkageStrategy::Auto:   out.append(autoFromRules); break;
     case LinkageStrategy::Hybrid: out.append(manual); out.append(autoFromRules); break;
     }
+    enrichGlobalLinkRouteMetrics(out, doc);
     qCDebug(lcScenario) << "ScenarioLinker::resolveGlobalLinks: total resolved"
                         << out.size();
     return out;

@@ -33,6 +33,8 @@ struct PathPresentationRecord
     std::shared_ptr<Backend::Path> path;
     Scenario::PreparedPathEligibility eligibility;
     Scenario::PathMetrics          predictedMetrics;
+    QList<Backend::PathSegment::SegmentCostSnapshot>
+        predictedSegmentCosts;
     Scenario::PathMetrics          actualMetrics;
     double                         simulationTotalCost = -1.0;
     double                         simulationEdgeCosts = -1.0;
@@ -77,6 +79,9 @@ struct PathPresentationSegmentDisplayValues
     double predictedCarbonEmissions = 0.0;
     double predictedEnergyConsumption = 0.0;
     double predictedRisk = 0.0;
+    bool   predictedAllocatedAvailable = false;
+    double predictedAllocatedCarbonEmissions = 0.0;
+    double predictedAllocatedEnergyConsumption = 0.0;
 
     bool   actualAvailable = false;
     double actualDistanceKm = 0.0;
@@ -89,6 +94,7 @@ struct PathPresentationSegmentDisplayValues
 struct PathPresentationTerminalDisplayValues
 {
     bool   predictedAvailable = false;
+    double predictedRawDirectCostUsd = 0.0;
     double predictedHandlingSeconds = 0.0;
     double predictedDirectCostUsd = 0.0;
     double predictedWeightedDelayContribution = 0.0;

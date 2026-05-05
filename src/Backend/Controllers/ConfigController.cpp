@@ -268,6 +268,7 @@ void ConfigController::createDefaultConfig()
     rail[PK::Mode::AverageSpeed]           = 88.5;
     rail[PK::Mode::AverageFuelConsumption] = 5.5;
     rail[PK::Mode::AverageContainerNumber] = 180;
+    rail[PK::Mode::AverageLocomotiveCount] = 1;
     rail[PK::Mode::RiskFactor]             = 0.006;
     rail[PK::Mode::UseNetwork]             = true;
     rail[PK::Mode::FuelType]               = "diesel_1";

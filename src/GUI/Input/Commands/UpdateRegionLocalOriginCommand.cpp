@@ -39,8 +39,17 @@ void UpdateRegionLocalOriginCommand::redo()
         m_oldLatLon = QPointF(it->localOrigin.longitude, it->localOrigin.latitude);
         m_captured  = true;
     }
-    Backend::Application::ScenarioEditService::updateRegionLocalOrigin(
-        m_doc.data(), m_regionName, m_newLatLon);
+    const bool updated =
+        Backend::Application::ScenarioEditService::updateRegionLocalOrigin(
+            m_doc.data(), m_regionName, m_newLatLon);
+    if (!updated) {
+        qCWarning(lcGuiInputCmd)
+            << "UpdateRegionLocalOriginCommand::redo:"
+            << "backend update rejected"
+            << m_regionName;
+        setObsolete(true);
+        return;
+    }
     qCInfo(lcGuiInputCmd) << "UpdateRegionLocalOriginCommand::redo"
                           << m_regionName
                           << "lon=" << m_newLatLon.x()
@@ -50,8 +59,16 @@ void UpdateRegionLocalOriginCommand::redo()
 void UpdateRegionLocalOriginCommand::undo()
 {
     if (!m_doc || !m_captured) return;
-    Backend::Application::ScenarioEditService::updateRegionLocalOrigin(
-        m_doc.data(), m_regionName, m_oldLatLon);
+    const bool updated =
+        Backend::Application::ScenarioEditService::updateRegionLocalOrigin(
+            m_doc.data(), m_regionName, m_oldLatLon);
+    if (!updated) {
+        qCWarning(lcGuiInputCmd)
+            << "UpdateRegionLocalOriginCommand::undo:"
+            << "backend update rejected"
+            << m_regionName;
+        return;
+    }
     qCInfo(lcGuiInputCmd) << "UpdateRegionLocalOriginCommand::undo"
                           << m_regionName;
 }

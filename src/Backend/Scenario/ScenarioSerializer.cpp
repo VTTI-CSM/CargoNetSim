@@ -538,6 +538,7 @@ QJsonObject simulationSettingsToJson(const SimulationSettings &s)
         if (m.fuelType.has_value())   o["fuel_type"]   = m.fuelType.value();
         if (m.fuelRate.has_value())   o["fuel_rate"]   = m.fuelRate.value();
         if (m.containers.has_value()) o["containers"]  = m.containers.value();
+        if (m.locomotives.has_value()) o["locomotives"] = m.locomotives.value();
         if (const auto risk = m.riskUnits())
             o["risk"] = risk->value();
         if (m.timeValue.has_value())  o["time_value"]  = m.timeValue.value();
@@ -604,6 +605,7 @@ SimulationSettings simulationSettingsFromJson(const QJsonObject &o)
         if (o.contains("fuel_type"))   m.fuelType   = o.value("fuel_type").toString();
         if (o.contains("fuel_rate"))   m.fuelRate   = o.value("fuel_rate").toDouble();
         if (o.contains("containers"))  m.containers = o.value("containers").toInt();
+        if (o.contains("locomotives")) m.locomotives = o.value("locomotives").toInt();
         if (o.contains("risk"))
             m.setRisk(Units::scalar(
                 o.value("risk").toDouble()));

@@ -4,6 +4,7 @@
 #include "Backend/Models/PathSegment.h"
 
 #include <QJsonObject>
+#include <QList>
 #include <QVariantMap>
 
 namespace CargoNetSim
@@ -20,6 +21,7 @@ struct EstimatedPathCost
     double terminalCost = 0.0;
     double totalCost = 0.0;
     PathMetrics metrics;
+    QList<PathSegment::SegmentCostSnapshot> segmentCosts;
     QJsonObject costBreakdown;
 };
 

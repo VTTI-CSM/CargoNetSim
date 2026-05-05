@@ -12,6 +12,7 @@
 #include <QColor>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QMap>
 #include "Backend/Commons/LogCategories.h"
 #include <QMessageBox>
 #include <QStatusBar>
@@ -111,7 +112,7 @@ QString NetworkController::importNetwork(
             return QString();
         }
 
-        networkName = networkName_user;
+        networkName = networkName_user.trimmed();
 
         // Check for name conflicts
         try
@@ -156,49 +157,6 @@ QString NetworkController::importNetwork(
     return QString();
 }
 
-namespace {
-
-/// Dual-write: after the legacy RegionData load + drawNetwork have run,
-/// also record the NetworkSpec in the currently-loaded ScenarioDocument
-/// so that `File → Save Scenario` (Plan 4 Task 19) exports the network
-/// and the CLI sees the same shape the GUI built. No-op when no
-/// runtime is loaded. Kept file-local because this is a GUI-layer
-/// translation from "user picked a file" to "doc declaration"; other
-/// callers add networks via `ScenarioApplier` (YAML-load path) which
-/// writes to RegionData directly.
-void recordNetworkInDocument(
-    CargoNetSim::GUI::MainWindow *mainWindow,
-    const QString                &regionName,
-    const QString                &networkName,
-    CargoNetSim::Backend::NetworkKind                 kind,
-    std::initializer_list<std::pair<QString, QString>> files)
-{
-    qCDebug(lcGuiNetwork) << "recordNetworkInDocument:"
-                          << "network=" << networkName
-                          << "region=" << regionName;
-    if (!mainWindow || !mainWindow->runtime()) return;
-    auto &doc = mainWindow->runtime()->document();
-    CargoNetSim::Backend::Scenario::NetworkSpec spec;
-    spec.name = networkName;
-    spec.type = kind;
-    for (const auto &role_path : files)
-        spec.files.insert(role_path.first, role_path.second);
-    if (doc.regions.contains(regionName))
-    {
-        const auto &origin = doc.regions[regionName].localOrigin;
-        // x = longitude, y = latitude — matches the Qt geo-point convention used elsewhere.
-        spec.referencePoint.x = origin.longitude;
-        spec.referencePoint.y = origin.latitude;
-    }
-    if (!Backend::Application::ScenarioEditService::addNetwork(&doc, regionName, spec))
-        qCWarning(lcGuiNetwork)
-            << "recordNetworkInDocument:"
-            << "ScenarioEditService::addNetwork failed for"
-            << networkName;
-}
-
-} // namespace
-
 bool NetworkController::importTrainNetwork(
     MainWindow *mainWindow, const QString &regionName,
     QString &networkName)
@@ -235,16 +193,36 @@ bool NetworkController::importTrainNetwork(
                          << "starting import" << networkName;
     try
     {
+        if (!mainWindow || !mainWindow->runtime())
+        {
+            QMessageBox::warning(
+                mainWindow, "Error",
+                "Cannot import a network without an active scenario.");
+            return false;
+        }
+
         Backend::Application::NetworkManagementService
             managementService;
         qCDebug(lcRail) << "[RailLoad] importTrainNetwork: calling"
-                    " addTrainNetwork, name=" << networkName;
-        // load the network
-        if (!managementService.addTrainNetwork(
-                regionName, networkName, nodeFile, linkFile))
+                    " importNetwork, name=" << networkName;
+        QMap<QString, QString> files;
+        files.insert(QStringLiteral("nodes"), nodeFile);
+        files.insert(QStringLiteral("links"), linkFile);
+
+        QString importError;
+        if (!managementService.importNetwork(
+                &mainWindow->runtime()->document(),
+                regionName, networkName,
+                Backend::NetworkKind::Rail,
+                files, &importError))
+        {
+            if (!importError.isEmpty())
+                QMessageBox::warning(mainWindow, "Error",
+                                     importError);
             return false;
+        }
         qCDebug(lcRail) << "[RailLoad] importTrainNetwork:"
-                    " addTrainNetwork returned";
+                    " importNetwork returned";
         // Draw the network on map
         qCDebug(lcRail) << "[RailLoad] importTrainNetwork: calling"
                     " drawNetwork";
@@ -252,14 +230,6 @@ bool NetworkController::importTrainNetwork(
             regionName, NetworkType::Train, networkName);
         qCDebug(lcRail) << "[RailLoad] importTrainNetwork:"
                     " drawNetwork returned";
-
-        // Record the declaration in the ScenarioDocument so save/CLI
-        // paths see what the GUI just imported. No-op without runtime.
-        recordNetworkInDocument(
-            mainWindow, regionName, networkName,
-            Backend::NetworkKind::Rail,
-            {{QStringLiteral("nodes"), nodeFile},
-             {QStringLiteral("links"), linkFile}});
 
         mainWindow->showStatusBarMessage(
             "Importing train network!", 2000);
@@ -297,23 +267,35 @@ bool NetworkController::importTruckNetwork(
                          << "file=" << configFile;
     try
     {
+        if (!mainWindow || !mainWindow->runtime())
+        {
+            QMessageBox::warning(
+                mainWindow, "Error",
+                "Cannot import a network without an active scenario.");
+            return false;
+        }
+
         Backend::Application::NetworkManagementService
             managementService;
-        // load the network
-        if (!managementService.addTruckNetwork(
-                regionName, networkName, configFile))
+        QMap<QString, QString> files;
+        files.insert(QStringLiteral("config"), configFile);
+
+        QString importError;
+        if (!managementService.importNetwork(
+                &mainWindow->runtime()->document(),
+                regionName, networkName,
+                Backend::NetworkKind::Truck,
+                files, &importError))
+        {
+            if (!importError.isEmpty())
+                QMessageBox::warning(mainWindow, "Error",
+                                     importError);
             return false;
+        }
 
         // Draw the network on map
         mainWindow->networkDrawing()->drawNetwork(
             regionName, NetworkType::Truck, networkName);
-
-        // Record in document for CLI/GUI convergence (see
-        // importTrainNetwork comment).
-        recordNetworkInDocument(
-            mainWindow, regionName, networkName,
-            Backend::NetworkKind::Truck,
-            {{QStringLiteral("config"), configFile}});
 
         mainWindow->showStatusBarMessage(
             "Importing truck network!", 2000);

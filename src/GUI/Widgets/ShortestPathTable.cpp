@@ -262,6 +262,228 @@ void styleStatusItem(
     item->setForeground(QBrush(QColor(31, 101, 58)));
 }
 
+QString compactJsonObject(const QJsonObject &object)
+{
+    if (object.isEmpty())
+        return QStringLiteral("{}");
+    return QString::fromUtf8(
+        QJsonDocument(object).toJson(QJsonDocument::Compact));
+}
+
+double costSnapshotTotal(
+    const Backend::Application::PathPresentationCostSnapshot &costs)
+{
+    return costs.travelTime + costs.distance
+           + costs.carbonEmissions + costs.energyConsumption
+           + costs.risk + costs.directCost;
+}
+
+void logPredictedPathDiagnostics(
+    const QMap<ExecutionPathKey, ShortestPathsTable::PathData *> &paths,
+    const QVector<ExecutionPathKey>                              &displayOrder,
+    const QString                                                &source)
+{
+    Backend::Application::PathPresentationService presenter;
+
+    qCInfo(lcGuiPathTable)
+        << "ShortestPathsTable::predictedDiagnostics: begin"
+        << "source=" << source
+        << "pathCount=" << displayOrder.size();
+
+    for (const auto &pathKey : displayOrder)
+    {
+        const auto *record = paths.value(pathKey, nullptr);
+        if (!record || !record->path)
+        {
+            qCWarning(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:"
+                << "missing path record"
+                << "source=" << source
+                << "pathKey=" << pathKey;
+            continue;
+        }
+
+        const auto *path = record->path.get();
+        const auto  summary = presenter.summary(*record);
+        const auto  totals = presenter.pathCostTotals(*record);
+        const auto &metrics = record->predictedMetrics;
+
+        qCInfo(lcGuiPathTable)
+            << "ShortestPathsTable::predictedDiagnostics:path"
+            << "source=" << source
+            << "pathKey=" << pathKey
+            << "canonicalPathKey=" << path->canonicalPathKey()
+            << "pathId=" << path->getPathId()
+            << "rank=" << path->getRank()
+            << "effectiveContainers=" << path->getEffectiveContainerCount()
+            << "terminalCount=" << summary.terminalCount
+            << "segmentCount=" << summary.segmentCount
+            << "pathTotalUsd=" << path->getTotalPathCost()
+            << "pathEdgeUsd=" << path->getTotalEdgeCosts()
+            << "pathTerminalUsd=" << path->getTotalTerminalCosts()
+            << "rankingCostUsd=" << path->getRankingCost()
+            << "weightedTerminalDelayUsd="
+            << path->getWeightedTerminalDelayTotal()
+            << "weightedTerminalDirectUsd="
+            << path->getWeightedTerminalDirectCostTotal()
+            << "rawTerminalDelaySeconds="
+            << path->getRawTerminalDelayTotal()
+            << "rawTerminalDirectUsd="
+            << path->getRawTerminalCostTotal()
+            << "presentedPredictedCostAvailable="
+            << totals.predicted.available
+            << "presentedPredictedCostTotalUsd="
+            << costSnapshotTotal(totals.predicted)
+            << "costBreakdown="
+            << compactJsonObject(path->getCostBreakdown());
+
+        qCInfo(lcGuiPathTable)
+            << "ShortestPathsTable::predictedDiagnostics:pathMetrics"
+            << "source=" << source
+            << "pathKey=" << pathKey
+            << "valid=" << metrics.valid
+            << "distanceKm=" << metrics.distanceKm
+            << "travelTimeHours=" << metrics.travelTimeHours
+            << "fuelPerVehicle=" << metrics.fuelPerVehicle
+            << "energyPerVehicleKWh=" << metrics.energyPerVehicle
+            << "carbonPerVehicleT=" << metrics.carbonPerVehicle
+            << "riskPerVehicle=" << metrics.riskPerVehicle
+            << "containerCount=" << metrics.containerCount
+            << "fuelPerContainer=" << metrics.fuelPerContainer
+            << "energyPerContainerKWh="
+            << metrics.energyPerContainer
+            << "carbonPerContainerT=" << metrics.carbonPerContainer
+            << "riskPerContainer=" << metrics.riskPerContainer
+            << "vehiclesNeeded=" << metrics.vehiclesNeeded
+            << "fuelType=" << metrics.fuelType;
+
+        for (const auto &requirement :
+             metrics.previewVehicleBreakdown)
+        {
+            qCInfo(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:vehicleRequirement"
+                << "source=" << source
+                << "pathKey=" << pathKey
+                << "segmentIndex=" << requirement.segmentIndex
+                << "mode="
+                << Backend::TransportationTypes::toString(
+                       requirement.mode)
+                << "vehiclesNeeded="
+                << requirement.vehiclesNeeded;
+        }
+
+        const auto &terminals = path->getTerminalsInPath();
+        for (int terminalIndex = 0;
+             terminalIndex < terminals.size(); ++terminalIndex)
+        {
+            const auto &terminal = terminals[terminalIndex];
+            const auto  values =
+                presenter.terminalValues(*record, terminalIndex);
+            qCInfo(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:terminal"
+                << "source=" << source
+                << "pathKey=" << pathKey
+                << "index=" << terminalIndex
+                << "sequenceIndex=" << terminal.sequenceIndex
+                << "terminalId=" << terminal.id
+                << "displayName=" << terminal.displayName
+                << "canonicalName=" << terminal.canonicalName
+                << "predictedAvailable="
+                << values.predictedAvailable
+                << "handlingSeconds="
+                << values.predictedHandlingSeconds
+                << "rawDirectCostUsd="
+                << values.predictedDirectCostUsd
+                << "weightedDelayUsd="
+                << values.predictedWeightedDelayContribution
+                << "weightedDirectCostUsd="
+                << values.predictedWeightedCostContribution
+                << "weightedTotalUsd="
+                << values.predictedWeightedTotalContribution
+                << "costsSkipped="
+                << values.predictedCostsSkipped
+                << "skipReason=" << values.predictedSkipReason;
+        }
+
+        const auto segments = path->getSegments();
+        for (int segmentIndex = 0; segmentIndex < segments.size();
+             ++segmentIndex)
+        {
+            const auto *segment = segments[segmentIndex];
+            if (!segment)
+            {
+                qCWarning(lcGuiPathTable)
+                    << "ShortestPathsTable::predictedDiagnostics:"
+                    << "null segment"
+                    << "source=" << source
+                    << "pathKey=" << pathKey
+                    << "index=" << segmentIndex;
+                continue;
+            }
+
+            const auto values =
+                presenter.segmentValues(*record, segmentIndex);
+            const auto costs =
+                presenter.segmentPredictedCosts(*record,
+                                                segmentIndex);
+            const auto rawMetrics = segment->estimatedValues();
+            const auto rawCosts = segment->estimatedCosts();
+
+            qCInfo(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:segmentMetrics"
+                << "source=" << source
+                << "pathKey=" << pathKey
+                << "index=" << segmentIndex
+                << "sequenceIndex=" << segment->sequenceIndex()
+                << "segmentId=" << segment->getPathSegmentId()
+                << "mode="
+                << Backend::TransportationTypes::toString(
+                       segment->getMode())
+                << "start=" << segment->getStart()
+                << "end=" << segment->getEnd()
+                << "estimatedAvailable=" << rawMetrics.available
+                << "distanceMeters=" << rawMetrics.distance
+                << "presentedDistanceKm="
+                << values.predictedDistanceKm
+                << "travelTimeSeconds=" << rawMetrics.travelTime
+                << "presentedTravelTimeHours="
+                << values.predictedTravelTimeHours
+                << "energyKWh=" << rawMetrics.energyConsumption
+                << "presentedEnergyKWh="
+                << values.predictedEnergyConsumption
+                << "carbonT=" << rawMetrics.carbonEmissions
+                << "risk=" << rawMetrics.risk
+                << "rankingCostContributionUsd="
+                << segment->rankingCostContribution()
+                << "weightedEdgeCostUsd="
+                << segment->weightedEdgeCost()
+                << "weightedTerminalEmbeddedUsd="
+                << segment->weightedTerminalCostEmbeddedInSegment();
+
+            qCInfo(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:segmentCosts"
+                << "source=" << source
+                << "pathKey=" << pathKey
+                << "index=" << segmentIndex
+                << "segmentId=" << segment->getPathSegmentId()
+                << "rawCostAvailable=" << rawCosts.available
+                << "presentedCostAvailable=" << costs.available
+                << "travelTimeUsd=" << costs.travelTime
+                << "distanceUsd=" << costs.distance
+                << "energyUsd=" << costs.energyConsumption
+                << "carbonUsd=" << costs.carbonEmissions
+                << "riskUsd=" << costs.risk
+                << "directUsd=" << costs.directCost
+                << "totalUsd=" << costSnapshotTotal(costs);
+        }
+    }
+
+    qCInfo(lcGuiPathTable)
+        << "ShortestPathsTable::predictedDiagnostics: end"
+        << "source=" << source
+        << "pathCount=" << displayOrder.size();
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------
@@ -659,6 +881,8 @@ void ShortestPathsTable::addPaths(
     {
         appendPathRecord(std::move(record));
     }
+    logPredictedPathDiagnostics(m_pathData, m_displayOrder,
+                                QStringLiteral("addPaths"));
 
     // Refresh the table with the new paths
     refreshTable();
@@ -683,6 +907,8 @@ void ShortestPathsTable::setPreparedPaths(
     {
         appendPathRecord(std::move(record));
     }
+    logPredictedPathDiagnostics(m_pathData, m_displayOrder,
+                                QStringLiteral("setPreparedPaths"));
 
     refreshTable();
     m_exportButton->setEnabled(!m_pathData.isEmpty());
@@ -752,7 +978,7 @@ QString ShortestPathsTable::eligibilityTooltip(
 QString ShortestPathsTable::availabilityBannerText() const
 {
     int           unavailableCount = 0;
-    QSet<QString> affectedBackends;
+    QSet<QString> affectedDependencies;
 
     for (const auto *pathData : m_pathData)
     {
@@ -765,14 +991,18 @@ QString ShortestPathsTable::availabilityBannerText() const
         ++unavailableCount;
         const QString reason = pathData->eligibility.blockingReason;
         if (reason.contains(QStringLiteral("ShipNetSim")))
-            affectedBackends.insert(QStringLiteral("ShipNetSim"));
+            affectedDependencies.insert(QStringLiteral("ShipNetSim"));
         if (reason.contains(QStringLiteral("NeTrainSim")))
-            affectedBackends.insert(QStringLiteral("NeTrainSim"));
+            affectedDependencies.insert(QStringLiteral("NeTrainSim"));
         if (reason.contains(QStringLiteral("TerminalSim")))
-            affectedBackends.insert(QStringLiteral("TerminalSim"));
+            affectedDependencies.insert(QStringLiteral("TerminalSim"));
+        if (reason.contains(QStringLiteral("train fleet")))
+            affectedDependencies.insert(tr("train fleet"));
+        if (reason.contains(QStringLiteral("ship fleet")))
+            affectedDependencies.insert(tr("ship fleet"));
         if (reason.contains(QStringLiteral("truck-backed execution")))
         {
-            affectedBackends.insert(
+            affectedDependencies.insert(
                 tr("truck-backed execution"));
         }
     }
@@ -786,14 +1016,14 @@ QString ShortestPathsTable::availabilityBannerText() const
             : tr("%1 paths are currently unavailable for simulation. ")
                   .arg(unavailableCount);
 
-    text += tr("Rows marked unavailable remain visible, but they cannot be selected for simulation until the required backends are available.");
+    text += tr("Rows marked unavailable remain visible, but they cannot be selected for simulation until the required backends and fleet resources are available.");
 
-    if (!affectedBackends.isEmpty())
+    if (!affectedDependencies.isEmpty())
     {
-        QStringList backends = affectedBackends.values();
-        backends.sort();
-        text += tr(" Affected backends: %1.")
-                    .arg(backends.join(QStringLiteral(", ")));
+        QStringList dependencies = affectedDependencies.values();
+        dependencies.sort();
+        text += tr(" Affected dependencies: %1.")
+                    .arg(dependencies.join(QStringLiteral(", ")));
     }
 
     text += tr(" Hover the Status column for the exact requirement.");
@@ -1578,6 +1808,8 @@ void ShortestPathsTable::loadComparisonSnapshots(
         if (record.isSelected)
             selectedPathKeys.insert(storedKey);
     }
+    logPredictedPathDiagnostics(m_pathData, m_displayOrder,
+                                QStringLiteral("loadComparisonSnapshots"));
 
     refreshTable();
     m_exportButton->setEnabled(!m_pathData.isEmpty());

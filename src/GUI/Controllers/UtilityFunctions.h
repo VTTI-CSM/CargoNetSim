@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Backend/Commons/ShortestPathResult.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "GUI/Commons/NetworkType.h"
 #include "GUI/Items/RegionCenterPoint.h"

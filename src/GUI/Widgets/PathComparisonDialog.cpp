@@ -420,6 +420,7 @@ QWidget *PathComparisonDialog::createTerminalsTab()
         const QStringList attributeRowLabels = {
             tr("Handling Time (Predicted, s)"),
             tr("Handling Time (Actual, s)"),
+            tr("Raw Direct Tariff (Predicted, USD)"),
             tr("Direct Cost (Predicted, USD)"),
             tr("Direct Cost (Actual, USD)"),
             tr("Weighted Delay Contribution (Predicted)"),
@@ -461,6 +462,13 @@ QWidget *PathComparisonDialog::createTerminalsTab()
                                       .actualTotalHandlingSeconds,
                                   'f', 0)
                             : tr("Not modeled"));
+                pathAttributeData
+                    << (displayValues.predictedAvailable
+                            ? QString::number(
+                                  displayValues
+                                      .predictedRawDirectCostUsd,
+                                  'f', 2)
+                            : tr("N/A"));
                 pathAttributeData
                     << (displayValues.predictedAvailable
                             ? QString::number(
@@ -616,6 +624,14 @@ QWidget *PathComparisonDialog::createSegmentsTab()
     headerLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(headerLabel);
 
+    auto noteLabel = new QLabel(
+        tr("Predicted physical segment metrics are raw vehicle/segment "
+           "totals. Predicted cost rows use the allocated shipment "
+           "cost model used by the path summary."),
+        this);
+    noteLabel->setWordWrap(true);
+    layout->addWidget(noteLabel);
+
     // Create column headers (Path ID 1, Path ID 2, etc.)
     QStringList headers;
     for (const auto &path : m_pathData)
@@ -770,17 +786,19 @@ QWidget *PathComparisonDialog::createSegmentsTab()
 
         // Create row labels for attributes
         QStringList attributeRowLabels = {
-            tr("Carbon Emissions (Predicted)"),
+            tr("Carbon Emissions (Vehicle Predicted, t)"),
+            tr("Carbon Emissions (Allocated Predicted, t)"),
             tr("Carbon Emissions (t, Actual)"),
-            tr("Direct Cost (Predicted)"),
+            tr("Direct Cost (Allocated Predicted, USD)"),
             tr("Direct Cost (Actual)"),
-            tr("Distance (Predicted)"),
+            tr("Distance (Predicted, km)"),
             tr("Distance (km, Actual)"),
-            tr("Energy Consumption (Predicted)"),
+            tr("Energy Consumption (Vehicle Predicted, kWh)"),
+            tr("Energy Consumption (Allocated Predicted, kWh)"),
             tr("Energy Consumption (kWh, Actual)"),
-            tr("Risk (Predicted)"),
+            tr("Risk (Vehicle Predicted)"),
             tr("Risk (Actual)"),
-            tr("Travel Time (Predicted)"),
+            tr("Travel Time (Predicted, hr)"),
             tr("Travel Time (hr, Actual)")};
 
         // Populate data for each attribute
@@ -811,6 +829,13 @@ QWidget *PathComparisonDialog::createSegmentsTab()
                                 ? QString::number(
                                       displayValues
                                           .predictedCarbonEmissions,
+                                      'f', 3)
+                                : tr("N/A"));
+                    pathAttributeData
+                        << (displayValues.predictedAvailable
+                                ? QString::number(
+                                      displayValues
+                                          .predictedAllocatedCarbonEmissions,
                                       'f', 3)
                                 : tr("N/A"));
                     pathAttributeData
@@ -855,6 +880,13 @@ QWidget *PathComparisonDialog::createSegmentsTab()
                                 ? QString::number(
                                       displayValues
                                           .predictedEnergyConsumption,
+                                      'f', 2)
+                                : tr("N/A"));
+                    pathAttributeData
+                        << (displayValues.predictedAvailable
+                                ? QString::number(
+                                      displayValues
+                                          .predictedAllocatedEnergyConsumption,
                                       'f', 2)
                                 : tr("N/A"));
                     pathAttributeData
@@ -980,6 +1012,15 @@ QWidget *PathComparisonDialog::createCostsTab()
         new QLabel(tr("<h2>Cost Comparison</h2>"), this);
     headerLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(headerLabel);
+
+    auto noteLabel = new QLabel(
+        tr("Predicted cost breakdowns are allocated using the selected "
+           "path demand, vehicle capacity, and configured cost weights. "
+           "They should reconcile with the predicted edge cost in the "
+           "summary."),
+        this);
+    noteLabel->setWordWrap(true);
+    layout->addWidget(noteLabel);
 
     // Create tab widget for different cost breakdowns
     auto costTabWidget = new QTabWidget(this);
@@ -1145,17 +1186,17 @@ QWidget *PathComparisonDialog::createCostsTab()
 
     // Create row labels for detailed cost breakdown
     QStringList detailedRowLabels = {
-        tr("Carbon Emissions Cost (Predicted)"),
+        tr("Carbon Emissions Cost (Allocated Predicted)"),
         tr("Carbon Emissions Cost (Actual)"),
-        tr("Direct Cost (Predicted)"),
+        tr("Direct Cost (Allocated Predicted)"),
         tr("Direct Cost (Actual)"),
-        tr("Distance-based Cost (Predicted)"),
+        tr("Distance-based Cost (Allocated Predicted)"),
         tr("Distance-based Cost (Actual)"),
-        tr("Energy Consumption Cost (Predicted)"),
+        tr("Energy Consumption Cost (Allocated Predicted)"),
         tr("Energy Consumption Cost (Actual)"),
-        tr("Risk-based Cost (Predicted)"),
+        tr("Risk-based Cost (Allocated Predicted)"),
         tr("Risk-based Cost (Actual)"),
-        tr("Travel Time Cost (Predicted)"),
+        tr("Travel Time Cost (Allocated Predicted)"),
         tr("Travel Time Cost (Actual)")};
 
     // For each path, accumulate the cost breakdown across
@@ -1171,11 +1212,15 @@ QWidget *PathComparisonDialog::createCostsTab()
             const auto totals = m_viewModel.pathCostTotals(path);
             const auto &predicted = totals.predicted;
             const auto &actual = totals.actual;
+            const bool hasPredictedData = predicted.available;
             const bool hasActualData = actual.available;
 
             // Add predicted costs
-            pathDetailedData << QString::number(
-                predicted.carbonEmissions, 'f', 2);
+            pathDetailedData
+                << (hasPredictedData
+                        ? QString::number(
+                              predicted.carbonEmissions, 'f', 2)
+                        : tr("N/A"));
             pathDetailedData
                 << (hasActualData
                         ? QString::number(
@@ -1183,40 +1228,55 @@ QWidget *PathComparisonDialog::createCostsTab()
                               'f', 2)
                         : tr("Not simulated"));
 
-            pathDetailedData << QString::number(
-                predicted.directCost, 'f', 2);
+            pathDetailedData
+                << (hasPredictedData
+                        ? QString::number(
+                              predicted.directCost, 'f', 2)
+                        : tr("N/A"));
             pathDetailedData
                 << (hasActualData
                         ? QString::number(actual.directCost,
                                           'f', 2)
                         : tr("Not simulated"));
 
-            pathDetailedData << QString::number(
-                predicted.distance, 'f', 2);
+            pathDetailedData
+                << (hasPredictedData
+                        ? QString::number(predicted.distance,
+                                          'f', 2)
+                        : tr("N/A"));
             pathDetailedData
                 << (hasActualData
                         ? QString::number(
                               actual.distance, 'f', 2)
                         : tr("Not simulated"));
 
-            pathDetailedData << QString::number(
-                predicted.energyConsumption, 'f', 2);
+            pathDetailedData
+                << (hasPredictedData
+                        ? QString::number(
+                              predicted.energyConsumption,
+                              'f', 2)
+                        : tr("N/A"));
             pathDetailedData
                 << (hasActualData
                         ? QString::number(actual.energyConsumption,
                                           'f', 2)
                         : tr("Not simulated"));
 
-            pathDetailedData << QString::number(
-                predicted.risk, 'f', 2);
+            pathDetailedData
+                << (hasPredictedData
+                        ? QString::number(predicted.risk, 'f', 2)
+                        : tr("N/A"));
             pathDetailedData
                 << (hasActualData
                         ? QString::number(actual.risk,
                                           'f', 2)
                         : tr("Not simulated"));
 
-            pathDetailedData << QString::number(
-                predicted.travelTime, 'f', 2);
+            pathDetailedData
+                << (hasPredictedData
+                        ? QString::number(
+                              predicted.travelTime, 'f', 2)
+                        : tr("N/A"));
             pathDetailedData
                 << (hasActualData
                         ? QString::number(actual.travelTime,
@@ -1321,17 +1381,17 @@ QWidget *PathComparisonDialog::createCostsTab()
 
         // Row labels for segment costs
         QStringList segmentCostRowLabels = {
-            tr("Carbon Emissions Cost (Predicted)"),
+            tr("Carbon Emissions Cost (Allocated Predicted)"),
             tr("Carbon Emissions Cost (Actual)"),
-            tr("Direct Cost (Predicted)"),
+            tr("Direct Cost (Allocated Predicted)"),
             tr("Direct Cost (Actual)"),
-            tr("Distance-based Cost (Predicted)"),
+            tr("Distance-based Cost (Allocated Predicted)"),
             tr("Distance-based Cost (Actual)"),
-            tr("Energy Consumption Cost (Predicted)"),
+            tr("Energy Consumption Cost (Allocated Predicted)"),
             tr("Energy Consumption Cost (Actual)"),
-            tr("Risk-based Cost (Predicted)"),
+            tr("Risk-based Cost (Allocated Predicted)"),
             tr("Risk-based Cost (Actual)"),
-            tr("Travel Time Cost (Predicted)"),
+            tr("Travel Time Cost (Allocated Predicted)"),
             tr("Travel Time Cost (Actual)")};
 
         // Populate data for each path's segment
@@ -2234,14 +2294,28 @@ void PathComparisonDialog::onExportButtonClicked()
                                             .predictedTravelTimeHours,
                                     4);
                     writeMetricLine(
-                        PK::Segment::CarbonEmissions,
+                        QStringLiteral("vehicle_")
+                            + PK::Segment::CarbonEmissions,
                         displayValues
                             .predictedCarbonEmissions,
                         4);
                     writeMetricLine(
-                        PK::Segment::EnergyConsumption,
+                        QStringLiteral("allocated_")
+                            + PK::Segment::CarbonEmissions,
+                        displayValues
+                            .predictedAllocatedCarbonEmissions,
+                        4);
+                    writeMetricLine(
+                        QStringLiteral("vehicle_")
+                            + PK::Segment::EnergyConsumption,
                         displayValues
                             .predictedEnergyConsumption,
+                        4);
+                    writeMetricLine(
+                        QStringLiteral("allocated_")
+                            + PK::Segment::EnergyConsumption,
+                        displayValues
+                            .predictedAllocatedEnergyConsumption,
                         4);
                     writeMetricLine(PK::Segment::Risk,
                                     displayValues
@@ -2312,7 +2386,8 @@ void PathComparisonDialog::onExportButtonClicked()
                 QStringList allKeys = attributes.keys();
                 for (const QString &key : allKeys)
                 {
-                    if (key != PK::Segment::Estimated)
+                    if (key != PK::Segment::Estimated
+                        && key != PK::Segment::EstimatedAllocated)
                     {
                         QJsonValue value = attributes[key];
                         if (value.isObject())

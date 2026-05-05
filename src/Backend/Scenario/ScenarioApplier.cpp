@@ -419,6 +419,7 @@ bool ScenarioApplier::applySettings(const ScenarioDocument &doc,
         if (m.fuelType.has_value())   modeMap[PK::Mode::FuelType]               = m.fuelType.value();
         if (m.fuelRate.has_value())   modeMap[PK::Mode::AverageFuelConsumption] = m.fuelRate.value();
         if (m.containers.has_value()) modeMap[PK::Mode::AverageContainerNumber] = m.containers.value();
+        if (m.locomotives.has_value()) modeMap[PK::Mode::AverageLocomotiveCount] = m.locomotives.value();
         if (const auto risk = m.riskUnits())
             modeMap[PK::Mode::RiskFactor] = risk->value();
         if (m.timeValue.has_value())  modeMap[PK::Mode::TimeValueOfMoney]       = m.timeValue.value();

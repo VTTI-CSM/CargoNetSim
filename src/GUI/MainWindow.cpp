@@ -477,6 +477,21 @@ void MainWindow::setRuntime(
     if (m_terminalCtrl)   m_terminalCtrl->setRuntime(raw);
     if (m_connectionCtrl) m_connectionCtrl->setRuntime(raw);
 
+    if (raw && shortestPathTable_)
+    {
+        connect(raw,
+                &Backend::Scenario::ScenarioRuntime::preparedPathsInvalidated,
+                shortestPathTable_,
+                [this](const QString &reason) {
+                    qCInfo(lcGui)
+                        << "MainWindow::setRuntime: prepared paths invalidated"
+                        << "reason=" << reason;
+                    shortestPathTable_->clear();
+                    if (shortestPathTableDock_)
+                        shortestPathTableDock_->hide();
+                });
+    }
+
     // Propagate the new ScenarioDocument to both input controllers
     // and clear the (shared) undo stack exactly once.
     {

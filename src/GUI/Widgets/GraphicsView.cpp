@@ -13,6 +13,7 @@
 #include <cmath>
 
 #include "../MainWindow.h"
+#include "Backend/Commons/GeoProjection.h"
 #include "Backend/Commons/LogCategories.h"
 #include "GUI/Widgets/GraphicsScene.h"
 
@@ -263,82 +264,33 @@ QPointF GraphicsView::convertCoordinates(
             return QPointF(0, 0);
         }
 
-        // WGS 84 Web Mercator constants
-        constexpr double EARTH_RADIUS =
-            6378137.0; // Earth radius in meters
-        constexpr double HALF_CIRCUMFERENCE =
-            M_PI * EARTH_RADIUS; // Half the Earth's
-                                 // circumference
-        constexpr double ORIGIN_SHIFT =
-            HALF_CIRCUMFERENCE; // Used for coordinate
-                                // origin shift
-
         if (direction == "to_projected")
         {
-            // Extract longitude and latitude
-            double lon = point.x();
-            double lat = point.y();
-
-            // Clamp latitude to the valid range for Web
-            // Mercator
-            lat = std::max(std::min(lat, 85.051129),
-                           -85.051129);
-
-            // Convert to radians
-            double lonRad = lon * M_PI / 180.0;
-            double latRad = lat * M_PI / 180.0;
-
-            // Calculate Web Mercator coordinates
-            double x = EARTH_RADIUS * lonRad;
-            double y =
-                EARTH_RADIUS
-                * std::log(std::tan(M_PI / 4 + latRad / 2));
-
-            // Safety check for output values
-            if (!std::isfinite(x) || !std::isfinite(y))
+            const QPointF projected =
+                Backend::Commons::GeoProjection::
+                    wgs84ToWebMercatorMeters(point);
+            if (!std::isfinite(projected.x())
+                || !std::isfinite(projected.y()))
             {
                 return QPointF(0, 0);
             }
 
-            return QPointF(x, y);
+            return projected;
         }
         else
         { // to_geodetic
-            // Extract projected coordinates
-            double x = point.x();
-            double y = point.y();
-
-            // Safety check for extreme values
-            if (std::abs(x) > 1e15 || std::abs(y) > 1e15)
-            {
-                return QPointF(0, 0);
-            }
-
-            // Convert from Web Mercator to geodetic
-            // coordinates
-            double lonRad = x / EARTH_RADIUS;
-            double latRad =
-                2 * std::atan(std::exp(y / EARTH_RADIUS))
-                - M_PI / 2;
-
-            // Convert to degrees
-            double lonDeg = lonRad * 180.0 / M_PI;
-            double latDeg = latRad * 180.0 / M_PI;
-
-            // Ensure longitude is in the range [-180, 180]
-            lonDeg =
-                std::fmod(lonDeg + 180.0, 360.0) - 180.0;
-
-            // Safety check for output values
-            if (!std::isfinite(latDeg)
-                || !std::isfinite(lonDeg))
+            const QPointF lonLat =
+                Backend::Commons::GeoProjection::
+                    webMercatorMetersToWgs84(point);
+            if (!std::isfinite(lonLat.x())
+                || !std::isfinite(lonLat.y()))
             {
                 return QPointF(0, 0);
             }
 
             // Return geodetic coordinates (not scene
             // coordinates!)
-            return QPointF(lonDeg, latDeg);
+            return lonLat;
         }
     }
     catch (const std::exception &e)

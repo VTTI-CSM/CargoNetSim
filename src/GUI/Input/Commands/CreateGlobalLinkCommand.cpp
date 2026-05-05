@@ -3,7 +3,6 @@
 #include "../../../Backend/Application/RouteAuthoringService.h"
 #include "../../../Backend/Commons/LogCategories.h"
 #include "../../../Backend/Controllers/CargoNetSimController.h"
-#include "../../../Backend/Scenario/RouteMetricUnits.h"
 #include "../../../Backend/Scenario/ScenarioDocument.h"
 
 #include <QLoggingCategory>
@@ -36,11 +35,21 @@ void CreateGlobalLinkCommand::redo()
         CargoNetSim::CargoNetSimController::getInstance();
     Backend::Application::RouteAuthoringService routeAuthoringService(
         &controller);
+    const auto propertyResult =
+        routeAuthoringService.computeEndpointCanonicalRouteProperties(
+            *m_doc, m_fromId, m_toId, m_mode);
+    if (!propertyResult.succeeded()) {
+        qCWarning(lcGuiInputCmd)
+            << "CreateGlobalLinkCommand::redo: metric computation failed"
+            << m_fromId << "->" << m_toId
+            << propertyResult.message;
+        setObsolete(true);
+        return;
+    }
     const auto result =
         routeAuthoringService.createGlobalLink(
             *m_doc, m_fromId, m_toId, m_mode,
-            Backend::Scenario::RouteMetricUnits::
-                defaultCanonicalProperties(),
+            propertyResult.canonicalProperties,
             Backend::Scenario::LinkageSource::Manual);
     if (!result.succeeded()) {
         qCWarning(lcGuiInputCmd)

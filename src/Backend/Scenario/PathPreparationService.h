@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "PreparedPathStatus.h"
+#include "Backend/Models/PathSegment.h"
 #include "PathKey.h"
 #include "PathMetrics.h"
 
@@ -35,6 +36,8 @@ struct PreparedPathRecord
     PreparedPathRequirements                    requirements;
     std::shared_ptr<CargoNetSim::Backend::Path> path;
     PathMetrics                                 predictedMetrics;
+    QList<CargoNetSim::Backend::PathSegment::SegmentCostSnapshot>
+        predictedSegmentCosts;
 };
 
 class PreparedPathSet

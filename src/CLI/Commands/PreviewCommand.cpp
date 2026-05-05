@@ -3,6 +3,7 @@
 #include <QIODevice>
 #include <QJsonDocument>
 #include <QString>
+#include <QStringList>
 
 #include <cstdio>
 
@@ -17,6 +18,55 @@
 namespace CargoNetSim {
 namespace Cli {
 
+namespace {
+
+struct PreviewOptions
+{
+    QString scenarioPath;
+    bool    allErrors = false;
+};
+
+bool parsePreviewArgs(const QStringList &args,
+                      PreviewOptions   *options,
+                      QString          *error)
+{
+    QStringList positional;
+    for (const QString &arg : args)
+    {
+        if (arg == QLatin1String("--all-errors"))
+        {
+            options->allErrors = true;
+            continue;
+        }
+        if (arg.startsWith(QLatin1Char('-')))
+        {
+            *error = QStringLiteral(
+                "preview: unsupported flag '%1' (supported: --all-errors)\n")
+                .arg(arg);
+            return false;
+        }
+        positional.append(arg);
+    }
+
+    if (positional.isEmpty())
+    {
+        *error = QStringLiteral("preview: missing scenario.yml path\n");
+        return false;
+    }
+
+    if (positional.size() != 1)
+    {
+        *error = QStringLiteral(
+            "preview: expected exactly one scenario.yml path\n");
+        return false;
+    }
+
+    options->scenarioPath = positional.first();
+    return true;
+}
+
+} // namespace
+
 PreviewCommand::PreviewCommand(QIODevice *outSink, QIODevice *errSink)
     : m_out(outSink)
     , m_err(errSink)
@@ -27,15 +77,17 @@ int PreviewCommand::execute(const QStringList &args)
 {
     qCInfo(lcCli) << "PreviewCommand::execute: entry, args =" << args;
 
-    if (args.isEmpty())
+    PreviewOptions options;
+    QString parseError;
+    if (!parsePreviewArgs(args, &options, &parseError))
     {
-        qCWarning(lcCli) << "PreviewCommand::execute: missing scenario path";
-        streamToOr(m_err, stderr,
-                   QStringLiteral("preview: missing scenario.yml path\n"));
+        qCWarning(lcCli) << "PreviewCommand::execute: bad arguments —"
+                         << parseError.trimmed();
+        streamToOr(m_err, stderr, parseError);
         return static_cast<int>(ExitCode::BadArgs);
     }
 
-    const QString path = args.first();
+    const QString path = options.scenarioPath;
     qCInfo(lcCli) << "PreviewCommand::execute: scenario path =" << path;
 
     // ---- Parse + validate ------------------------------------------------
@@ -58,12 +110,14 @@ int PreviewCommand::execute(const QStringList &args)
         return static_cast<int>(ExitCode::ValidationFailed);
     }
 
-    // Emit every issue to stderr so users see *why* preview failed,
-    // not a silent exit code. Warnings are printed but don't change
-    // the exit code (same rule as ValidateCommand / spec §8.3).
+    // Emit validation diagnostics to stderr so users see why preview failed.
+    // Large issue sets are summarized unless the caller requests --all-errors.
+    // Warnings are printed but don't change the exit code.
     bool          hasError = false;
     const QString issueBuf =
-        formatValidationIssues(parseResult.issues, &hasError);
+        formatValidationIssues(
+            parseResult.issues, &hasError,
+            validationIssueFormatOptions(options.allErrors));
     if (!issueBuf.isEmpty())
         streamToOr(m_err, stderr, issueBuf);
     if (!parseResult.succeeded())
@@ -90,6 +144,25 @@ int PreviewCommand::execute(const QStringList &args)
         qCCritical(lcCli)
             << "PreviewCommand::execute: preview build failed —"
             << previewResult.message;
+        if (previewResult.status
+            == Backend::Application::ScenarioPreviewServiceStatus::
+                   ValidationFailed)
+        {
+            const QString issueBuffer =
+                formatValidationIssues(
+                    previewResult.issues, nullptr,
+                    validationIssueFormatOptions(options.allErrors));
+            if (!issueBuffer.isEmpty())
+                streamToOr(m_err, stderr, issueBuffer);
+            if (issueBuffer.isEmpty())
+            {
+                streamToOr(m_err, stderr,
+                           QStringLiteral(
+                               "preview: resolved scenario validation failed: %1\n")
+                               .arg(previewResult.message));
+            }
+            return static_cast<int>(ExitCode::ValidationFailed);
+        }
         streamToOr(m_err, stderr,
                    QStringLiteral(
                        "preview: failed to load networks: %1\n")

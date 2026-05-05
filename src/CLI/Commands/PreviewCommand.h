@@ -8,9 +8,12 @@ namespace CargoNetSim {
 namespace Cli {
 
 /**
- * @brief `cargonetsim-cli preview <scenario.yml>` — load, validate,
+ * @brief `cargonetsim-cli preview [--all-errors] <scenario.yml>` — load, validate,
  *        build a preview-linked document and emit it as indented JSON
  *        to stdout.
+ *
+ * Large validation issue sets are grouped by default. `--all-errors`
+ * restores one-line-per-issue output.
  *
  * Plan 5 Task 14. Preview linking is owned by the backend
  * `ScenarioPreviewService`: graph-dependent inputs are loaded into a

@@ -740,6 +740,55 @@ TrainSimulationClient::getAllTrainsStates() const
     return allStates;
 }
 
+QString TrainSimulationClient::cacheTrainStateSnapshot(
+    const QString &networkName,
+    const QJsonObject &stateJson,
+    const QString &sourceEvent)
+{
+    if (networkName.isEmpty() || stateJson.isEmpty())
+        return {};
+
+    auto *state = new TrainState(stateJson);
+    const QString trainId = state->getTrainUserId();
+    if (trainId.isEmpty())
+    {
+        delete state;
+        qCWarning(lcClientTrain)
+            << "TrainSimulationClient::cacheTrainStateSnapshot:"
+            << "ignoring state without trainUserID"
+            << "sourceEvent=" << sourceEvent
+            << "network=" << networkName;
+        return {};
+    }
+
+    Commons::ScopedWriteLock locker(m_dataAccessMutex);
+    auto &states = m_trainState[networkName];
+    for (int i = 0; i < states.size(); ++i)
+    {
+        if (states[i] && states[i]->getTrainUserId() == trainId)
+        {
+            delete states[i];
+            states[i] = state;
+            qCDebug(lcClientTrain)
+                << "TrainSimulationClient::cacheTrainStateSnapshot:"
+                << "updated"
+                << "sourceEvent=" << sourceEvent
+                << "network=" << networkName
+                << "trainId=" << trainId;
+            return trainId;
+        }
+    }
+
+    states.append(state);
+    qCDebug(lcClientTrain)
+        << "TrainSimulationClient::cacheTrainStateSnapshot:"
+        << "inserted"
+        << "sourceEvent=" << sourceEvent
+        << "network=" << networkName
+        << "trainId=" << trainId;
+    return trainId;
+}
+
 void TrainSimulationClient::onEventReceived(
     const QString     &event,
     const QJsonObject &message)
@@ -860,41 +909,31 @@ void TrainSimulationClient::onTrainReachedDestination(
     // Update cached train state only. Unload and terminal
     // handoff semantics belong to the explicit
     // trainReachedTerminal event.
+    QJsonObject trainStatus =
+        message["state"].toObject();
+
+    for (auto it = trainStatus.begin();
+         it != trainStatus.end(); ++it)
     {
-        Commons::ScopedWriteLock locker(m_dataAccessMutex);
+        QString network = it.key();
+        QJsonObject data = it.value()
+                               .toObject()["trainState"]
+                               .toObject();
 
-        QJsonObject trainStatus =
-            message["state"].toObject();
+        const QString trainId = cacheTrainStateSnapshot(
+            network, data, QStringLiteral("trainReachedDestination"));
+        if (!trainId.isEmpty())
+            trainIds.append(trainId);
 
-        for (auto it = trainStatus.begin();
-             it != trainStatus.end(); ++it)
+        int containersCount =
+            data["containersCount"].toInt();
+        if (containersCount > 0)
         {
-            QString network = it.key();
-
-            if (!m_trainState.contains(network))
-            {
-                m_trainState[network] =
-                    QList<TrainState *>();
-            }
-
-            QJsonObject data = it.value()
-                                   .toObject()["trainState"]
-                                   .toObject();
-
-            TrainState *state = new TrainState(data);
-            m_trainState[network].append(state);
-            trainIds.append(state->getTrainUserId());
-
-            int containersCount =
-                data["containersCount"].toInt();
-            if (containersCount > 0)
-            {
-                qCInfo(lcClientTrain)
-                    << "TrainSimulationClient::onTrainReachedDestination:"
-                    << "network=" << network
-                    << "trainId=" << state->getTrainUserId()
-                    << "containersCount=" << containersCount;
-            }
+            qCInfo(lcClientTrain)
+                << "TrainSimulationClient::onTrainReachedDestination:"
+                << "network=" << network
+                << "trainId=" << trainId
+                << "containersCount=" << containersCount;
         }
     }
 
@@ -1162,6 +1201,32 @@ void TrainSimulationClient::onTrainReachedTerminal(
         message["containersCount"].toInt();
     QString network = message["networkName"].toString();
     QString trainId = message["trainID"].toString();
+    const QJsonObject trainState =
+        message.value(QStringLiteral("state")).toObject();
+    if (!trainState.isEmpty())
+    {
+        const QString cachedTrainId = cacheTrainStateSnapshot(
+            network, trainState,
+            QStringLiteral("trainReachedTerminal"));
+        if (!cachedTrainId.isEmpty() && cachedTrainId != trainId)
+        {
+            qCWarning(lcClientTrain)
+                << "TrainSimulationClient::onTrainReachedTerminal:"
+                << "event trainID does not match state trainUserID"
+                << "eventTrainId=" << trainId
+                << "stateTrainId=" << cachedTrainId
+                << "network=" << network;
+        }
+    }
+    else
+    {
+        qCDebug(lcClientTrain)
+            << "TrainSimulationClient::onTrainReachedTerminal:"
+            << "terminal event has no state snapshot"
+            << "network=" << network
+            << "trainId=" << trainId
+            << "terminalId=" << terminalId;
+    }
 
     // Process if containers exist and terminal is valid
     if (m_terminalClient && containersCount > 0

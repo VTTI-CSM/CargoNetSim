@@ -1,6 +1,7 @@
 #include "RouteMetricUnits.h"
 
 #include "Backend/Commons/Units.h"
+#include "PathMetrics.h"
 
 #include <QString>
 #include <QStringList>
@@ -99,6 +100,18 @@ QVariantMap defaultCanonicalProperties()
     return props;
 }
 
+QVariantMap completeCanonicalProperties(
+    const QVariantMap &canonicalProperties)
+{
+    QVariantMap props = defaultCanonicalProperties();
+    for (auto it = canonicalProperties.constBegin();
+         it != canonicalProperties.constEnd(); ++it)
+    {
+        props.insert(it.key(), it.value());
+    }
+    return props;
+}
+
 QVariantMap canonicalPropertiesFromDisplay(
     const QVariantMap &displayProperties)
 {
@@ -123,6 +136,25 @@ QVariantMap serializedPropertiesFromCanonical(
     const QVariantMap &canonicalProperties)
 {
     return remapNumericValues(canonicalProperties, false, false);
+}
+
+QVariantMap canonicalPropertiesFromMetrics(
+    const PathMetrics &metrics)
+{
+    QVariantMap displayProperties;
+    displayProperties.insert(QStringLiteral("cost"), 0.0);
+    displayProperties.insert(QStringLiteral("travelTime"),
+                             metrics.travelTimeHours);
+    displayProperties.insert(QStringLiteral("distance"),
+                             metrics.distanceKm);
+    displayProperties.insert(QStringLiteral("carbonEmissions"),
+                             metrics.carbonPerVehicle);
+    displayProperties.insert(QStringLiteral("risk"),
+                             metrics.riskPerVehicle);
+    displayProperties.insert(QStringLiteral("energyConsumption"),
+                             metrics.energyPerVehicle);
+    return completeCanonicalProperties(
+        canonicalPropertiesFromDisplay(displayProperties));
 }
 
 QJsonObject routeAttributesFromCanonical(

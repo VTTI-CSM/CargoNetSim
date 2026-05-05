@@ -613,10 +613,29 @@ void CargoNetSim::GUI::UtilitiesFunctions::
         }
     }
 
+    auto *rt = mainWindow->runtime();
+    if (!rt)
+    {
+        mainWindow->showStatusBarError(
+            QStringLiteral("No scenario loaded."), 3000);
+        return;
+    }
+
+    QString applyError;
+    if (!rt->ensureApplied(&applyError))
+    {
+        mainWindow->showStatusBarError(
+            applyError.isEmpty()
+                ? QStringLiteral(
+                      "Scenario could not be applied before path discovery.")
+                : applyError,
+            5000);
+        return;
+    }
+
     // Create a worker and a thread
     QThread           *thread = new QThread();
     PathFindingWorker *worker = new PathFindingWorker();
-    auto              *rt     = mainWindow->runtime();
     auto              &ctl =
         CargoNetSim::CargoNetSimController::getInstance();
     worker->initialize(&rt->document(), &rt->registry(),
@@ -698,211 +717,75 @@ bool CargoNetSim::GUI::UtilitiesFunctions::
         && mode != Backend::TransportationTypes::TransportationMode::Truck)
         return false;  // Ship/Any handled elsewhere (global view)
 
-    QString regionName;
+    if (!mainWindow || !sourceTerminal || !targetTerminal)
+        return false;
 
-    if (sourceTerminal && targetTerminal)
-    {
-        if (sourceTerminal == targetTerminal)
-        {
-            return false;
-        }
+    if (sourceTerminal == targetTerminal)
+        return false;
 
-        if (sourceTerminal->getRegion()
-            != targetTerminal->getRegion())
-        {
-            mainWindow->showStatusBarError(
-                "Terminals are in different regions.",
-                3000);
-            return false;
-        }
-        else
-        {
-            regionName = sourceTerminal->getRegion();
-        }
-    }
-    else
+    if (sourceTerminal->getRegion() != targetTerminal->getRegion())
     {
+        mainWindow->showStatusBarError(
+            "Terminals are in different regions.",
+            3000);
         return false;
     }
 
-    // Get map points for both terminals
-    QList<CargoNetSim::GUI::MapPoint *> sourcePoints =
-        getMapPointsOfTerminal(mainWindow->regionScene_,
-                               sourceTerminal, regionName,
-                               "*", networkType);
-
-    QList<CargoNetSim::GUI::MapPoint *> targetPoints =
-        getMapPointsOfTerminal(mainWindow->regionScene_,
-                               targetTerminal, regionName,
-                               "*", networkType);
-
-    bool continueProcess = true;
-    if (sourcePoints.empty())
+    auto *runtime = mainWindow->runtime();
+    if (!runtime)
     {
-        // mainWindow->showStatusBarError(
-        //     QString("Terminal %1 has no associated
-        //     nodes.")
-        //         .arg(sourceTerminal->getProperty("Name",
-        //         "")
-        //                  .toString()),
-        //     3000);
-        continueProcess = false;
-    }
-
-    if (targetPoints.empty())
-    {
-        // mainWindow->showStatusBarError(
-        //     QString("Terminal %1 has no associated
-        //     nodes.")
-        //         .arg(targetTerminal->getProperty("Name",
-        //         "")
-        //                  .toString()),
-        //     3000);
-        continueProcess = false;
-    }
-
-    if (!continueProcess)
+        qCWarning(lcGuiUtil)
+            << "processNetworkModeConnection: no ScenarioRuntime";
         return false;
-
-    // Group map points by network
-    QMap<QString, QList<CargoNetSim::GUI::MapPoint *>>
-        sourceNetworks;
-    QMap<QString, QList<CargoNetSim::GUI::MapPoint *>>
-        targetNetworks;
-
-    auto getNetworkName = [](GUI::MapPoint *point) {
-        Backend::Application::NetworkViewService networkView;
-        QString networkName =
-            networkView.networkNameOf(
-                point->getReferenceNetwork());
-        return networkName;
-    };
-
-    for (auto it = sourcePoints.constBegin();
-         it != sourcePoints.constEnd(); ++it)
-    {
-        QString network = getNetworkName(*it);
-        if (!network.isEmpty())
-            sourceNetworks[network].append(*it);
     }
 
-    for (auto it = targetPoints.constBegin();
-         it != targetPoints.constEnd(); ++it)
+    const QString sourceId = sourceTerminal->getTerminalId();
+    const QString targetId = targetTerminal->getTerminalId();
+    if (sourceId.isEmpty() || targetId.isEmpty())
     {
-        QString network = getNetworkName(*it);
-        if (!network.isEmpty())
-            targetNetworks[network].append(*it);
+        qCWarning(lcGuiUtil)
+            << "processNetworkModeConnection: unbound terminal item"
+            << "sourceId=" << sourceId << "targetId=" << targetId;
+        return false;
     }
 
-    // Find common networks
-    QSet<QString> sourceNetworkNames;
-    for (auto it = sourceNetworks.constBegin();
-         it != sourceNetworks.constEnd(); ++it)
+    auto &controller =
+        CargoNetSim::CargoNetSimController::getInstance();
+    Backend::Application::RouteAuthoringService routeAuthoringService(
+        &controller);
+    const auto routeResult =
+        routeAuthoringService.upsertNetworkBackedConnection(
+            runtime->document(), sourceId, targetId, mode,
+            Backend::Scenario::LinkageSource::Manual);
+    if (!routeResult.succeeded())
     {
-        sourceNetworkNames.insert(it.key());
+        qCDebug(lcGuiUtil)
+            << "processNetworkModeConnection: backend route authoring failed"
+            << sourceId << "->" << targetId
+            << "mode=" << static_cast<int>(mode)
+            << routeResult.message;
+        return false;
     }
 
-    QSet<QString> targetNetworkNames;
-    for (auto it = targetNetworks.constBegin();
-         it != targetNetworks.constEnd(); ++it)
+    CargoNetSim::GUI::ConnectionLine *connection =
+        mainWindow->connectionCtrl()->createConnectionLine(
+            sourceTerminal, targetTerminal, mode);
+    if (!connection)
     {
-        targetNetworkNames.insert(it.key());
+        qCWarning(lcGuiUtil)
+            << "processNetworkModeConnection: route was authored but no view line was rendered"
+            << sourceId << "->" << targetId
+            << "mode=" << static_cast<int>(mode);
+        return false;
     }
 
-    QSet<QString> commonNetworks = sourceNetworkNames;
-    commonNetworks.intersect(targetNetworkNames);
-
-    // Check each common network for valid paths.
-    for (const QString &network : commonNetworks)
-    {
-        auto sourcePointsForNetwork =
-            sourceNetworks[network];
-        auto targetPointsForNetwork =
-            targetNetworks[network];
-
-        for (auto sourcePoint : sourcePointsForNetwork)
-        {
-            for (auto targetPoint : targetPointsForNetwork)
-            {
-                try
-                {
-                    QString sourceNodeId =
-                        sourcePoint
-                            ->getReferencedNetworkNodeID();
-                    QString targetNodeId =
-                        targetPoint
-                            ->getReferencedNetworkNodeID();
-
-                    bool validSourceID, validTargetID;
-                    int  sourceID =
-                        sourceNodeId.toInt(&validSourceID);
-                    int targetID =
-                        targetNodeId.toInt(&validTargetID);
-
-                    if (!validSourceID || !validTargetID)
-                    {
-                        qCWarning(lcGuiUtil) << "Invalid source or "
-                                                "target node ID:"
-                                             << sourceNodeId << "or"
-                                             << targetNodeId;
-                        continue;
-                    }
-
-                    // Find shortest path
-                    CargoNetSim::Backend::ShortestPathResult
-                        result = NetworkController::
-                            findNetworkShortestPath(
-                                regionName, network,
-                                networkType, sourceID,
-                                targetID);
-
-                    if (!result.pathNodes.empty()
-                        && result.pathNodes.size() > 1)
-                    {
-                        auto &ctl =
-                            CargoNetSim::CargoNetSimController::getInstance();
-                        Backend::Application::RouteAuthoringService routeAuthoringService(
-                            &ctl);
-                        const auto propertyResult =
-                            routeAuthoringService.computeCanonicalRouteProperties(
-                                result, mode);
-                        if (!propertyResult.succeeded())
-                        {
-                            qCWarning(lcGuiUtil)
-                                << "processNetworkModeConnection: failed to compute route properties:"
-                                << propertyResult.message;
-                            return false;
-                        }
-
-                        // Create connection
-                        CargoNetSim::GUI::ConnectionLine
-                            *connection =
-                                mainWindow->connectionCtrl()
-                                    ->createConnectionLine(
-                                        sourceTerminal,
-                                        targetTerminal,
-                                        mode,
-                                        propertyResult.canonicalProperties);
-
-                        if (!connection)
-                        {
-                            continue;
-                        }
-
-                        return true;
-                    }
-                }
-                catch (const std::exception &e)
-                {
-                    qCWarning(lcGuiUtil)
-                        << "Error processing network path:"
-                        << e.what();
-                }
-            }
-        }
-    }
-
-    return false;
+    qCDebug(lcGuiUtil)
+        << "processNetworkModeConnection: selected network-backed route"
+        << sourceId << "->" << targetId
+        << "network=" << routeResult.selectedNetworkName
+        << "nodes=" << routeResult.selectedStartNodeId
+        << "->" << routeResult.selectedEndNodeId;
+    return true;
 }
 
 void CargoNetSim::GUI::UtilitiesFunctions::

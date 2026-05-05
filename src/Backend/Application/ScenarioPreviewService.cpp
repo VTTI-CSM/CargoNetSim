@@ -4,6 +4,7 @@
 #include "Backend/Scenario/ScenarioDocument.h"
 #include "Backend/Scenario/ScenarioLinker.h"
 #include "Backend/Scenario/ScenarioRegistry.h"
+#include "Backend/Scenario/ScenarioValidator.h"
 
 namespace CargoNetSim
 {
@@ -11,6 +12,39 @@ namespace Backend
 {
 namespace Application
 {
+
+namespace
+{
+
+bool hasValidationErrors(
+    const QList<Scenario::ValidationIssue> &issues)
+{
+    for (const auto &issue : issues)
+    {
+        if (issue.severity
+            == Scenario::ValidationIssue::Severity::Error)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+QString firstValidationError(
+    const QList<Scenario::ValidationIssue> &issues)
+{
+    for (const auto &issue : issues)
+    {
+        if (issue.severity
+            == Scenario::ValidationIssue::Severity::Error)
+        {
+            return issue.message;
+        }
+    }
+    return QString();
+}
+
+} // namespace
 
 ScenarioPreviewServiceResult
 ScenarioPreviewService::buildPreviewJson(
@@ -46,6 +80,19 @@ ScenarioPreviewService::buildPreviewJson(
     document->globalLinks =
         Scenario::ScenarioLinker::resolveGlobalLinks(*document,
                                                      registry);
+
+    result.issues = Scenario::ScenarioValidator::validate(*document);
+    if (hasValidationErrors(result.issues))
+    {
+        result.status =
+            ScenarioPreviewServiceStatus::ValidationFailed;
+        const QString firstError =
+            firstValidationError(result.issues);
+        result.message = firstError.isEmpty()
+            ? QStringLiteral("Resolved preview scenario validation failed")
+            : firstError;
+        return result;
+    }
 
     ScenarioPersistenceService persistenceService;
     result.status = ScenarioPreviewServiceStatus::Success;

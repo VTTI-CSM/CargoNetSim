@@ -4,6 +4,7 @@
 
 #include "Backend/Commons/TransportationMode.h"
 #include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Controllers/VehicleController.h"
 #include "Backend/Models/Path.h"
 #include "Backend/Models/PathSegment.h"
 #include "PathPreparationService.h"
@@ -47,6 +48,14 @@ PreparedPathEligibilityService::currentAvailability()
         isCommandAvailable(controller->getShipClient());
     availability.truckAvailable =
         isCommandAvailable(controller->getTruckManager());
+
+    auto *vehicles = controller->getVehicleController();
+    availability.trainFleetAvailable =
+        vehicles && vehicles->trainCount() > 0;
+    availability.shipFleetAvailable =
+        vehicles && vehicles->shipCount() > 0;
+    availability.truckFleetAvailable =
+        availability.truckAvailable;
     return availability;
 }
 
@@ -100,10 +109,21 @@ PreparedPathEligibilityService::evaluate(
         blocking.append(
             QStringLiteral("NeTrainSim consumer is unavailable"));
     }
+    if (requirements.trainRequired
+        && !availability.trainFleetAvailable)
+    {
+        blocking.append(QStringLiteral(
+            "train fleet is empty; load at least one train before simulation"));
+    }
     if (requirements.shipRequired && !availability.shipAvailable)
     {
         blocking.append(
             QStringLiteral("ShipNetSim consumer is unavailable"));
+    }
+    if (requirements.shipRequired && !availability.shipFleetAvailable)
+    {
+        blocking.append(QStringLiteral(
+            "ship fleet is empty; load at least one ship before simulation"));
     }
     if (requirements.truckRequired)
     {

@@ -10,6 +10,8 @@ namespace Backend
 {
 namespace Scenario
 {
+struct PathMetrics;
+
 namespace RouteMetricUnits
 {
 
@@ -18,6 +20,8 @@ QStringList missingCanonicalRouteMetricKeys(
     const QVariantMap &properties);
 
 QVariantMap defaultCanonicalProperties();
+QVariantMap completeCanonicalProperties(
+    const QVariantMap &canonicalProperties);
 QVariantMap canonicalPropertiesFromDisplay(
     const QVariantMap &displayProperties);
 QVariantMap displayPropertiesFromCanonical(
@@ -27,6 +31,8 @@ QVariantMap canonicalPropertiesFromSerialized(
     int                schemaVersion);
 QVariantMap serializedPropertiesFromCanonical(
     const QVariantMap &canonicalProperties);
+QVariantMap canonicalPropertiesFromMetrics(
+    const PathMetrics &metrics);
 
 QJsonObject routeAttributesFromCanonical(
     const QVariantMap &canonicalProperties);

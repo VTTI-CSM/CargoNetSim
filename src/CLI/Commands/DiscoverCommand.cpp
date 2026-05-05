@@ -35,6 +35,7 @@ struct Options
     bool    json = false;
     bool    details = false;
     bool    verbose = false;
+    bool    allErrors = false;
     bool    hasTopOverride = false;
     int     topOverride = 0;
 };
@@ -588,6 +589,11 @@ bool parseArgs(const QStringList &args, Options &options,
             options.verbose = true;
             continue;
         }
+        if (arg == QLatin1String("--all-errors"))
+        {
+            options.allErrors = true;
+            continue;
+        }
         if (arg == QLatin1String("--top"))
         {
             if (i + 1 >= args.size())
@@ -618,7 +624,7 @@ bool parseArgs(const QStringList &args, Options &options,
         {
             *error = QStringLiteral(
                 "discover: unsupported flag '%1' "
-                "(supported: --top N, --json, --details, --verbose)\n")
+                "(supported: --top N, --json, --details, --verbose, --all-errors)\n")
                          .arg(arg);
             return false;
         }
@@ -689,7 +695,9 @@ int DiscoverCommand::execute(const QStringList &args)
 
     bool hasError = false;
     const QString issueBuffer =
-        formatValidationIssues(parseResult.issues, &hasError);
+        formatValidationIssues(
+            parseResult.issues, &hasError,
+            validationIssueFormatOptions(options.allErrors));
     if (!issueBuffer.isEmpty())
         streamToOr(m_err, stderr, issueBuffer);
     if (!parseResult.succeeded())

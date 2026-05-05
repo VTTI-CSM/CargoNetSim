@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Backend/Scenario/ValidationIssue.h"
+
+#include <QList>
 #include <QJsonObject>
 #include <QString>
 
@@ -21,15 +24,17 @@ enum class ScenarioPreviewServiceStatus
 {
     Success,
     InvalidInput,
-    NetworkLoadFailed
+    NetworkLoadFailed,
+    ValidationFailed
 };
 
 struct ScenarioPreviewServiceResult
 {
     ScenarioPreviewServiceStatus status =
         ScenarioPreviewServiceStatus::InvalidInput;
-    QString     message;
-    QJsonObject previewJson;
+    QString                                  message;
+    QList<Scenario::ValidationIssue>        issues;
+    QJsonObject                             previewJson;
 
     bool succeeded() const
     {

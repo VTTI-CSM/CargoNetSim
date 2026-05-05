@@ -47,6 +47,10 @@ void EstimatedPhysicsPopulator::populate(
             modes, fuelEnergy, fuelCarbon);
 
         seg->setEstimatedPhysicalMetrics(r.energyKWh, r.carbonTonnes, r.risk);
+        seg->setEstimatedAllocatedPhysicalMetrics(
+            r.allocatedEnergyKWh,
+            r.allocatedCarbonTonnes,
+            r.risk);
     }
 }
 

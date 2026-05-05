@@ -17,7 +17,6 @@ class CargoNetSimController;
 namespace Backend
 {
 class ConfigController;
-class VehicleController;
 
 namespace Scenario
 {
@@ -42,6 +41,12 @@ struct RouteAuthoringServiceResult
         RouteAuthoringServiceStatus::MutationFailed;
     QString     message;
     QVariantMap canonicalProperties;
+    QString     selectedNetworkName;
+    int         selectedStartNodeId = -1;
+    int         selectedEndNodeId = -1;
+    ShortestPathResult selectedPath;
+    bool        routeCreated = false;
+    bool        routeUpdated = false;
 
     bool succeeded() const
     {
@@ -53,8 +58,7 @@ class RouteAuthoringService
 {
 public:
     explicit RouteAuthoringService(::CargoNetSim::CargoNetSimController *controller);
-    RouteAuthoringService(ConfigController  *config,
-                          VehicleController *vehicles);
+    explicit RouteAuthoringService(ConfigController *config);
 
     RouteAuthoringServiceResult createConnection(
         Scenario::ScenarioDocument                     &document,
@@ -101,15 +105,37 @@ public:
         Scenario::ScenarioDocument                     &document,
         const Scenario::GlobalLink                     &snapshot) const;
 
+    RouteAuthoringServiceResult upsertNetworkBackedConnection(
+        Scenario::ScenarioDocument                     &document,
+        const QString                                 &fromTerminalId,
+        const QString                                 &toTerminalId,
+        TransportationTypes::TransportationMode        mode,
+        Scenario::LinkageSource                        source) const;
+
     RouteAuthoringServiceResult computeCanonicalRouteProperties(
         const ShortestPathResult                      &pathResult,
         TransportationTypes::TransportationMode        mode,
         std::optional<bool>                           overrideUseNetworkValue =
             std::nullopt) const;
 
+    RouteAuthoringServiceResult computeCanonicalRouteProperties(
+        const Scenario::ScenarioDocument              &document,
+        const ShortestPathResult                      &pathResult,
+        TransportationTypes::TransportationMode        mode,
+        std::optional<bool>                           overrideUseNetworkValue =
+            std::nullopt) const;
+
+    RouteAuthoringServiceResult computeEndpointCanonicalRouteProperties(
+        const Scenario::ScenarioDocument              &document,
+        const QString                                 &fromTerminalId,
+        const QString                                 &toTerminalId,
+        TransportationTypes::TransportationMode        mode,
+        std::optional<bool>                           overrideUseNetworkValue =
+            std::nullopt) const;
+
 private:
-    ConfigController  *m_config = nullptr;
-    VehicleController *m_vehicles = nullptr;
+    ::CargoNetSim::CargoNetSimController *m_controller = nullptr;
+    ConfigController *m_config = nullptr;
 };
 
 } // namespace Application

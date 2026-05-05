@@ -145,6 +145,7 @@ private:
     QCheckBox      *trainUseNetwork;
     QComboBox      *trainFuelType;
     QDoubleSpinBox *trainFuelSpin;
+    QSpinBox       *trainLocomotives;
     QSpinBox       *trainContainers;
     QDoubleSpinBox *trainRiskSpin;
     QDoubleSpinBox *trainTimeValueSpin;

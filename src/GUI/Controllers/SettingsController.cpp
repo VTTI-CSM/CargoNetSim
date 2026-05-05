@@ -107,6 +107,8 @@ QVariantMap SettingsController::toConfigMap(
             existing[PK::Mode::AverageFuelConsumption] = m.fuelRate.value();
         if (m.containers.has_value())
             existing[PK::Mode::AverageContainerNumber] = m.containers.value();
+        if (m.locomotives.has_value())
+            existing[PK::Mode::AverageLocomotiveCount] = m.locomotives.value();
         if (const auto risk = m.riskUnits())
             existing[PK::Mode::RiskFactor] = risk->value();
         if (m.fuelType.has_value())

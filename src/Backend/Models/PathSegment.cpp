@@ -268,6 +268,13 @@ PathSegment::SegmentMetricSnapshot PathSegment::estimatedValues() const
     return metricSnapshot(m_attributes, PK::Segment::Estimated);
 }
 
+PathSegment::SegmentMetricSnapshot
+PathSegment::estimatedAllocatedValues() const
+{
+    return metricSnapshot(m_attributes,
+                          PK::Segment::EstimatedAllocated);
+}
+
 PathSegment::SegmentCostSnapshot PathSegment::estimatedCosts() const
 {
     return costSnapshot(m_attributes, PK::Segment::EstimatedCost);
@@ -290,6 +297,18 @@ void PathSegment::setEstimatedPhysicalMetrics(
     est[PK::Segment::CarbonEmissions]   = carbonTonnes;
     est[PK::Segment::Risk]              = risk;
     m_attributes[PK::Segment::Estimated] = est;
+}
+
+void PathSegment::setEstimatedAllocatedPhysicalMetrics(
+    double energyKWh, double carbonTonnes, double risk)
+{
+    QJsonObject allocated =
+        m_attributes.value(PK::Segment::Estimated).toObject();
+    allocated[PK::Segment::EnergyConsumption] = energyKWh;
+    allocated[PK::Segment::CarbonEmissions]   = carbonTonnes;
+    allocated[PK::Segment::Risk]              = risk;
+    m_attributes[PK::Segment::EstimatedAllocated] =
+        allocated;
 }
 
 double PathSegment::estimatedEnergyConsumption() const

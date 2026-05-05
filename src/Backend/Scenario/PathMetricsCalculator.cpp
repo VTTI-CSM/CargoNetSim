@@ -4,8 +4,6 @@
 #include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/Units.h"
 #include "Backend/Controllers/ConfigController.h"
-#include "Backend/Controllers/VehicleController.h"
-#include "Backend/Models/TrainSystem.h"
 #include "PropertyKeys.h"
 
 #include <QString>
@@ -53,6 +51,19 @@ ModeLookup lookupFor(TransportationTypes::TransportationMode m)
                         << "mode=" << static_cast<int>(m)
                         << "configKey=" << lk.configKey;
     return lk;
+}
+
+double locomotiveCountForMode(TransportationTypes::TransportationMode mode,
+                              const QVariantMap &modeProperties)
+{
+    using Mode = TransportationTypes::TransportationMode;
+    if (mode != Mode::Train)
+        return 1.0;
+
+    return std::max(
+        1.0,
+        modeProperties.value(PK::Mode::AverageLocomotiveCount, 1.0)
+            .toDouble());
 }
 
 } // namespace
@@ -103,9 +114,14 @@ PathMetrics compute(double                                     distanceMeters,
             out.distanceKm / std::max(avgSpeed, 0.01)));
     }
 
-    out.fuelPerVehicle = inputs.modeProperties
-                               .value(PK::Mode::AverageFuelConsumption, 0.0)
-                               .toDouble();
+    const double fuelRatePerLocomotive =
+        inputs.modeProperties
+            .value(PK::Mode::AverageFuelConsumption, 0.0)
+            .toDouble();
+    const double locomotiveCount =
+        locomotiveCountForMode(mode, inputs.modeProperties);
+    out.fuelPerVehicle =
+        fuelRatePerLocomotive * out.distanceKm * locomotiveCount;
     out.setRiskPerVehicle(Units::scalar(
         inputs.modeProperties
             .value(PK::Mode::RiskFactor, 0.01)
@@ -122,11 +138,10 @@ PathMetrics compute(double                                     distanceMeters,
         inputs.fuelCarbonContent.value(out.fuelType, 2.68).toDouble();
 
     out.setEnergyPerVehicle(Units::kilowattHours(
-        out.fuelPerVehicle * out.distanceKm * calorific
-        * inputs.locomotiveMultiplier));
+        out.fuelPerVehicle * calorific));
     out.setCarbonPerVehicle(
         Units::toMetricTons(Units::kilograms(
-            out.fuelPerVehicle * out.distanceKm * carbonPerUnit)));
+            out.fuelPerVehicle * carbonPerUnit)));
 
     out.valid = true;
 
@@ -141,13 +156,11 @@ PathMetrics compute(double                                     distanceMeters,
 
 PathMetricsInputs gatherInputs(
     TransportationTypes::TransportationMode          mode,
-    const ConfigController                          &config,
-    const VehicleController                         *vehicles)
+    const ConfigController                          &config)
 {
     qCDebug(lcScenario) << "PathMetricsCalculator::gatherInputs:"
                         << "mode =" << static_cast<int>(mode);
 
-    using Mode = TransportationTypes::TransportationMode;
     PathMetricsInputs in;
     if (!modeSupported(mode)) return in;
 
@@ -171,17 +184,69 @@ PathMetricsInputs gatherInputs(
         qCWarning(lcScenario) << "PathMetricsCalculator::gatherInputs:"
                               << "fuel carbon content config is empty";
 
-    if (mode == Mode::Train && vehicles
-        && !vehicles->getAllTrains().isEmpty())
+    return in;
+}
+
+PathMetricsInputs gatherInputs(
+    TransportationTypes::TransportationMode mode,
+    const ConfigController                 &config,
+    const SimulationSettings               &settings)
+{
+    PathMetricsInputs in = gatherInputs(mode, config);
+    if (in.modeProperties.isEmpty())
+        return in;
+
+    const SimulationSettings::Mode *modeSettings = nullptr;
+    using Mode = TransportationTypes::TransportationMode;
+    switch (mode)
     {
-        // Deterministic: always use the first train (sorted by userId
-        // via QMap). getRandomTrain() was non-deterministic — for
-        // heterogeneous fleets, predicted and actual metrics would
-        // reference different locomotive counts across calls.
-        auto *t = vehicles->getAllTrains().first();
-        if (t)
-            in.locomotiveMultiplier = t->getLocomotives().count();
+    case Mode::Ship:
+        modeSettings = &settings.ship;
+        break;
+    case Mode::Train:
+        modeSettings = &settings.rail;
+        break;
+    case Mode::Truck:
+        modeSettings = &settings.truck;
+        break;
+    default:
+        return in;
     }
+
+    if (const auto speed = modeSettings->speedUnits())
+        in.modeProperties[PK::Mode::AverageSpeed] = speed->value();
+    if (modeSettings->fuelType.has_value())
+        in.modeProperties[PK::Mode::FuelType] =
+            modeSettings->fuelType.value();
+    if (modeSettings->fuelRate.has_value())
+        in.modeProperties[PK::Mode::AverageFuelConsumption] =
+            modeSettings->fuelRate.value();
+    if (modeSettings->containers.has_value())
+        in.modeProperties[PK::Mode::AverageContainerNumber] =
+            modeSettings->containers.value();
+    if (modeSettings->locomotives.has_value())
+        in.modeProperties[PK::Mode::AverageLocomotiveCount] =
+            modeSettings->locomotives.value();
+    if (const auto risk = modeSettings->riskUnits())
+        in.modeProperties[PK::Mode::RiskFactor] = risk->value();
+    if (modeSettings->timeValue.has_value())
+        in.modeProperties[PK::Mode::TimeValueOfMoney] =
+            modeSettings->timeValue.value();
+    if (modeSettings->useNetwork.has_value())
+        in.modeProperties[PK::Mode::UseNetwork] =
+            modeSettings->useNetwork.value();
+
+    for (auto it = settings.fuelTypes.constBegin();
+         it != settings.fuelTypes.constEnd(); ++it)
+    {
+        const QString &fuelName = it.key();
+        const auto &fuel = it.value();
+        if (fuel.energy.has_value())
+            in.fuelEnergy[fuelName] = fuel.energy.value();
+        if (fuel.carbon.has_value())
+            in.fuelCarbonContent[fuelName] = fuel.carbon.value();
+    }
+
     return in;
 }
 
