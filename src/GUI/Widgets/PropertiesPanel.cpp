@@ -1,17 +1,35 @@
 #include "PropertiesPanel.h"
-#include "../Controllers/ViewController.h"
+#include "../Controllers/TerminalController.h"
 #include "../Items/BackgroundPhotoItem.h"
 #include "../Items/ConnectionLine.h"
 #include "../Items/MapPoint.h"
 #include "../Items/RegionCenterPoint.h"
 #include "../Items/TerminalItem.h"
 #include "../MainWindow.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Application/ScenarioEditService.h"
 #include "../Utils/IconCreator.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Controllers/CargoNetSimController.h"
-#include "ContainerManagerWidget.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
+#include "Backend/Scenario/ScenarioRuntime.h"
+#include "DestinationListEditor.h"
+#include "GraphicsScene.h"
 #include "GraphicsView.h"
+#include "../Input/Commands/ApplyBackgroundPhotoEditCommand.h"
+#include "../Input/Commands/CommandBus.h"
+#include "../Input/Commands/SetTerminalRoleCommand.h"
+#include "../Input/Commands/UpdateRegionGlobalPositionCommand.h"
+#include "../Input/Commands/UpdateRegionLocalOriginCommand.h"
+#include "../Input/InteractionController.h"
+#include "../Input/Modes/NormalMode.h"
+#include "../Input/Modes/PickDestinationMode.h"
+#include "../Input/PickCoordinator.h"
+#include "Backend/Application/RouteAuthoringService.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QDebug>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -21,10 +39,95 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 
+namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
+
 namespace CargoNetSim
 {
 namespace GUI
 {
+
+namespace
+{
+
+using InterfaceSet =
+    Backend::Scenario::TerminalPlacement::InterfaceSet;
+using Mode = Backend::TransportationTypes::TransportationMode;
+
+InterfaceSet interfaceSetFromItem(const TerminalItem *item)
+{
+    InterfaceSet result;
+    if (!item)
+        return result;
+
+    const auto map = item->availableInterfaces();
+    result.landSide = map.value(
+        Backend::TerminalTypes::TerminalInterface::LAND_SIDE);
+    result.seaSide = map.value(
+        Backend::TerminalTypes::TerminalInterface::SEA_SIDE);
+    result.isSet = true;
+    return result;
+}
+
+InterfaceSet interfaceSetFromEditorFields(
+    const TerminalItem              *item,
+    const QMap<QString, QWidget *> &fields)
+{
+    InterfaceSet result = interfaceSetFromItem(item);
+    result.isSet = true;
+
+    bool sawInterfaceField = false;
+    QSet<Mode> land;
+    QSet<Mode> sea;
+
+    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
+    {
+        const QStringList parts = it.key().split('.');
+        if (parts.size() != 3 || parts[0] != QLatin1String("interfaces"))
+            continue;
+
+        auto *checkbox = qobject_cast<QCheckBox *>(it.value());
+        if (!checkbox)
+            continue;
+
+        sawInterfaceField = true;
+        if (!checkbox->isChecked())
+            continue;
+
+        const QString side = parts[1];
+        const QString mode = parts[2];
+        if (side == QLatin1String("land")
+            && mode == QLatin1String("truck"))
+        {
+            land.insert(Mode::Truck);
+        }
+        else if (side == QLatin1String("land")
+                 && mode == QLatin1String("rail"))
+        {
+            land.insert(Mode::Train);
+        }
+        else if (side == QLatin1String("sea")
+                 && mode == QLatin1String("ship"))
+        {
+            sea.insert(Mode::Ship);
+        }
+    }
+
+    if (sawInterfaceField)
+    {
+        result.landSide = land;
+        result.seaSide = sea;
+    }
+    return result;
+}
+
+bool sameInterfaceSet(const InterfaceSet &a, const InterfaceSet &b)
+{
+    return a.isSet == b.isSet
+           && a.landSide == b.landSide
+           && a.seaSide == b.seaSide;
+}
+
+} // namespace
 
 PropertiesPanel::PropertiesPanel(QWidget *parent)
     : QWidget(parent)
@@ -71,11 +174,14 @@ PropertiesPanel::PropertiesPanel(QWidget *parent)
 
 void PropertiesPanel::displayMapProperties()
 {
+    qCDebug(lcGuiUtil) << "PropertiesPanel::displayMapProperties";
     if (!mainWindow)
     {
         mainWindow = qobject_cast<MainWindow *>(window());
         if (!mainWindow)
         {
+            qCWarning(lcGuiUtil) << "PropertiesPanel::displayMapProperties:"
+                                 << "no MainWindow";
             return;
         }
     }
@@ -83,6 +189,8 @@ void PropertiesPanel::displayMapProperties()
     GraphicsView *view = mainWindow->getCurrentView();
     if (!view)
     {
+        qCWarning(lcGuiUtil) << "PropertiesPanel::displayMapProperties:"
+                             << "no current view";
         return;
     }
 
@@ -126,42 +234,69 @@ void PropertiesPanel::displayProperties(QGraphicsItem *item)
 
     if (!item)
     {
+        qCWarning(lcGuiUtil) << "PropertiesPanel::displayProperties:"
+                             << "null item";
         return;
     }
 
     currentItem = item;
     editFields.clear();
 
+    qCDebug(lcGuiUtil) << "PropertiesPanel::displayProperties:"
+                       << "itemType=" << item->type();
+
     // Dispatch to appropriate handler based on item type
     if (MapPoint *mapPoint = dynamic_cast<MapPoint *>(item))
     {
+        qCDebug(lcGuiUtil) << "PropertiesPanel::displayProperties: dispatching to" << "MapPoint";
         displayMapPointProperties(mapPoint);
     }
     else if (RegionCenterPoint *regionCenter =
                  dynamic_cast<RegionCenterPoint *>(item))
     {
+        qCDebug(lcGuiUtil) << "PropertiesPanel::displayProperties: dispatching to" << "RegionCenterPoint";
         displayRegionCenterProperties(regionCenter);
     }
     else if (ConnectionLine *connection =
                  dynamic_cast<ConnectionLine *>(item))
     {
+        qCDebug(lcGuiUtil) << "PropertiesPanel::displayProperties: dispatching to" << "ConnectionLine";
         displayConnectionProperties(connection);
     }
     else if (TerminalItem *terminal =
                  dynamic_cast<TerminalItem *>(item))
     {
+        qCDebug(lcGuiUtil) << "PropertiesPanel::displayProperties: dispatching to" << "TerminalItem";
         displayTerminalProperties(terminal);
     }
     else
     {
+        qCDebug(lcGuiUtil) << "PropertiesPanel::displayProperties: dispatching to" << "Generic";
         displayGenericProperties(item);
     }
 
     layout->addRow(saveButton);
+
+    // Bring the properties dock to the front so the user sees the panel
+    // they just populated even if another tabified dock (e.g. Settings)
+    // currently covers it.
+    if (!mainWindow)
+        mainWindow = qobject_cast<MainWindow *>(window());
+    if (mainWindow && mainWindow->propertiesDock_) {
+        mainWindow->propertiesDock_->show();
+        mainWindow->propertiesDock_->raise();
+    }
 }
 
 void PropertiesPanel::clearLayout()
 {
+    // Note: pick-session state is owned by PickCoordinator, not by this
+    // panel. clearLayout() intentionally does NOT cancel any active pick --
+    // refreshFromSelection() short-circuits while a session's requester
+    // is displayed, so this path is only hit when it's safe to rebuild.
+    m_currentListEditor = nullptr;
+    m_currentOriginId.clear();
+
     // Clear all widgets except save button from layout
     for (int i = layout->count() - 1; i >= 0; --i)
     {
@@ -182,6 +317,7 @@ void PropertiesPanel::clearLayout()
 void PropertiesPanel::displayMapPointProperties(
     MapPoint *item)
 {
+    qCDebug(lcGuiUtil) << "PropertiesPanel::displayMapPointProperties: property count:" << item->getProperties().size();
     // Display properties for MapPoint items
     for (auto it = item->getProperties().constBegin();
          it != item->getProperties().constEnd(); ++it)
@@ -200,11 +336,16 @@ void PropertiesPanel::displayMapPointProperties(
 void PropertiesPanel::displayRegionCenterProperties(
     RegionCenterPoint *item)
 {
+    qCDebug(lcGuiUtil) << "PropertiesPanel::displayRegionCenterProperties: lat="
+                       << item->getProperties().value("Latitude").toDouble()
+                       << "lon=" << item->getProperties().value("Longitude").toDouble();
     if (!mainWindow)
     {
         mainWindow = qobject_cast<MainWindow *>(window());
         if (!mainWindow)
         {
+            qCWarning(lcGuiUtil) << "PropertiesPanel::displayRegionCenterProperties:"
+                                 << "no MainWindow";
             return;
         }
     }
@@ -212,6 +353,8 @@ void PropertiesPanel::displayRegionCenterProperties(
     GraphicsView *view = mainWindow->getCurrentView();
     if (!view)
     {
+        qCWarning(lcGuiUtil) << "PropertiesPanel::displayRegionCenterProperties:"
+                             << "no current view";
         return;
     }
 
@@ -251,6 +394,7 @@ void PropertiesPanel::addCoordinateField(
     const QString &key, const QVariant &value,
     GraphicsView *view, RegionCenterPoint *item)
 {
+    qCDebug(lcGuiUtil) << "PropertiesPanel::addCoordinateField: label=" << key;
     QDoubleValidator *validator =
         new QDoubleValidator(this);
 
@@ -288,10 +432,8 @@ void PropertiesPanel::addCoordinateField(
 void PropertiesPanel::displayConnectionProperties(
     ConnectionLine *item)
 {
-    QDoubleValidator *validator =
-        new QDoubleValidator(this);
-    validator->setBottom(0.0); // Ensure non-negative values
-
+    qCDebug(lcGuiUtil) << "PropertiesPanel::displayConnectionProperties:"
+                       << "id=" << item->sceneRegistryKey();
     static const QMap<QString, QPair<QString, QString>>
         propertiesWithUnits = {
             {"cost", {tr("Cost (USD)"), ""}},
@@ -299,18 +441,33 @@ void PropertiesPanel::displayConnectionProperties(
             {"distance", {tr("Distance (Km)"), ""}},
             {"carbonEmissions",
              {tr("Carbon Emissions (ton CO₂)"), ""}},
-            {"risk", {tr("Risk (%)"), ""}},
+            {"risk", {tr("Risk (Fraction)"), ""}},
             {"energyConsumption",
              {tr("Energy Consumption (kWh)"), ""}}};
 
-    const QMap<QString, QVariant> &props =
-        item->getProperties();
+    qCDebug(lcGuiUtil) << "PropertiesPanel::displayConnectionProperties: setting" << propertiesWithUnits.size() << "fields";
+
+    const QMap<QString, QVariant> props =
+        Backend::Scenario::RouteMetricUnits::
+            displayPropertiesFromCanonical(
+                item->getProperties());
     for (auto it = propertiesWithUnits.constBegin();
          it != propertiesWithUnits.constEnd(); ++it)
     {
+        auto *fieldValidator = new QDoubleValidator(this);
+        fieldValidator->setBottom(0.0);
+        if (it.key() == QStringLiteral("risk"))
+            fieldValidator->setTop(1.0);
+
+        const int decimals =
+            (it.key() == QStringLiteral("carbonEmissions")) ? 4
+            : (it.key() == QStringLiteral("risk")) ? 6
+                                                   : 2;
         QLineEdit *lineEdit = new QLineEdit(
-            props.value(it.key(), "0.0").toString());
-        lineEdit->setValidator(validator);
+            QString::number(
+                props.value(it.key(), 0.0).toDouble(), 'f',
+                decimals));
+        lineEdit->setValidator(fieldValidator);
         editFields[it.key()] = lineEdit;
         layout->addRow(it.value().first + ":", lineEdit);
     }
@@ -319,22 +476,58 @@ void PropertiesPanel::displayConnectionProperties(
 void PropertiesPanel::displayTerminalProperties(
     TerminalItem *item)
 {
+    qCDebug(lcGuiUtil) << "PropertiesPanel::displayTerminalProperties:"
+                       << "id=" << item->getTerminalId();
+    {
+        const InterfaceSet interfaces = interfaceSetFromItem(item);
+        const int ifaceCount =
+            interfaces.landSide.size() + interfaces.seaSide.size();
+        qCDebug(lcGuiUtil) << "PropertiesPanel::displayTerminalProperties: type="
+                           << item->getTerminalType() << "interfaces=" << ifaceCount;
+    }
+    // Plan 8: `initial_container_count` and `destination_terminal` are
+    // surfaced via the dedicated Origin Configuration group below — skip
+    // them in the generic listing so the same key never appears twice.
+    // `Containers` is the legacy property-bag slot that no longer exists
+    // (typed store only); skipping it stays defensive against any old
+    // snapshot that may still carry it.
+    // Region is a first-class field on TerminalPlacement, not bag storage.
+    // Build the ComboBox here so it always appears regardless of bag contents.
+    {
+        if (!mainWindow)
+            mainWindow = qobject_cast<MainWindow *>(window());
+        QComboBox *combo = new QComboBox();
+        combo->addItems(
+            mainWindow && mainWindow->networkViewService()
+                ? mainWindow->networkViewService()->regionNames()
+                : QStringList());
+        combo->setCurrentText(item->getRegion());
+        editFields[QStringLiteral("Region")] = combo;
+        layout->addRow(tr("Region:"), combo);
+    }
+
     displayGenericProperties(
         item,
-        {"ID", "Type", "capacity", "cost", "dwell_time",
-         "customs", "Available Interfaces", "Containers"});
+        {"ID", "Type", "Region", "capacity", "cost", "dwell_time",
+         "customs", "Containers",
+         PK::Terminal::InitialContainerCount,
+         PK::Terminal::DestinationTerminal,
+         PK::Terminal::Destinations});
 
-    // Only allow editing interfaces for Origin and
-    // Destination terminals
+    // Interface-edit gate: of the four remaining physical kinds, only
+    // Sea Port lets the user edit the land-side set (sea-side is fixed
+    // to Ship). All others lock both sides — interfaces are derived from
+    // the kind, not from per-instance overrides.
     QMap<QString, bool> isEditable;
-    if (item->getTerminalType() == "Origin"
-        || item->getTerminalType() == "Destination")
+    if (item->getTerminalType() == "Sea Port Terminal")
     {
         isEditable = {{"land_side", true},
-                      {"sea_side", true}};
+                      {"sea_side", false}};
     }
-    else if (item->getTerminalType() == "Sea Port Terminal")
+    else if (item->getTerminalType() == "Facility")
     {
+        // Facility defaults to Truck-only. Let user add Train
+        // via land-side editing. Sea-side stays locked.
         isEditable = {{"land_side", true},
                       {"sea_side", false}};
     }
@@ -344,16 +537,13 @@ void PropertiesPanel::displayTerminalProperties(
                       {"sea_side", false}};
     }
 
+    addRoleSection(item);
     addInterfacesSection(item, isEditable);
     addCapacitySection(item);
     addCostSection(item);
     addDwellTimeSection(item);
     addCustomsSection(item);
-
-    if (item->getTerminalType() == "Origin")
-    {
-        addContainerManagement(item);
-    }
+    addOriginConfigurationSection(item);
 }
 
 void PropertiesPanel::addInterfacesSection(
@@ -361,18 +551,15 @@ void PropertiesPanel::addInterfacesSection(
     const QMap<QString, bool> &isEditable)
 {
     QGroupBox *interfacesGroup =
-        new QGroupBox(tr("Available Interfaces"));
+        new QGroupBox(tr("Transport Interfaces"));
     QVBoxLayout *interfacesLayout = new QVBoxLayout();
 
-    // Get interfaces from properties
-    const QMap<QString, QVariant> &properties =
-        item->getProperties();
-    QMap<QString, QVariant> interfaces =
-        properties["Available Interfaces"].toMap();
+    const auto currentInterfaces =
+        Backend::Scenario::InterfaceConversion::fromBackendInterfaces(
+            item->availableInterfaces());
 
     // Land-side interfaces
-    QStringList currentLand =
-        interfaces["land_side"].toStringList();
+    QStringList currentLand = currentInterfaces.first;
     QLayout *landLayout = createInterfaceLayout(
         tr("Land-side:"),
         {{tr("Truck"), "truck"}, {tr("Rail"), "rail"}},
@@ -380,8 +567,8 @@ void PropertiesPanel::addInterfacesSection(
         isEditable.value("land_side", false));
 
     // Sea-side interfaces
-    QStringList currentSea =
-        interfaces["sea_side"].toStringList();
+    QStringList currentSea = currentInterfaces.second;
+    qCDebug(lcGuiUtil) << "PropertiesPanel::addInterfacesSection: landSide=" << currentLand.size() << "seaSide=" << currentSea.size();
     QLayout *seaLayout = createInterfaceLayout(
         tr("Sea-side:"), {{tr("Ship"), "ship"}}, currentSea,
         "sea", isEditable.value("sea_side", false));
@@ -682,14 +869,274 @@ void PropertiesPanel::addDwellTimeParameterFields(
     }
 }
 
-void PropertiesPanel::addContainerManagement(
+void PropertiesPanel::addRoleSection(TerminalItem *item)
+{
+    using TerminalRole =
+        Backend::Scenario::TerminalPlacement::TerminalRole;
+
+    qCDebug(lcGuiUtil)
+        << "PropertiesPanel::addRoleSection:"
+        << "id="
+        << (item ? item->getTerminalId() : "null");
+
+    if (!item || !item->placement())
+    {
+        qCDebug(lcGuiUtil)
+            << "PropertiesPanel::addRoleSection:"
+            << "item or placement null, skipping";
+        return;
+    }
+
+    if (!mainWindow)
+        mainWindow = qobject_cast<MainWindow *>(window());
+    if (!mainWindow || !mainWindow->runtime())
+    {
+        qCDebug(lcGuiUtil)
+            << "PropertiesPanel::addRoleSection:"
+            << "no runtime, skipping";
+        return;
+    }
+
+    auto *doc = &mainWindow->runtime()->document();
+    const QString id = item->getTerminalId();
+    if (id.isEmpty()) return;
+
+    QGroupBox   *group = new QGroupBox("Role");
+    QFormLayout *form  = new QFormLayout(group);
+
+    QComboBox *roleCombo = new QComboBox();
+    roleCombo->addItem("Transit",     QStringLiteral("transit"));
+    roleCombo->addItem("Origin",      QStringLiteral("origin"));
+    roleCombo->addItem("Destination", QStringLiteral("destination"));
+
+    const TerminalRole current = item->placement()->role;
+    roleCombo->setCurrentIndex(static_cast<int>(current));
+
+    connect(
+        roleCombo,
+        QOverload<int>::of(&QComboBox::currentIndexChanged),
+        this, [this, doc, id](int index) {
+            auto role = static_cast<TerminalRole>(index);
+            const auto it = doc->terminals.constFind(id);
+            if (it == doc->terminals.constEnd()
+                || it->role == role)
+            {
+                return;
+            }
+
+            if (!mainWindow)
+                mainWindow = qobject_cast<MainWindow *>(window());
+            if (mainWindow && mainWindow->commandBus())
+            {
+                mainWindow->commandBus()->submit(
+                    std::make_unique<Input::SetTerminalRoleCommand>(
+                        doc, id, role));
+                return;
+            }
+
+            Backend::Application::ScenarioEditService::setTerminalRole(
+                doc, id, role);
+        });
+
+    form->addRow("Terminal Role:", roleCombo);
+    QLabel *hint = new QLabel(
+        tr("Origins are terminals with containers. Select Origin to configure "
+           "initial containers and destination splits below; destination "
+           "terminals are the terminals referenced by those splits."));
+    hint->setWordWrap(true);
+    form->addRow(hint);
+    layout->addRow(group);
+}
+
+void PropertiesPanel::addOriginConfigurationSection(
     TerminalItem *item)
 {
-    QPushButton *containerButton =
-        new QPushButton(tr("Manage Containers"));
-    connect(containerButton, &QPushButton::clicked,
-            [this, item]() { openContainerManager(item); });
-    layout->addRow(containerButton);
+    using namespace CargoNetSim::Backend::Scenario;
+
+    if (!mainWindow)
+        mainWindow = qobject_cast<MainWindow *>(window());
+    if (!mainWindow || !item) return;
+    if (!mainWindow->runtime())
+    {
+        qCDebug(lcGuiUtil)
+            << "PropertiesPanel::addOriginConfigurationSection:"
+            << "no scenario loaded, skipping";
+        return;
+    }
+
+    auto *doc        = &mainWindow->runtime()->document();
+    const QString id = item->getTerminalId();
+    if (id.isEmpty())
+    {
+        qCWarning(lcGuiUtil)
+            << "PropertiesPanel::addOriginConfigurationSection:"
+            << "terminal has no ID (unbound), skipping";
+        return;
+    }
+
+    auto *placement = item->placement();
+    if (!placement)
+    {
+        qCDebug(lcGuiUtil)
+            << "PropertiesPanel::addOriginConfigurationSection:"
+            << "no placement, skipping";
+        return;
+    }
+    // Show Origin Configuration when the terminal is an
+    // origin by EITHER designation: explicit role=Origin OR
+    // ScenarioDocument::isOrigin(id), which is the canonical runtime
+    // source and covers both authored counts and loaded container pools.
+    const bool isOriginByRole =
+        placement->role
+        == TerminalPlacement::TerminalRole::Origin;
+    const bool isOriginByDocument = doc->isOrigin(id);
+    if (!isOriginByRole && !isOriginByDocument)
+    {
+        qCDebug(lcGuiUtil)
+            << "PropertiesPanel::addOriginConfigurationSection:"
+            << "not an origin (role="
+            << roleToString(placement->role)
+            << ", count="
+            << doc->originContainerCount(id)
+            << "), skipping";
+        return;
+    }
+
+    QGroupBox   *group = new QGroupBox(tr("Origin Configuration"));
+    QFormLayout *form  = new QFormLayout(group);
+
+    // ---- Count spinbox (unchanged from Plan 8 Commit B) ---------------
+    QSpinBox *countSpin = new QSpinBox();
+    countSpin->setRange(0, 1'000'000);
+    countSpin->setValue(doc->originContainerCount(id));
+    connect(countSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [doc, id](int value) {
+                Backend::Application::ScenarioEditService::setTerminalProperty(
+                    doc, id, PK::Terminal::InitialContainerCount,
+                    value > 0 ? QVariant(value) : QVariant());
+            });
+    form->addRow(tr("Initial Container Count:"), countSpin);
+
+    // ---- Mode toggle ---------------------------------------------------
+    QComboBox *modeCombo = new QComboBox();
+    modeCombo->addItem(tr("Single destination"),    QStringLiteral("single"));
+    modeCombo->addItem(tr("Multiple destinations"), QStringLiteral("multi"));
+
+    // ---- Single: pick from canvas -------------------
+    QPushButton *pickButton = new QPushButton("Pick");
+    pickButton->setToolTip(
+        tr("Click a terminal on the canvas"));
+
+    const QString currentDest =
+        item->getProperty(PK::Terminal::DestinationTerminal)
+            .toString();
+    if (!currentDest.isEmpty())
+    {
+        pickButton->setText(
+            QStringLiteral("Picked \u2713"));
+        if (doc->terminals.contains(currentDest))
+            pickButton->setToolTip(
+                doc->terminals[currentDest]
+                    .properties.value("Name")
+                    .toString());
+    }
+
+    auto *coord = mainWindow ? mainWindow->pickCoordinator() : nullptr;
+    // Remember which origin this section is for so the coordinator's
+    // destinationResolved signal can be routed back here (see
+    // onDestinationResolved / ensureCoordinatorConnected).
+    m_currentOriginId = id;
+
+    // Reflect any already-live pick session in the button label.
+    if (coord && coord->isActive() &&
+        coord->activeSession()->requesterId == id &&
+        coord->activeSession()->targetsPrimary())
+    {
+        pickButton->setText(tr("Picking... (cancel)"));
+    }
+
+    connect(pickButton, &QPushButton::clicked, this,
+        [this, coord, id]() {
+            if (!coord) {
+                qCWarning(lcGuiUtil)
+                    << "pickButton: no PickCoordinator";
+                return;
+            }
+            // Toggle: if a primary-slot pick is already live for this
+            // origin, the button acts as Cancel.
+            if (coord->isActive() &&
+                coord->activeSession()->requesterId == id &&
+                coord->activeSession()->targetsPrimary())
+            {
+                coord->cancel();
+                return;
+            }
+            coord->begin(Input::PickSession{
+                id, id, Input::PrimaryDestinationSlot{}
+            });
+        });
+
+    // ---- Multi: DestinationListEditor --------------------------------
+    auto *listEditor = new DestinationListEditor();
+    listEditor->setCoordinator(coord);
+    listEditor->setOriginTerminalId(id);
+    listEditor->setRoutes(doc->destinationsFor(id));
+    m_currentListEditor = listEditor;
+    connect(listEditor, &DestinationListEditor::changed,
+            this, [doc, id, listEditor]() {
+                if (!listEditor->isValid()) return;  // wait for valid state
+                Backend::Application::ScenarioEditService::
+                    setOriginDestinationRoutes(
+                        doc, id, listEditor->routes());
+            });
+
+    // ---- Mutex wiring: mode changes write exactly one destination form ---
+    auto applyMode = [=](const QString &mode) {
+        const bool multi = (mode == QStringLiteral("multi"));
+        pickButton->setVisible(!multi);
+        listEditor->setVisible(multi);
+        if (multi)
+        {
+            if (listEditor->isValid())
+            {
+                Backend::Application::ScenarioEditService::
+                    setOriginDestinationRoutes(
+                        doc, id, listEditor->routes());
+            }
+        }
+        else
+        {
+            const auto routes = listEditor->routes();
+            if (routes.size() == 1
+                && !routes.first().terminal.isEmpty())
+            {
+                Backend::Application::ScenarioEditService::
+                    setOriginDestinationScalar(
+                        doc, id, routes.first().terminal);
+            }
+            else
+            {
+                Backend::Application::ScenarioEditService::
+                    clearOriginDestinations(doc, id);
+            }
+        }
+    };
+    // Detect initial mode from whichever property is already set.
+    const bool startMulti =
+        item->getProperty(PK::Terminal::Destinations).isValid();
+    modeCombo->setCurrentIndex(startMulti ? 1 : 0);
+    pickButton->setVisible(!startMulti);
+    listEditor->setVisible(startMulti);
+    connect(modeCombo, &QComboBox::currentTextChanged,
+            this, [modeCombo, applyMode]() {
+                applyMode(modeCombo->currentData().toString());
+            });
+
+    form->addRow(tr("Destination Mode:"), modeCombo);
+    form->addRow(tr("Destination:"),      pickButton);
+    form->addRow(tr("Destinations:"),     listEditor);
+
+    layout->addRow(group);
 }
 
 void PropertiesPanel::displayGenericProperties(
@@ -751,18 +1198,6 @@ void PropertiesPanel::displayGenericProperties(
             checkbox->setChecked(it.value().toBool());
             editFields[it.key()] = checkbox;
             layout->addRow(it.key() + ":", checkbox);
-        }
-        else if (it.key() == "Region")
-        {
-            QComboBox *combo = new QComboBox();
-            combo->addItems(
-                CargoNetSim::CargoNetSimController::
-                    getInstance()
-                        .getRegionDataController()
-                        ->getAllRegionNames());
-            combo->setCurrentText(it.value().toString());
-            editFields[it.key()] = combo;
-            layout->addRow(it.key() + ":", combo);
         }
         else
         {
@@ -1020,8 +1455,13 @@ void PropertiesPanel::saveProperties()
 {
     if (!currentItem)
     {
+        qCWarning(lcGuiUtil) << "PropertiesPanel::saveProperties:"
+                             << "no current item";
         return;
     }
+
+    qCDebug(lcGuiUtil) << "PropertiesPanel::saveProperties:"
+                       << "itemType=" << currentItem->type();
 
     // Get main window reference if needed
     if (!mainWindow)
@@ -1071,139 +1511,319 @@ void PropertiesPanel::saveProperties()
 void PropertiesPanel::saveTerminalProperties(
     TerminalItem *terminal)
 {
-    QMap<QString, QVariant> newProperties =
-        terminal->getProperties();
+    qCDebug(lcGuiUtil)
+        << "PropertiesPanel::saveTerminalProperties:"
+        << "id=" << terminal->getTerminalId();
 
-    // Process all edit fields
+    QMap<QString, QVariant> oldProperties =
+        terminal->getProperties();
+    oldProperties.remove(QStringLiteral("Available Interfaces"));
+    QMap<QString, QVariant> newProperties = oldProperties;
+
+    // Build complete updated properties using the existing
+    // processEditFields logic (handles nested dot-path keys
+    // like "cost.fixed_fees", "dwell_time.parameters.mean").
     processEditFields(newProperties);
 
-    // Handle region change
-    if (newProperties.contains("Region")
-        && terminal->getRegion()
-               != newProperties["Region"].toString())
+    // Route through backend when bound to ScenarioDocument.
+    // Merge only CHANGED keys on top of backend truth —
+    // avoids losing properties added by CLI or other
+    // mutations. Single updateTerminal call for all
+    // changes — no multiple terminalChanged signals.
+    if (terminal->placement()
+        && !terminal->getTerminalId().isEmpty()
+        && mainWindow && mainWindow->runtime())
     {
-        handleRegionChange(
-            terminal, newProperties["Region"].toString());
+        auto *doc = &mainWindow->runtime()->document();
+        const QString id        = terminal->getTerminalId();
+        const QString oldRegion = terminal->getRegion();
+
+        // Start from BACKEND truth, not local snapshot.
+        const auto terminalIt = doc->terminals.constFind(id);
+        if (terminalIt == doc->terminals.constEnd())
+        {
+            qCWarning(lcGuiUtil)
+                << "saveTerminalProperties: terminal not found in backend:"
+                << id;
+            return;
+        }
+        Backend::Scenario::TerminalPlacement p = terminalIt.value();
+        const int removedLegacyInterfaces =
+            p.properties.remove(QStringLiteral("Available Interfaces"));
+
+        // Apply only keys that the user actually changed.
+        // "Region" is a first-class field handled separately below.
+        int changedCount = 0;
+        for (auto it = newProperties.constBegin();
+             it != newProperties.constEnd(); ++it)
+        {
+            if (it.key() == QStringLiteral("Region"))
+                continue;
+            if (oldProperties.value(it.key()) != it.value())
+            {
+                p.properties[it.key()] = it.value();
+                ++changedCount;
+            }
+        }
+
+        // Region is a first-class field on TerminalPlacement.
+        const QString newRegion =
+            newProperties.value(QStringLiteral("Region")).toString();
+        const bool regionChanged =
+            !newRegion.isEmpty() && newRegion != oldRegion;
+        if (regionChanged)
+            p.region = newRegion;
+
+        const bool madeInterfacesExplicit = !p.interfaces.isSet;
+        const InterfaceSet oldInterfaces =
+            p.interfaces.isSet ? p.interfaces
+                               : interfaceSetFromItem(terminal);
+        const InterfaceSet newInterfaces =
+            interfaceSetFromEditorFields(terminal, editFields);
+        const bool interfacesChanged =
+            !sameInterfaceSet(oldInterfaces, newInterfaces);
+        if (interfacesChanged || madeInterfacesExplicit)
+            p.interfaces = newInterfaces;
+
+        if (changedCount > 0 || regionChanged || interfacesChanged
+            || madeInterfacesExplicit || removedLegacyInterfaces > 0)
+        {
+            if (!Backend::Application::ScenarioEditService::
+                    updateTerminalPlacement(doc, id, p))
+            {
+                qCWarning(lcGuiUtil)
+                    << "saveTerminalProperties: failed to persist terminal"
+                    << id;
+                return;
+            }
+        }
+
+        qCDebug(lcGuiUtil)
+            << "saveTerminalProperties: persisted"
+            << changedCount << "bag changes +"
+            << (regionChanged ? "region change" : "no region change")
+            << "+"
+            << (interfacesChanged ? "interface change" : "no interface change")
+            << "to backend for" << id;
+
+        if (regionChanged)
+            handleRegionChange(terminal, newRegion, oldRegion);
+    }
+    else
+    {
+        qCWarning(lcGuiUtil)
+            << "saveTerminalProperties: terminal is not backend-bound;"
+            << "refusing view-only mutation"
+            << "id=" << terminal->getTerminalId()
+            << "hasPlacement=" << (terminal->placement() != nullptr)
+            << "hasRuntime=" << (mainWindow && mainWindow->runtime());
+        if (mainWindow)
+            mainWindow->showStatusBarMessage(
+                tr("Cannot save an unbound terminal."), 3000);
+        return;
     }
 
-    // Update the item properties
-    terminal->updateProperties(newProperties);
-
     // Update the visibility of the global terminal
-    ViewController::updateGlobalMapItem(mainWindow,
-                                        terminal);
+    if (mainWindow)
+        mainWindow->terminalCtrl()->updateGlobalMapItem(
+            terminal);
 
-    // Emit the properties changed signal
     emit propertiesChanged(terminal, newProperties);
 }
 
 void PropertiesPanel::saveBackgroundPhotoProperties(
     BackgroundPhotoItem *background)
 {
-    QMap<QString, QVariant> newProperties =
-        background->getProperties();
-
-    // Process all edit fields
+    // Parse and validate the edit fields before snapshotting state — if the
+    // user's input is rejected, nothing mutates and no undo entry is created.
+    QMap<QString, QVariant> newProperties = background->getProperties();
     processEditFields(newProperties);
 
-    // Handle special background photo properties
-    try
-    {
-        // Get new lat/lon values
-        double newLat =
-            newProperties.value("Latitude", "0.0")
-                .toDouble();
-        double newLon =
-            newProperties.value("Longitude", "0.0")
-                .toDouble();
-
-        // Get and validate new scale value
-        double newScale =
-            newProperties.value("Scale", "1.0").toDouble();
-        if (newScale <= 0)
-        {
-            throw std::invalid_argument(
-                "Scale must be greater than 0");
-        }
-
-        // Update position using WGS84 coordinates
-        background->setFromWGS84(QPointF(newLon, newLat));
-
-        // Update scale and trigger redraw
-        background->getProperties()["Scale"] =
-            QString::number(newScale);
-        background->updateScale();
-    }
-    catch (const std::exception &e)
+    const double newLat =
+        newProperties.value(QStringLiteral("Latitude"), "0.0").toDouble();
+    const double newLon =
+        newProperties.value(QStringLiteral("Longitude"), "0.0").toDouble();
+    const double newScale =
+        newProperties.value(QStringLiteral("Scale"), "1.0").toDouble();
+    if (newScale <= 0)
     {
         if (mainWindow)
-        {
             mainWindow->showStatusBarMessage(
-                tr("Invalid coordinate or scale values: %1")
-                    .arg(e.what()),
-                3000);
+                tr("Invalid scale: Scale must be greater than 0"), 3000);
+        return;
+    }
+    newProperties[QStringLiteral("Scale")] =
+        QString::number(newScale);
+
+    // WGS84 → scene conversion goes through the view the item lives in.
+    // "global" routes to the global map view; anything else to the region view.
+    GraphicsView *view = (background->getRegion()
+                          == QStringLiteral("global"))
+                             ? (mainWindow ? mainWindow->globalMapView() : nullptr)
+                             : (mainWindow ? mainWindow->regionView()    : nullptr);
+    if (!view)
+    {
+        qCWarning(lcGuiScene)
+            << "PropertiesPanel::saveBackgroundPhotoProperties:"
+            << "no view for region=" << background->getRegion();
+        return;
+    }
+    const QPointF newScenePos = view->wgs84ToScene(QPointF(newLon, newLat));
+
+    Input::ApplyBackgroundPhotoEditCommand::State before;
+    before.scenePos   = background->pos();
+    before.scale      = static_cast<qreal>(background->getScale());
+    before.opacity    = background->opacity();
+    before.zValue     = background->zValue();
+    before.properties = background->getProperties();
+
+    Input::ApplyBackgroundPhotoEditCommand::State after;
+    after.scenePos   = newScenePos;
+    after.scale      = newScale;
+    after.opacity    = before.opacity;
+    after.zValue     = before.zValue;
+    after.properties = newProperties;
+
+    if (mainWindow && mainWindow->commandBus())
+    {
+        const bool submitted = mainWindow->commandBus()->submit(
+            std::make_unique<Input::ApplyBackgroundPhotoEditCommand>(
+                background, std::move(before), std::move(after)));
+        if (!submitted)
+        {
+            qCWarning(lcGuiScene)
+                << "PropertiesPanel::saveBackgroundPhotoProperties:"
+                << "background edit command failed";
+            mainWindow->showStatusBarMessage(
+                tr("Failed to save background photo."), 3000);
             return;
         }
     }
+    else
+    {
+        qCWarning(lcGuiScene)
+            << "PropertiesPanel::saveBackgroundPhotoProperties:"
+            << "no CommandBus; refusing direct mutation";
+        if (mainWindow)
+            mainWindow->showStatusBarMessage(
+                tr("Cannot save background photo without an active command bus."),
+                3000);
+        return;
+    }
 
-    // Update the item properties
-    background->updateProperties(newProperties);
-
-    // Emit the properties changed signal
     emit propertiesChanged(background, newProperties);
 }
 
 void PropertiesPanel::saveRegionCenterProperties(
     RegionCenterPoint *regionCenter)
 {
-    QMap<QString, QVariant> newProperties =
-        regionCenter->getProperties();
+    qCDebug(lcGuiUtil)
+        << "PropertiesPanel::saveRegionCenterProperties:";
 
-    // Process all edit fields
+    QMap<QString, QVariant> oldProperties =
+        regionCenter->getProperties();
+    QMap<QString, QVariant> newProperties = oldProperties;
     processEditFields(newProperties);
 
-    // Handle coordinate changes
-    try
+    // Persist coordinates to backend if changed. The commands mutate the
+    // doc; the ScenarioDocument::regionChanged observer (see MainWindow)
+    // then triggers RegionCenterPoint::refreshFromSpec, which reconciles
+    // both the property strings and the scene pos — unidirectional
+    // doc → view flow with one authoritative path.
+    if (mainWindow && mainWindow->runtime()
+        && mainWindow->commandBus()
+        && !regionCenter->getRegion().isEmpty())
     {
-        // Get new lat/lon values
-        double newLat =
-            newProperties.value("Latitude", "0.0")
-                .toDouble();
-        double newLon =
-            newProperties.value("Longitude", "0.0")
-                .toDouble();
+        auto *doc = &mainWindow->runtime()->document();
+        const QString region = regionCenter->getRegion();
 
-        // Convert to scene coordinates and update position
-        if (mainWindow)
+        // Use absolute tolerance — qFuzzyCompare fails near zero
+        // (e.g. 0.0 vs 0.05 returns true).
+        constexpr double kCoordEps = 1e-6;
+
+        const double oldLat = oldProperties.value("Latitude").toDouble();
+        const double oldLon = oldProperties.value("Longitude").toDouble();
+        const double newLat = newProperties.value("Latitude").toDouble();
+        const double newLon = newProperties.value("Longitude").toDouble();
+
+        const double oldSLat =
+            oldProperties.value("Shared Latitude").toDouble();
+        const double oldSLon =
+            oldProperties.value("Shared Longitude").toDouble();
+        const double newSLat =
+            newProperties.value("Shared Latitude").toDouble();
+        const double newSLon =
+            newProperties.value("Shared Longitude").toDouble();
+
+        const bool localChanged =
+            qAbs(oldLat - newLat) > kCoordEps
+            || qAbs(oldLon - newLon) > kCoordEps;
+        const bool globalChanged =
+            qAbs(oldSLat - newSLat) > kCoordEps
+            || qAbs(oldSLon - newSLon) > kCoordEps;
+
+        if (localChanged || globalChanged)
         {
-            GraphicsView *view =
-                mainWindow->getCurrentView();
-            if (view)
-            {
-                QPointF newPos = view->wgs84ToScene(
-                    QPointF(newLon, newLat));
+            // Bundle both edits into a single undo entry when they happen
+            // together, so one Ctrl+Z reverts the entire panel Apply.
+            const bool bundle = localChanged && globalChanged;
+            if (bundle)
+                mainWindow->commandBus()->beginMacro(
+                    tr("Edit region %1 coordinates").arg(region));
+            bool submitted = true;
 
-                regionCenter->setPos(newPos);
+            if (localChanged)
+            {
+                qCDebug(lcGuiUtil)
+                    << "saveRegionCenterProperties: local origin changed"
+                    << "lat:" << oldLat << "->" << newLat
+                    << "lon:" << oldLon << "->" << newLon;
+                submitted =
+                    mainWindow->commandBus()->submit(
+                        std::make_unique<
+                            Input::UpdateRegionLocalOriginCommand>(
+                            doc, region, QPointF(newLon, newLat)))
+                    && submitted;
+            }
+            if (globalChanged)
+            {
+                qCDebug(lcGuiUtil)
+                    << "saveRegionCenterProperties: global position changed"
+                    << "lat:" << oldSLat << "->" << newSLat
+                    << "lon:" << oldSLon << "->" << newSLon;
+                submitted =
+                    mainWindow->commandBus()->submit(
+                        std::make_unique<
+                            Input::UpdateRegionGlobalPositionCommand>(
+                            doc, region, QPointF(newSLon, newSLat)))
+                    && submitted;
+            }
+
+            if (bundle) mainWindow->commandBus()->endMacro();
+            if (!submitted)
+            {
+                mainWindow->showStatusBarMessage(
+                    tr("Failed to save region coordinates."), 3000);
+                return;
             }
         }
     }
-    catch (const std::exception &e)
+    else
     {
+        qCWarning(lcGuiUtil)
+            << "saveRegionCenterProperties: region center is not backend-bound;"
+            << "refusing view-only mutation"
+            << "region=" << regionCenter->getRegion()
+            << "hasRuntime=" << (mainWindow && mainWindow->runtime())
+            << "hasCommandBus=" << (mainWindow && mainWindow->commandBus());
         if (mainWindow)
-        {
             mainWindow->showStatusBarMessage(
-                tr("Invalid coordinate values: %1")
-                    .arg(e.what()),
-                3000);
-            return;
-        }
+                tr("Cannot save an unbound region center."), 3000);
+        return;
     }
 
-    // Update the item properties
-    regionCenter->updateProperties(newProperties);
-
-    // Emit the properties changed signal
-    emit propertiesChanged(regionCenter, newProperties);
+    emit propertiesChanged(
+        regionCenter, regionCenter->getProperties());
 }
 
 void PropertiesPanel::saveMapPointProperties(
@@ -1225,16 +1845,89 @@ void PropertiesPanel::saveMapPointProperties(
 void PropertiesPanel::saveConnectionProperties(
     ConnectionLine *connection)
 {
+    qCDebug(lcGuiUtil)
+        << "PropertiesPanel::saveConnectionProperties:";
+
     QMap<QString, QVariant> newProperties =
         connection->getProperties();
-
-    // Process all edit fields
     processEditFields(newProperties);
+    newProperties =
+        Backend::Scenario::RouteMetricUnits::
+            canonicalPropertiesFromDisplay(newProperties);
 
-    // Update the item properties
-    connection->updateProperties(newProperties);
+    // Route through the backend editing service if bound to backend
+    // (handles both regional Connections and GlobalLinks)
+    QString fromId, toId;
+    Backend::TransportationTypes::TransportationMode mode{};
+    bool hasBacking = false;
 
-    // Emit the properties changed signal
+    // Each connectionModel()/globalLinkModel() call is now an on-demand
+    // lookup against the doc's list (post-Task: stable-key binding). Call
+    // once, reuse the result — and if the entity has been removed since,
+    // fall through to "no backing" cleanly.
+    if (auto *cm = connection->connectionModel())
+    {
+        fromId     = cm->fromTerminalId;
+        toId       = cm->toTerminalId;
+        mode       = cm->mode;
+        hasBacking = true;
+    }
+    else if (auto *gm = connection->globalLinkModel())
+    {
+        fromId     = gm->fromTerminalId;
+        toId       = gm->toTerminalId;
+        mode       = gm->mode;
+        hasBacking = true;
+    }
+
+    if (hasBacking && mainWindow && mainWindow->runtime())
+    {
+        auto *doc = &mainWindow->runtime()->document();
+        auto &controller =
+            CargoNetSim::CargoNetSimController::getInstance();
+        Backend::Application::RouteAuthoringService routeAuthoringService(
+            &controller);
+        for (auto it = newProperties.constBegin();
+             it != newProperties.constEnd(); ++it)
+        {
+            if (connection->getProperties().value(it.key())
+                != it.value())
+            {
+                const auto result =
+                    routeAuthoringService.setConnectionProperty(
+                        *doc, fromId, toId, mode,
+                        it.key(), it.value());
+                if (!result.succeeded())
+                {
+                    qCWarning(lcGuiUtil)
+                        << "saveConnectionProperties: failed to persist"
+                        << it.key() << "for" << fromId << "->" << toId
+                        << "mode=" << static_cast<int>(mode)
+                        << "message=" << result.message;
+                    if (mainWindow)
+                        mainWindow->showStatusBarMessage(
+                            result.message.isEmpty()
+                                ? tr("Failed to save connection properties.")
+                                : result.message,
+                            3000);
+                    return;
+                }
+            }
+        }
+    }
+    else
+    {
+        qCWarning(lcGuiUtil)
+            << "saveConnectionProperties: connection is not backend-bound;"
+            << "refusing view-only mutation"
+            << "hasBacking=" << hasBacking
+            << "hasRuntime=" << (mainWindow && mainWindow->runtime());
+        if (mainWindow)
+            mainWindow->showStatusBarMessage(
+                tr("Cannot save an unbound connection."), 3000);
+        return;
+    }
+
     emit propertiesChanged(connection, newProperties);
 }
 
@@ -1267,7 +1960,8 @@ void PropertiesPanel::processNestedProperty(
     // Special handling for interfaces
     if (parts[0] == "interfaces")
     {
-        processInterfaceProperty(properties, parts, widget);
+        // Terminal capabilities are typed placement fields, not property-bag
+        // entries. saveTerminalProperties collects these checkboxes directly.
         return;
     }
 
@@ -1332,67 +2026,6 @@ void PropertiesPanel::processNestedProperty(
     // Don't add the dotted key as a new property
 }
 
-void PropertiesPanel::processInterfaceProperty(
-    QMap<QString, QVariant> &properties,
-    const QStringList &parts, QWidget *widget)
-{
-    if (!properties.contains("Available Interfaces"))
-    {
-        properties["Available Interfaces"] =
-            QVariantMap{{"land_side", QVariantList()},
-                        {"sea_side", QVariantList()}};
-    }
-
-    // Get the current lists
-    QVariantMap interfaces =
-        properties["Available Interfaces"].toMap();
-    QStringList landSide =
-        interfaces["land_side"].toStringList();
-    QStringList seaSide =
-        interfaces["sea_side"].toStringList();
-
-    // Update interfaces based on checkbox state
-    if (QCheckBox *checkbox =
-            qobject_cast<QCheckBox *>(widget))
-    {
-        QString mode = parts[2];
-        mode[0] =
-            mode[0].toUpper(); // Capitalize first letter
-
-        if (parts[1] == "land")
-        {
-            // Remove the mode if it exists (to avoid
-            // duplicates)
-            landSide.removeAll(mode);
-
-            // Add it back if checked
-            if (checkbox->isChecked()
-                && !landSide.contains(mode))
-            {
-                landSide.append(mode);
-            }
-        }
-        else if (parts[1] == "sea")
-        {
-            // Remove the mode if it exists (to avoid
-            // duplicates)
-            seaSide.removeAll(mode);
-
-            // Add it back if checked
-            if (checkbox->isChecked()
-                && !seaSide.contains(mode))
-            {
-                seaSide.append(mode);
-            }
-        }
-
-        // Update the interfaces in the map
-        interfaces["land_side"]            = landSide;
-        interfaces["sea_side"]             = seaSide;
-        properties["Available Interfaces"] = interfaces;
-    }
-}
-
 void PropertiesPanel::processSimpleProperty(
     QMap<QString, QVariant> &properties, const QString &key,
     QWidget *widget)
@@ -1433,75 +2066,53 @@ QVariant PropertiesPanel::getWidgetValue(QWidget *widget)
 }
 
 void PropertiesPanel::handleRegionChange(
-    TerminalItem *terminal, const QString &newRegionName)
+    TerminalItem *terminal, const QString &newRegionName,
+    const QString &oldRegionName)
 {
-    QString oldRegionName = terminal->getRegion();
+    // Always update the item's region field, regardless of whether
+    // we can compute a position offset (centers may not exist in
+    // non-visual contexts).
+    terminal->setRegion(newRegionName);
 
-    // Get the new region's center point
     RegionCenterPoint *newRegionCenter = nullptr;
     RegionCenterPoint *oldRegionCenter = nullptr;
 
     if (mainWindow)
     {
-        const auto &centers =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getAllRegionVariableAs<
-                        RegionCenterPoint *>(
-                        "regionCenterPoint");
-        newRegionCenter = centers.value(newRegionName);
-        oldRegionCenter = centers.value(oldRegionName);
+        if (auto *networkView = mainWindow->networkViewService())
+        {
+            newRegionCenter =
+                networkView->regionVariable(
+                               newRegionName,
+                               QStringLiteral("regionCenterPoint"))
+                    .value<RegionCenterPoint *>();
+            oldRegionCenter =
+                networkView->regionVariable(
+                               oldRegionName,
+                               QStringLiteral("regionCenterPoint"))
+                    .value<RegionCenterPoint *>();
+        }
     }
 
     if (newRegionCenter && oldRegionCenter)
     {
-        // Calculate item's offset from old region center
         QPointF oldOffset(terminal->pos().x()
                               - oldRegionCenter->pos().x(),
                           terminal->pos().y()
                               - oldRegionCenter->pos().y());
 
-        // Apply offset to new region center
         QPointF newPos(
             newRegionCenter->pos().x() + oldOffset.x(),
             newRegionCenter->pos().y() + oldOffset.y());
 
-        // Update item position
         terminal->setPos(newPos);
-
-        // Update region property
-        terminal->setRegion(newRegionName);
-    }
-}
-
-void PropertiesPanel::openContainerManager(
-    TerminalItem *item)
-{
-    if (!item)
-    {
-        return;
-    }
-
-    ContainerManagerWidget dialog(item, parentWidget());
-    if (dialog.exec() == QDialog::Accepted)
-    {
-        QList<ContainerCore::Container *>
-            updatedContainers = dialog.getContainers();
-
-        // Store the container list directly in the
-        // terminal's properties
-        item->setProperty(
-            "Containers",
-            QVariant::fromValue(updatedContainers));
-
-        // Emit the properties changed signal
-        emit propertiesChanged(item, item->getProperties());
     }
 }
 
 void PropertiesPanel::onCoordSystemChanged(int index)
 {
+    qCDebug(lcGuiUtil) << "PropertiesPanel::onCoordSystemChanged:"
+                       << "index=" << index;
     if (!mainWindow)
     {
         mainWindow = qobject_cast<MainWindow *>(window());
@@ -1509,12 +2120,16 @@ void PropertiesPanel::onCoordSystemChanged(int index)
 
     if (!mainWindow)
     {
+        qCWarning(lcGuiUtil) << "PropertiesPanel::onCoordSystemChanged:"
+                             << "no MainWindow";
         return;
     }
 
     GraphicsView *view = mainWindow->getCurrentView();
     if (!view)
     {
+        qCWarning(lcGuiUtil) << "PropertiesPanel::onCoordSystemChanged:"
+                             << "no current view";
         return;
     }
 
@@ -1530,6 +2145,142 @@ void PropertiesPanel::setExpandingWidgetPolicy(
         widget->setSizePolicy(QSizePolicy::Expanding,
                               QSizePolicy::Preferred);
     }
+}
+
+void PropertiesPanel::clearIfShowing(QGraphicsItem *item)
+{
+    if (currentItem == item)
+    {
+        qCDebug(lcGuiUtil)
+            << "PropertiesPanel::clearIfShowing:"
+            << "clearing panel for removed item";
+        clearLayout();
+        currentItem = nullptr;
+    }
+}
+
+void PropertiesPanel::setScenes(GraphicsScene *regionScene,
+                                GraphicsScene *globalScene)
+{
+    m_regionScene = regionScene;
+    m_globalScene = globalScene;
+    // Default active scene is the region scene; MainWindow overrides
+    // on tab-switch via setActiveScene.
+    m_activeScene = regionScene;
+
+    // Lazy: MainWindow has parented us by this point, so the coordinator
+    // is reachable. Subscribe exactly once.
+    if (!m_coordConnected) {
+        if (!mainWindow) mainWindow = qobject_cast<MainWindow *>(window());
+        if (mainWindow) {
+            if (auto *coord = mainWindow->pickCoordinator()) {
+                connect(coord, &Input::PickCoordinator::destinationResolved,
+                        this, &PropertiesPanel::onDestinationResolved);
+                // Clearing a session (cancel / resolve) must trigger a
+                // refresh so the pinned panel unpins and repaints.
+                connect(coord, &Input::PickCoordinator::sessionChanged,
+                        this, &PropertiesPanel::refreshFromSelection);
+                m_coordConnected = true;
+            }
+        }
+    }
+}
+
+void PropertiesPanel::setActiveScene(GraphicsScene *activeScene)
+{
+    m_activeScene = activeScene;
+    refreshFromSelection();
+}
+
+void PropertiesPanel::refreshFromSelection()
+{
+    // Pin-to-requester: while a pick session is live AND we are already
+    // showing its requester, do NOT rebuild the layout on scene selection
+    // change. This is what lets the DestinationListEditor (and its local
+    // per-row buffer) survive a region/tab switch mid-pick.
+    if (!mainWindow) mainWindow = qobject_cast<MainWindow *>(window());
+    if (mainWindow) {
+        auto *coord = mainWindow->pickCoordinator();
+        if (coord && coord->isActive() &&
+            !m_currentOriginId.isEmpty() &&
+            coord->activeSession()->requesterId == m_currentOriginId)
+        {
+            qCDebug(lcGuiUtil)
+                << "PropertiesPanel::refreshFromSelection: pinned to requester"
+                << m_currentOriginId << "-- skipping rebuild";
+            return;
+        }
+    }
+
+    auto pickSelection = [](GraphicsScene *s) -> QList<QGraphicsItem *> {
+        return s ? s->selectedItems() : QList<QGraphicsItem *>{};
+    };
+
+    QList<QGraphicsItem *> sel = pickSelection(m_activeScene);
+    if (sel.isEmpty()) {
+        GraphicsScene *other = (m_activeScene == m_regionScene)
+                                   ? m_globalScene.data()
+                                   : m_regionScene.data();
+        sel = pickSelection(other);
+    }
+
+    if (sel.isEmpty()) {
+        // No selection anywhere: on the region tab, fall back to the
+        // map-level properties (coordinate system, etc.). On the global
+        // tab the dock is hidden by MainWindow, so just clear.
+        if (m_activeScene == m_regionScene) {
+            qCDebug(lcGuiUtil)
+                << "PropertiesPanel::refreshFromSelection: no selection — "
+                   "showing map properties";
+            displayMapProperties();
+        } else {
+            qCDebug(lcGuiUtil)
+                << "PropertiesPanel::refreshFromSelection: no selection "
+                   "(global tab) — clearing";
+            clearLayout();
+            currentItem = nullptr;
+        }
+        return;
+    }
+
+    displayProperties(sel.first());
+}
+
+void PropertiesPanel::onDestinationResolved(
+    const Input::PickSession &session,
+    const QString &terminalId,
+    const QString &terminalName)
+{
+    qCDebug(lcGuiUtil)
+        << "PropertiesPanel::onDestinationResolved requester="
+        << session.requesterId << "picked=" << terminalId;
+
+    // Route by slot variant. Multi-row forwards to the live editor (which
+    // owns the per-row buffer); primary writes straight through the mutator.
+    if (std::holds_alternative<Input::MultiDestinationRowSlot>(session.slot)) {
+        if (m_currentListEditor &&
+            session.requesterId == m_currentOriginId) {
+            m_currentListEditor->applyPickedTerminalToActiveRow(
+                terminalId, terminalName);
+        } else {
+            qCWarning(lcGuiUtil)
+                << "PropertiesPanel::onDestinationResolved: multi-row pick"
+                   " resolved but no matching editor is displayed (requester="
+                << session.requesterId << "shown=" << m_currentOriginId << ")";
+        }
+        return;
+    }
+
+    // PrimaryDestinationSlot: write scalar DestinationTerminal.
+    if (!mainWindow || !mainWindow->runtime()) {
+        qCWarning(lcGuiUtil)
+            << "PropertiesPanel::onDestinationResolved: no runtime -- dropped";
+        return;
+    }
+    auto *doc = &mainWindow->runtime()->document();
+    Backend::Application::ScenarioEditService::
+        setOriginDestinationScalar(
+            doc, session.requesterId, terminalId);
 }
 
 } // namespace GUI

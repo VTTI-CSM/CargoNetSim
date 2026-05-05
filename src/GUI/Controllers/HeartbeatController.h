@@ -33,6 +33,16 @@ public:
      */
     void initialize();
 
+signals:
+    /**
+     * @brief Emitted when one or more backend availability states change.
+     *
+     * Consumers should treat this as an invalidation signal and re-query
+     * their own source of truth instead of depending on HeartbeatController's
+     * cached map.
+     */
+    void backendAvailabilityChanged();
+
 private slots:
     /**
      * @brief Check queue consumers for all servers

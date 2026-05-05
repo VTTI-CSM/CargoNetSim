@@ -1,5 +1,6 @@
 // In InterfaceSelectionDialog.cpp
 #include "InterfaceSelectionDialog.h"
+#include "Backend/Commons/LogCategories.h"
 #include <QDialogButtonBox>
 #include <QFrame>
 #include <QGridLayout>
@@ -19,8 +20,11 @@ InterfaceSelectionDialog::InterfaceSelectionDialog(
     DialogType dialogType, QWidget *parent)
     : QDialog(parent)
     , m_dialogType(dialogType)
-    , m_useCoordinateDistanceCheckbox(nullptr)
 {
+    qCInfo(lcGuiUtil) << "InterfaceSelectionDialog::InterfaceSelectionDialog: opening"
+                      << (dialogType == NetworkSelection ? "NetworkSelection" : "InterfaceSelection")
+                      << "options:" << availableOptions.size()
+                      << "terminalTypes:" << visibleTerminalTypes.size();
     QString windowTitle, headerText, optionsGroupTitle;
 
     // Set titles based on dialog type
@@ -34,8 +38,8 @@ InterfaceSelectionDialog::InterfaceSelectionDialog(
     else
     { // InterfaceSelection (default)
         windowTitle = "Select Interfaces to Connect";
-        headerText  = "Select which interfaces to connect:";
-        optionsGroupTitle = "Available Interfaces:";
+        headerText  = "Select which transport interfaces to connect:";
+        optionsGroupTitle = "Available Transport Interfaces:";
     }
 
     setWindowTitle(windowTitle);
@@ -181,20 +185,6 @@ InterfaceSelectionDialog::InterfaceSelectionDialog(
                     deselectAllTerminalTypes);
     }
 
-    // Add coordinate distance checkbox for
-    // InterfaceSelection type
-    if (dialogType == InterfaceSelection)
-    {
-        m_useCoordinateDistanceCheckbox =
-            new QCheckBox("Use coordinate distance to "
-                          "calculate connection properties",
-                          this);
-        m_useCoordinateDistanceCheckbox->setChecked(
-            true); // Default to checked
-        mainLayout->addWidget(
-            m_useCoordinateDistanceCheckbox);
-    }
-
     // Create a 2x2 grid layout for dialog buttons
     QGridLayout *buttonGrid = new QGridLayout();
     buttonGrid->setSpacing(10);
@@ -223,6 +213,7 @@ InterfaceSelectionDialog::InterfaceSelectionDialog(
 
 InterfaceSelectionDialog::~InterfaceSelectionDialog()
 {
+    qCInfo(lcGuiUtil) << "InterfaceSelectionDialog::~InterfaceSelectionDialog: closing";
     // QObject parent takes care of widget deletion
 }
 
@@ -238,6 +229,8 @@ InterfaceSelectionDialog::getSelectedInterfaces() const
             selectedInterfaces.append(it.key());
         }
     }
+    qCDebug(lcGuiUtil) << "InterfaceSelectionDialog::getSelectedInterfaces:"
+                       << selectedInterfaces.size() << "selected";
     return selectedInterfaces;
 }
 
@@ -253,6 +246,8 @@ InterfaceSelectionDialog::getSelectedNetworkTypes() const
             selectedNetworkTypes.append(it.key());
         }
     }
+    qCDebug(lcGuiUtil) << "InterfaceSelectionDialog::getSelectedNetworkTypes:"
+                       << selectedNetworkTypes.size() << "selected";
     return selectedNetworkTypes;
 }
 
@@ -268,18 +263,9 @@ InterfaceSelectionDialog::getIncludedTerminalTypes() const
     return includedTypes;
 }
 
-bool InterfaceSelectionDialog::useCoordinateDistance() const
-{
-    if (m_dialogType == InterfaceSelection
-        && m_useCoordinateDistanceCheckbox)
-    {
-        return m_useCoordinateDistanceCheckbox->isChecked();
-    }
-    return false;
-}
-
 void InterfaceSelectionDialog::selectAllInterfaces()
 {
+    qCDebug(lcGuiUtil) << "InterfaceSelectionDialog::selectAllInterfaces";
     for (auto checkbox : m_interfaceCheckboxes)
     {
         checkbox->setChecked(true);
@@ -288,6 +274,7 @@ void InterfaceSelectionDialog::selectAllInterfaces()
 
 void InterfaceSelectionDialog::deselectAllInterfaces()
 {
+    qCDebug(lcGuiUtil) << "InterfaceSelectionDialog::deselectAllInterfaces";
     for (auto checkbox : m_interfaceCheckboxes)
     {
         checkbox->setChecked(false);
@@ -296,6 +283,7 @@ void InterfaceSelectionDialog::deselectAllInterfaces()
 
 void InterfaceSelectionDialog::selectAllNetworkTypes()
 {
+    qCDebug(lcGuiUtil) << "InterfaceSelectionDialog::selectAllNetworkTypes";
     for (auto checkbox : m_networkTypeCheckboxes)
     {
         checkbox->setChecked(true);
@@ -304,6 +292,7 @@ void InterfaceSelectionDialog::selectAllNetworkTypes()
 
 void InterfaceSelectionDialog::deselectAllNetworkTypes()
 {
+    qCDebug(lcGuiUtil) << "InterfaceSelectionDialog::deselectAllNetworkTypes";
     for (auto checkbox : m_networkTypeCheckboxes)
     {
         checkbox->setChecked(false);
@@ -312,6 +301,7 @@ void InterfaceSelectionDialog::deselectAllNetworkTypes()
 
 void InterfaceSelectionDialog::selectAllTerminalTypes()
 {
+    qCDebug(lcGuiUtil) << "InterfaceSelectionDialog::selectAllTerminalTypes";
     for (auto checkbox : m_terminalTypeCheckboxes)
     {
         checkbox->setChecked(true);
@@ -320,6 +310,7 @@ void InterfaceSelectionDialog::selectAllTerminalTypes()
 
 void InterfaceSelectionDialog::deselectAllTerminalTypes()
 {
+    qCDebug(lcGuiUtil) << "InterfaceSelectionDialog::deselectAllTerminalTypes";
     for (auto checkbox : m_terminalTypeCheckboxes)
     {
         checkbox->setChecked(false);

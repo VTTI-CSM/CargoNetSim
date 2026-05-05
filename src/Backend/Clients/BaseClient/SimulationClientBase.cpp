@@ -1,14 +1,22 @@
 #include "SimulationClientBase.h"
+#include <cmath>
 #include <QDateTime>
 #include <QDebug>
+#include <QDomDocument>
+#include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QJsonDocument>
 #include <QThread>
 #include <QTimer>
 #include <QUuid>
+#ifdef HAVE_QTKEYCHAIN
+#include <qt6keychain/keychain.h>
+#endif
 
-#include "Backend/Controllers/CargoNetSimController.h"
 #include "Backend/Models/SimulationTime.h"
+#include "Backend/Utils/Utils.h"
+#include "Backend/Commons/LogCategories.h"
 #include "QtWidgets/qmessagebox.h"
 
 namespace CargoNetSim
@@ -62,7 +70,7 @@ SimulationClientBase::~SimulationClientBase()
     {
         delete m_logger;
     }
-    qDebug() << "SimulationClientBase destroyed for"
+    qCInfo(lcClient) << "SimulationClientBase destroyed for"
              << getClientTypeString();
 }
 
@@ -71,17 +79,24 @@ void SimulationClientBase::initializeClient(
     TerminalSimulationClient *terminalClient,
     LoggerInterface          *logger)
 {
+    qCDebug(lcClient) << "SimulationClientBase::initializeClient:"
+                      << getClientTypeString()
+                      << "currentThread=" << QThread::currentThread()
+                      << "objectThread=" << this->thread();
 
     // Set the SimulationTime and logger interface
     m_logger = logger;
     m_simulationTime = simulationTime;
     m_terminalClient = terminalClient;
 
+    // Load RabbitMQ configuration from file and keychain
+    loadRabbitMQConfig();
+
     // Create RabbitMQ handler
     m_rabbitMQHandler = new RabbitMQHandler(
-        nullptr, m_host, m_port, m_exchange, m_commandQueue,
-        m_responseQueue, m_sendingRoutingKey,
-        m_receivingRoutingKeys);
+        nullptr, m_host, m_port, m_username, m_password,
+        m_exchange, m_commandQueue, m_responseQueue,
+        m_sendingRoutingKey, m_receivingRoutingKeys);
 
     // Connect signals and slots
     connect(m_rabbitMQHandler,
@@ -99,7 +114,7 @@ void SimulationClientBase::initializeClient(
             &SimulationClientBase::errorOccurred,
             Qt::QueuedConnection);
 
-    qDebug() << "SimulationClientBase initialized for"
+    qCInfo(lcClient) << "SimulationClientBase initialized for"
              << getClientTypeString();
     if (m_logger)
     {
@@ -108,6 +123,29 @@ void SimulationClientBase::initializeClient(
                 + getClientTypeString(),
             static_cast<int>(m_clientType));
     }
+}
+
+void SimulationClientBase::setExecutionTimeOverride(
+    double currentTimeSeconds)
+{
+    m_executionTimeOverrideSeconds.store(currentTimeSeconds);
+}
+
+void SimulationClientBase::clearExecutionTimeOverride()
+{
+    m_executionTimeOverrideSeconds.store(
+        std::numeric_limits<double>::quiet_NaN());
+}
+
+double SimulationClientBase::currentExecutionTime() const
+{
+    const double overrideTime =
+        m_executionTimeOverrideSeconds.load();
+    if (std::isfinite(overrideTime))
+        return overrideTime;
+
+    return m_simulationTime ? m_simulationTime->getCurrentTime()
+                            : -1.0;
 }
 
 void SimulationClientBase::setController(
@@ -121,8 +159,10 @@ void SimulationClientBase::setController(
  */
 bool SimulationClientBase::isConnected() const
 {
-    return m_rabbitMQHandler
-           && m_rabbitMQHandler->isConnected();
+    bool connected = m_rabbitMQHandler
+                     && m_rabbitMQHandler->isConnected();
+    qCDebug(lcClient) << "isConnected:" << connected;
+    return connected;
 }
 
 /**
@@ -130,10 +170,16 @@ bool SimulationClientBase::isConnected() const
  */
 bool SimulationClientBase::connectToServer()
 {
+    qCDebug(lcClient) << "SimulationClientBase::connectToServer:"
+                      << getClientTypeString()
+                      << "currentThread=" << QThread::currentThread()
+                      << "objectThread=" << this->thread()
+                      << "handlerExists="
+                      << (m_rabbitMQHandler != nullptr);
     // Check if m_rabbitMQHandler exists
     if (m_rabbitMQHandler == nullptr)
     {
-        qWarning() << "Cannot execute command: RabbitMQ "
+        qCWarning(lcClient) << "Cannot execute command: RabbitMQ "
                       "handler not initialized";
         if (m_logger)
         {
@@ -150,12 +196,12 @@ bool SimulationClientBase::connectToServer()
 
     if (success)
     {
-        qDebug() << getClientTypeString()
+        qCInfo(lcClient) << getClientTypeString()
                  << "connected to server";
     }
     else
     {
-        qWarning() << getClientTypeString()
+        qCWarning(lcClient) << getClientTypeString()
                    << "failed to connect to server";
         if (m_logger)
         {
@@ -163,27 +209,38 @@ bool SimulationClientBase::connectToServer()
                 getClientTypeString()
                     + " failed to connect to server",
                 static_cast<int>(m_clientType));
-
-            QMessageBox msgBox(nullptr);
-            msgBox.setIcon(QMessageBox::Critical);
-            msgBox.setWindowTitle("RabbitMQ Connection Failed");
-            msgBox.setText("Could not connect to RabbitMQ server");
-            msgBox.setInformativeText(
-                "The application failed to establish a connection to the RabbitMQ message broker. "
-                "This means that simulation features will not be available.\n\n"
-                "Please check:\n"
-                "• RabbitMQ server is running\n"
-                "• Network connectivity\n"
-                "• Firewall settings\n"
-                "• Server configuration\n\n"
-                "The application will terminate now."
-                );
-            msgBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Retry);
-            msgBox.setDefaultButton(QMessageBox::Ok);
         }
+        emit errorOccurred(
+            "Could not connect to RabbitMQ server. "
+            "Please check that the RabbitMQ server is "
+            "running and accessible.");
     }
 
     return success;
+}
+
+bool SimulationClientBase::probeCommandAvailability(int timeoutMs)
+{
+    if (!isConnected())
+        return false;
+
+    try
+    {
+        return executeSerializedCommand([&]() {
+            return sendCommandAndWait(
+                QStringLiteral("checkConnection"),
+                QJsonObject{},
+                {QStringLiteral("connectionStatus")},
+                timeoutMs);
+        });
+    }
+    catch (const std::exception &e)
+    {
+        qCWarning(lcClient)
+            << "SimulationClientBase::probeCommandAvailability failed for"
+            << getClientTypeString() << ":" << e.what();
+        return false;
+    }
 }
 
 /**
@@ -194,7 +251,7 @@ void SimulationClientBase::disconnectFromServer()
     // Check if m_rabbitMQHandler exists
     if (m_rabbitMQHandler == nullptr)
     {
-        qWarning() << "Cannot execute command: RabbitMQ "
+        qCWarning(lcClient) << "Cannot execute command: RabbitMQ "
                       "handler not initialized";
         if (m_logger)
         {
@@ -209,7 +266,7 @@ void SimulationClientBase::disconnectFromServer()
 
     m_rabbitMQHandler->stopHeartbeat();
     m_rabbitMQHandler->disconnect();
-    qDebug() << getClientTypeString()
+    qCInfo(lcClient) << getClientTypeString()
              << "disconnected from server";
 }
 
@@ -237,6 +294,8 @@ QString SimulationClientBase::getClientTypeString() const
     case ClientType::TerminalClient:
         return "TerminalClient";
     default:
+        qCWarning(lcClient) << "getClientTypeString: invalid client type"
+                             << static_cast<int>(m_clientType);
         return "UnknownClient";
     }
 }
@@ -252,7 +311,7 @@ bool SimulationClientBase::sendCommandAndWait(
     // Early check to avoid unnecessary work
     if (expectedEvents.isEmpty())
     {
-        qWarning()
+        qCWarning(lcClient)
             << "Cannot wait for empty expected events list";
         if (m_logger)
         {
@@ -264,8 +323,12 @@ bool SimulationClientBase::sendCommandAndWait(
         return false;
     }
 
+    const QString errorEvent =
+        normalizeEventName(QStringLiteral("errorOccurred"));
+
     // Clear any previously received events with the same
-    // names
+    // names. Also clear the generic error event so a command
+    // cannot succeed after the server reports a failure for it.
     {
         CargoNetSim::Backend::Commons::ScopedWriteLock
             locker(m_eventMutex);
@@ -274,13 +337,14 @@ bool SimulationClientBase::sendCommandAndWait(
             QString normalized = normalizeEventName(event);
             m_receivedEvents.remove(normalized);
         }
+        m_receivedEvents.remove(errorEvent);
     }
 
     // Send the command
     bool sent = sendCommand(command, params, routingKey);
     if (!sent)
     {
-        qWarning() << "Failed to send command:" << command;
+        qCWarning(lcClient) << "Failed to send command:" << command;
         if (m_logger)
         {
             m_logger->logError(
@@ -291,11 +355,17 @@ bool SimulationClientBase::sendCommandAndWait(
         return false;
     }
 
-    // Wait for the expected event
-    bool received = waitForEvent(expectedEvents, timeoutMs);
+    // Wait for either the expected event or an explicit server
+    // error. Some upstream servers publish errorOccurred as an
+    // event rather than as a failed command response, so this
+    // prevents a later success-shaped event from masking the
+    // command failure.
+    QStringList waitEvents = expectedEvents;
+    waitEvents.append(QStringLiteral("errorOccurred"));
+    bool received = waitForEvent(waitEvents, timeoutMs);
     if (!received)
     {
-        qWarning()
+        qCWarning(lcClient)
             << "Timeout waiting for response to command:"
             << command;
         if (m_logger)
@@ -306,6 +376,40 @@ bool SimulationClientBase::sendCommandAndWait(
                 static_cast<int>(m_clientType));
         }
         return false;
+    }
+
+    {
+        CargoNetSim::Backend::Commons::ScopedReadLock
+            locker(m_eventMutex);
+        const auto it = m_receivedEvents.constFind(errorEvent);
+        if (it != m_receivedEvents.constEnd())
+        {
+            const QJsonObject errorData = it.value();
+            QString errorMsg = errorData
+                                   .value(QStringLiteral(
+                                       "errorMessage"))
+                                   .toString();
+            if (errorMsg.isEmpty())
+            {
+                errorMsg =
+                    errorData
+                        .value(QStringLiteral("error"))
+                        .toString(QStringLiteral(
+                            "Server reported an error"));
+            }
+
+            qCWarning(lcClient)
+                << "Server reported error for command:" << command
+                << "-" << errorMsg;
+            if (m_logger)
+            {
+                m_logger->logError(
+                    "Server reported error for command "
+                        + command + ": " + errorMsg,
+                    static_cast<int>(m_clientType));
+            }
+            return false;
+        }
     }
 
     return true;
@@ -326,8 +430,9 @@ bool SimulationClientBase::sendCommand(
         QUuid::createUuid().toString(QUuid::WithoutBraces);
     commandObj["commandId"] = commandId;
 
-    qDebug() << "Sending command" << command << "with ID"
-             << commandId;
+    qCDebug(lcClient) << "Sending command"
+             << QJsonDocument(commandObj).toJson(
+                    QJsonDocument::Compact);
 
     // Send the command
     bool success = m_rabbitMQHandler->sendCommand(
@@ -376,7 +481,7 @@ bool SimulationClientBase::waitForEvent(
 {
     if (expectedEvents.isEmpty())
     {
-        qWarning() << "No event to wait for";
+        qCWarning(lcClient) << "No event to wait for";
         return false;
     }
 
@@ -409,7 +514,7 @@ bool SimulationClientBase::waitForEvent(
                     }
                     else
                     {
-                        qDebug() << "Event" << event
+                        qCDebug(lcClient) << "Event" << event
                                  << "received";
                     }
                     receivedEvent = true;
@@ -476,7 +581,6 @@ bool SimulationClientBase::waitForEvent(
             }
         }
     }
-
     return true;
 }
 
@@ -486,10 +590,17 @@ bool SimulationClientBase::waitForEvent(
 bool SimulationClientBase::hasReceivedEvent(
     const QString &eventName) const
 {
+    qCDebug(lcClient) << "hasReceivedEvent: event=" << eventName;
     CargoNetSim::Backend::Commons::ScopedReadLock locker(
         m_eventMutex);
     QString normalizedEvent = normalizeEventName(eventName);
-    return m_receivedEvents.contains(normalizedEvent);
+    bool found = m_receivedEvents.contains(normalizedEvent);
+    if (!found)
+    {
+        qCWarning(lcClient) << "hasReceivedEvent: event not found:"
+                             << eventName;
+    }
+    return found;
 }
 
 /**
@@ -498,10 +609,17 @@ bool SimulationClientBase::hasReceivedEvent(
 QJsonObject SimulationClientBase::getEventData(
     const QString &eventName) const
 {
+    qCDebug(lcClient) << "getEventData: event=" << eventName;
     CargoNetSim::Backend::Commons::ScopedReadLock locker(
         m_eventMutex);
     QString normalizedEvent = normalizeEventName(eventName);
-    return m_receivedEvents.value(normalizedEvent);
+    QJsonObject data = m_receivedEvents.value(normalizedEvent);
+    if (data.isEmpty())
+    {
+        qCWarning(lcClient) << "getEventData: returning empty data for"
+                             << eventName;
+    }
+    return data;
 }
 
 /**
@@ -518,7 +636,15 @@ void SimulationClientBase::processMessage(
         QString normalizedEvent =
             normalizeEventName(eventName);
 
-        // Register event
+        // Let subclasses populate typed caches first so that
+        // any thread waiting in `waitForEvent` observes the
+        // populated state the instant `registerEvent` wakes
+        // it. Reversing this order reintroduces a race where
+        // the waiter reads the cache before the handler has
+        // filled it.
+        onEventReceived(normalizedEvent, message);
+
+        // Register event (wakes waiters)
         registerEvent(normalizedEvent, message);
 
         // Emit signal for the event
@@ -548,12 +674,29 @@ void SimulationClientBase::processMessage(
 }
 
 /**
+ * Default: subclasses opt in by overriding. Kept out of the
+ * header so it stays a regular virtual (no inline noise).
+ */
+void SimulationClientBase::onEventReceived(
+    const QString & /*normalizedEvent*/,
+    const QJsonObject & /*message*/)
+{
+    // No-op by default.
+}
+
+/**
  * Normalizes an event name for consistent lookup.
  */
 QString SimulationClientBase::normalizeEventName(
     const QString &eventName)
 {
-    return eventName.trimmed().toLower().remove(' ');
+    QString result = eventName.trimmed().toLower().remove(' ');
+    if (result != eventName)
+    {
+        qCDebug(lcClient) << "normalizeEventName:"
+                           << eventName << "->" << result;
+    }
+    return result;
 }
 
 /**
@@ -567,7 +710,7 @@ void SimulationClientBase::registerEvent(
     m_receivedEvents[eventName] = eventData;
     m_eventCondition.wakeAll();
 
-    qDebug() << "Registered event:" << eventName;
+    qCDebug(lcClient) << "Registered event:" << eventName;
 }
 
 /**
@@ -587,11 +730,125 @@ void SimulationClientBase::handleMessage(
     const QJsonObject &message)
 {
     // Print the received message to inspect its content
-    qDebug() << "Received message:"
+    qCDebug(lcClient) << "Received message:"
              << QJsonDocument(message).toJson(
                     QJsonDocument::Compact);
 
     processMessage(message);
+}
+
+/**
+ * Load RabbitMQ configuration from config file and keychain.
+ */
+void SimulationClientBase::loadRabbitMQConfig()
+{
+    QString configPath =
+        Utils::findConfigFilePath("rabbitmq.xml");
+
+    QFile file(configPath);
+    if (!file.exists())
+    {
+        qCDebug(lcClient) << "RabbitMQ config file not found at"
+                 << configPath << "- using defaults";
+        return;
+    }
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        qCWarning(lcClient) << "Failed to open RabbitMQ config file:"
+                   << configPath;
+        return;
+    }
+
+    QDomDocument doc;
+    auto result = doc.setContent(&file);
+    file.close();
+    if (!result)
+    {
+        qCWarning(lcClient) << "Failed to parse RabbitMQ config XML:"
+                   << result.errorMessage << "at line"
+                   << result.errorLine;
+        return;
+    }
+
+    QDomElement root = doc.documentElement();
+    if (root.tagName() != "rabbitmq")
+    {
+        qCWarning(lcClient)
+            << "Invalid RabbitMQ config: root element is not "
+               "'rabbitmq'";
+        return;
+    }
+
+    // Read configuration values
+    QDomElement hostElem = root.firstChildElement("host");
+    if (!hostElem.isNull())
+    {
+        m_host = hostElem.text();
+    }
+
+    QDomElement portElem = root.firstChildElement("port");
+    if (!portElem.isNull())
+    {
+        bool ok;
+        int  port = portElem.text().toInt(&ok);
+        if (ok && port > 0 && port <= 65535)
+        {
+            m_port = port;
+        }
+    }
+
+    QDomElement usernameElem =
+        root.firstChildElement("username");
+    if (!usernameElem.isNull())
+    {
+        m_username = usernameElem.text();
+    }
+
+    qCInfo(lcClient) << "Loaded RabbitMQ config: host=" << m_host
+             << "port=" << m_port
+             << "username=" << m_username;
+
+#ifdef HAVE_QTKEYCHAIN
+    // Load password from OS keychain
+    QKeychain::ReadPasswordJob job("CargoNetSim");
+    job.setAutoDelete(false);
+    job.setKey("rabbitmq-password");
+
+    QEventLoop loop;
+    QObject::connect(
+        &job, &QKeychain::ReadPasswordJob::finished, &loop,
+        &QEventLoop::quit);
+    job.start();
+    loop.exec();
+
+    if (job.error() == QKeychain::NoError)
+    {
+        m_password = job.textData();
+        qCInfo(lcClient) << "Loaded RabbitMQ password from keychain";
+    }
+    else
+    {
+        qCInfo(lcClient) << "Could not load password from keychain:"
+                 << job.errorString()
+                 << "- trying XML fallback";
+#endif
+        // Fallback: load password from XML file
+        QDomElement passwordElem =
+            root.firstChildElement("password");
+        if (!passwordElem.isNull())
+        {
+            m_password = passwordElem.text();
+            qCInfo(lcClient) << "Loaded RabbitMQ password from config "
+                        "file";
+        }
+        else
+        {
+            qCDebug(lcClient) << "No password in config - using default";
+        }
+#ifdef HAVE_QTKEYCHAIN
+    }
+#endif
 }
 
 } // namespace Backend

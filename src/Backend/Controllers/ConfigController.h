@@ -1,20 +1,25 @@
 #pragma once
 #include <QDomDocument>
 #include <QDomElement>
+#include <QObject>
 #include <QString>
 #include <QVariantMap>
 namespace CargoNetSim
 {
 namespace Backend
 {
-class ConfigController
+class ConfigController : public QObject
 {
+    Q_OBJECT
 public:
     /**
      * @brief Constructor initializes with config file path
      * @param configFile Path to the XML configuration file
+     * @param parent    Optional QObject parent for lifetime
+     *                  management
      */
-    ConfigController(const QString &configFile);
+    explicit ConfigController(const QString &configFile,
+                              QObject       *parent = nullptr);
     /**
      * @brief Loads the configuration from the specified
      * file
@@ -75,13 +80,13 @@ public:
      * Each weight represents the cost factor for the
      * corresponding parameter:
      * - cost: USD per USD (multiplier = 1.0)
-     * - travellTime: USD per hour
-     * - distance: USD per km (set to 0.0 as this cost is
+     * - travellTime: USD per second
+     * - distance: USD per metre (set to 0.0 as this cost is
      * accounted for elsewhere)
-     * - carbonEmissions: USD per kg of CO2
-     * - risk: USD per unit of risk (percentage * 100)
+     * - carbonEmissions: USD per tonne of CO2
+     * - risk: USD per unit of risk fraction
      * - energyConsumption: USD per kWh
-     * - terminal_delay: USD per hour
+     * - terminal_delay: USD per second
      * - terminal_cost: USD per USD (multiplier = 1.0)
      */
     QVariantMap getCostFunctionWeights() const;

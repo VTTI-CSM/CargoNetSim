@@ -1,5 +1,9 @@
 #include "ConfigController.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/TransportationMode.h"
+#include "Backend/Commons/Units.h"
+#include "Backend/Scenario/PropertyKeys.h"
+#include "Backend/Scenario/SimulationSettings.h"
 #include <QDebug>
 #include <QFile>
 #include <QTextStream>
@@ -8,9 +12,56 @@ namespace CargoNetSim
 {
 namespace Backend
 {
+namespace PK = CargoNetSim::Backend::Scenario::PropertyKeys;
+
+namespace {
+constexpr double kDefaultAvgTVM   = 24.08; // USD/hour — global average TVM
+constexpr double kDefaultShipTVM  = 13.43; // USD/hour — ship mode TVM
+constexpr double kDefaultRailTVM  = 16.43; // USD/hour — rail mode TVM
+constexpr double kDefaultTruckTVM = 31.43; // USD/hour — truck mode TVM
+
+double usdPerSecondFromUsdPerHour(double usdPerHour)
+{
+    return usdPerHour
+        / Units::TimeHours(1.0)
+              .convert<units::time::second>()
+              .value();
+}
+
+QVariantMap defaultCanonicalWeights(
+    double timeValueUsdPerHour,
+    double carbonTaxUsdPerTonne,
+    double riskUsdPerFraction = 100.0)
+{
+    QVariantMap weights;
+    weights[PK::Segment::Cost] = 1.0;
+    weights[PK::Segment::TravelTime] =
+        usdPerSecondFromUsdPerHour(timeValueUsdPerHour);
+    weights[PK::Segment::Distance] = 0.0;
+    weights[PK::Segment::CarbonEmissions] =
+        carbonTaxUsdPerTonne;
+    weights[PK::Segment::Risk] = riskUsdPerFraction;
+    weights[PK::Segment::EnergyConsumption] = 1.0;
+    weights[PK::Segment::TerminalDelay] =
+        usdPerSecondFromUsdPerHour(timeValueUsdPerHour);
+    weights[PK::Segment::TerminalCost] = 1.0;
+    return weights;
+}
+
+void applyTimeValueUsdPerHour(
+    QVariantMap &weights, double timeValueUsdPerHour)
+{
+    const double usdPerSecond =
+        usdPerSecondFromUsdPerHour(timeValueUsdPerHour);
+    weights[PK::Segment::TravelTime] = usdPerSecond;
+    weights[PK::Segment::TerminalDelay] = usdPerSecond;
+}
+} // anonymous namespace
+
 ConfigController::ConfigController(
-    const QString &configFile)
-    : m_configFile(configFile)
+    const QString &configFile, QObject *parent)
+    : QObject(parent)
+    , m_configFile(configFile)
 {
     // If file doesn't exist, create it with default values
     QFile file(m_configFile);
@@ -33,31 +84,44 @@ bool ConfigController::loadConfig()
         if (!file.open(QIODevice::ReadOnly
                        | QIODevice::Text))
         {
-            qWarning() << "Could not open config file:"
+            qCWarning(lcConfig) << "Could not open config file:"
                        << file.errorString();
             return false;
         }
 
         QDomDocument doc;
-        QString      errorMsg;
-        int          errorLine, errorColumn;
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+        auto result = doc.setContent(&file);
+        if (!result)
+        {
+            file.close();
+            qCWarning(lcConfig) << "Failed to parse XML:" << result.errorMessage
+                       << " at line " << result.errorLine
+                       << ", column " << result.errorColumn;
+            return false;
+        }
+#else
+        QString errorMsg;
+        int     errorLine, errorColumn;
 
         if (!doc.setContent(&file, &errorMsg, &errorLine,
                             &errorColumn))
         {
             file.close();
-            qWarning() << "Failed to parse XML:" << errorMsg
+            qCWarning(lcConfig) << "Failed to parse XML:" << errorMsg
                        << " at line " << errorLine
                        << ", column " << errorColumn;
             return false;
         }
+#endif
         file.close();
 
         // Get the root element
         QDomElement root = doc.documentElement();
         if (root.tagName() != "config")
         {
-            qWarning() << "Invalid root element in config "
+            qCWarning(lcConfig) << "Invalid root element in config "
                           "file, expected 'config'";
             return false;
         }
@@ -109,7 +173,7 @@ bool ConfigController::loadConfig()
     }
     catch (const std::exception &e)
     {
-        qWarning() << "An error occurred while loading the "
+        qCWarning(lcConfig) << "An error occurred while loading the "
                       "config file:"
                    << e.what();
         return false;
@@ -160,10 +224,11 @@ void ConfigController::createDefaultConfig()
     // Create a default configuration with the values from
     // the XML example
     QVariantMap simulation;
-    simulation["time_step"]           = 15;
-    simulation["time_value_of_money"] = 20.43;
-    simulation["use_mode_specific"]   = false;
-    simulation["shortest_paths"]      = 3;
+    simulation["time_step"] =
+        Scenario::kDefaultOrchestrationTimeStepSeconds;
+    simulation[PK::Simulation::TimeValueOfMoney] = kDefaultAvgTVM;
+    simulation[PK::Simulation::UseModeSpecific]  = false;
+    simulation["shortest_paths"]      = 10;
     m_config["simulation"]            = simulation;
 
     QVariantMap fuelEnergy;
@@ -179,47 +244,48 @@ void ConfigController::createDefaultConfig()
     m_config["fuel_carbon_content"] = fuelCarbonContent;
 
     QVariantMap fuelPrices;
-    fuelPrices["HFO"]       = 580.0;
+    fuelPrices["HFO"]       = 0.56;
     fuelPrices["diesel_1"]  = 1.35;
     fuelPrices["diesel_2"]  = 1.35;
     m_config["fuel_prices"] = fuelPrices;
 
     QVariantMap carbonTaxes;
     carbonTaxes["rate"]             = 65;
-    carbonTaxes["ship_multiplier"]  = 1.2;
-    carbonTaxes["truck_multiplier"] = 1.1;
-    carbonTaxes["train_multiplier"] = 1.1;
+    carbonTaxes["ship_multiplier"]  = 1.0;
+    carbonTaxes["truck_multiplier"] = 1.0;
+    carbonTaxes["rail_multiplier"] = 1.0;
     m_config["carbon_taxes"]        = carbonTaxes;
 
     QVariantMap ship;
-    ship["average_speed"]            = 20;
-    ship["average_fuel_consumption"] = 50;
-    ship["average_container_number"] = 5000;
-    ship["risk_factor"]              = 0.025;
-    ship["fuel_type"]                = "HFO";
-    ship["time_value_of_money"]      = 13.43;
+    ship[PK::Mode::AverageSpeed]           = 42.6;
+    ship[PK::Mode::AverageFuelConsumption] = 21.0;
+    ship[PK::Mode::AverageContainerNumber] = 10000;
+    ship[PK::Mode::RiskFactor]             = 0.025;
+    ship[PK::Mode::FuelType]               = "HFO";
+    ship[PK::Mode::TimeValueOfMoney]       = kDefaultShipTVM;
 
-    QVariantMap train;
-    train["average_speed"]            = 40;
-    train["average_fuel_consumption"] = 20;
-    train["average_container_number"] = 400;
-    train["risk_factor"]              = 0.006;
-    train["use_network"]              = true;
-    train["fuel_type"]                = "diesel_1";
-    train["time_value_of_money"]      = 16.43;
+    QVariantMap rail;
+    rail[PK::Mode::AverageSpeed]           = 88.5;
+    rail[PK::Mode::AverageFuelConsumption] = 5.5;
+    rail[PK::Mode::AverageContainerNumber] = 180;
+    rail[PK::Mode::AverageLocomotiveCount] = 1;
+    rail[PK::Mode::RiskFactor]             = 0.006;
+    rail[PK::Mode::UseNetwork]             = true;
+    rail[PK::Mode::FuelType]               = "diesel_1";
+    rail[PK::Mode::TimeValueOfMoney]       = kDefaultRailTVM;
 
     QVariantMap truck;
-    truck["average_speed"]            = 70;
-    truck["average_fuel_consumption"] = 15;
-    truck["average_container_number"] = 1;
-    truck["risk_factor"]              = 0.012;
-    truck["use_network"]              = false;
-    truck["fuel_type"]                = "diesel_2";
-    truck["time_value_of_money"]      = 31.43;
+    truck[PK::Mode::AverageSpeed]           = 88.5;
+    truck[PK::Mode::AverageFuelConsumption] = 0.55;
+    truck[PK::Mode::AverageContainerNumber] = 1;
+    truck[PK::Mode::RiskFactor]             = 0.012;
+    truck[PK::Mode::UseNetwork]             = true;
+    truck[PK::Mode::FuelType]               = "diesel_2";
+    truck[PK::Mode::TimeValueOfMoney]       = kDefaultTruckTVM;
 
     QVariantMap transportModes;
     transportModes["ship"]      = ship;
-    transportModes["rail"]      = train;
+    transportModes["rail"]      = rail;
     transportModes["truck"]     = truck;
     m_config["transport_modes"] = transportModes;
 }
@@ -263,11 +329,11 @@ QVariantMap ConfigController::getTimeValueOfMoney() const
 
     // Get the use_mode_specific flag and average value from
     // simulation section
-    timeValueOfMoney["use_mode_specific"] =
-        simulationParams.value("use_mode_specific", false)
+    timeValueOfMoney[PK::Simulation::UseModeSpecific] =
+        simulationParams.value(PK::Simulation::UseModeSpecific, false)
             .toBool();
     timeValueOfMoney["average"] =
-        simulationParams.value("time_value_of_money", 20.43)
+        simulationParams.value(PK::Simulation::TimeValueOfMoney, kDefaultAvgTVM)
             .toDouble();
 
     // Get the transport modes
@@ -279,12 +345,12 @@ QVariantMap ConfigController::getTimeValueOfMoney() const
         QVariantMap shipSettings =
             transportModes["ship"].toMap();
         timeValueOfMoney["ship"] =
-            shipSettings.value("time_value_of_money", 13.43)
+            shipSettings.value(PK::Mode::TimeValueOfMoney, kDefaultShipTVM)
                 .toDouble();
     }
     else
     {
-        timeValueOfMoney["ship"] = 13.43; // Default value
+        timeValueOfMoney["ship"] = kDefaultShipTVM;
     }
 
     if (transportModes.contains("rail"))
@@ -292,12 +358,12 @@ QVariantMap ConfigController::getTimeValueOfMoney() const
         QVariantMap railSettings =
             transportModes["rail"].toMap();
         timeValueOfMoney["rail"] =
-            railSettings.value("time_value_of_money", 16.43)
+            railSettings.value(PK::Mode::TimeValueOfMoney, kDefaultRailTVM)
                 .toDouble();
     }
     else
     {
-        timeValueOfMoney["rail"] = 16.43; // Default value
+        timeValueOfMoney["rail"] = kDefaultRailTVM;
     }
 
     if (transportModes.contains("truck"))
@@ -306,12 +372,12 @@ QVariantMap ConfigController::getTimeValueOfMoney() const
             transportModes["truck"].toMap();
         timeValueOfMoney["truck"] =
             truckSettings
-                .value("time_value_of_money", 31.43)
+                .value(PK::Mode::TimeValueOfMoney, kDefaultTruckTVM)
                 .toDouble();
     }
     else
     {
-        timeValueOfMoney["truck"] = 31.43; // Default value
+        timeValueOfMoney["truck"] = kDefaultTruckTVM;
     }
 
     return timeValueOfMoney;
@@ -379,11 +445,11 @@ bool ConfigController::saveConfig()
         variantMapToXmlElement(doc, transportModesElement,
                                ship, "ship");
 
-        // Add train section
-        QVariantMap train =
+        // Add rail section
+        QVariantMap rail =
             transportModes.value("rail").toMap();
         variantMapToXmlElement(doc, transportModesElement,
-                               train, "rail");
+                               rail, "rail");
 
         // Add truck section
         QVariantMap truck =
@@ -396,7 +462,7 @@ bool ConfigController::saveConfig()
         if (!file.open(QIODevice::WriteOnly
                        | QIODevice::Text))
         {
-            qWarning() << "Could not open file for writing:"
+            qCWarning(lcConfig) << "Could not open file for writing:"
                        << file.errorString();
             return false;
         }
@@ -409,7 +475,7 @@ bool ConfigController::saveConfig()
     }
     catch (const std::exception &e)
     {
-        qWarning() << "Error saving config:" << e.what();
+        qCWarning(lcConfig) << "Error saving config:" << e.what();
         return false;
     }
 }
@@ -429,19 +495,19 @@ void ConfigController::variantMapToXmlElement(
         QDomElement element = doc.createElement(it.key());
         QDomText    text;
 
-        switch (it.value().type())
+        switch (it.value().typeId())
         {
-        case QVariant::Bool:
+        case QMetaType::Bool:
             text = doc.createTextNode(
                 it.value().toBool() ? "true" : "false");
             break;
 
-        case QVariant::Int:
+        case QMetaType::Int:
             text = doc.createTextNode(
                 QString::number(it.value().toInt()));
             break;
 
-        case QVariant::Double:
+        case QMetaType::Double:
             // Use fixed-point notation for doubles with
             // precision of 6
             text = doc.createTextNode(QString::number(
@@ -471,100 +537,75 @@ QVariantMap ConfigController::getCostFunctionWeights() const
 
     // Extract required values
     bool useModeSpecific =
-        timeValueOfMoney.value("use_mode_specific", false)
+        timeValueOfMoney.value(PK::Simulation::UseModeSpecific, false)
             .toBool();
     double averageTimeValue =
-        timeValueOfMoney.value("average", 20.43).toDouble();
+        timeValueOfMoney.value("average", kDefaultAvgTVM).toDouble();
     double carbonTaxRate =
         carbonTaxes.value("rate", 65.0).toDouble();
 
-    // Create default weights
-    QVariantMap defaultWeights;
-    defaultWeights["cost"] =
-        1.0; // USD per USD (direct cost multiplier)
-    defaultWeights["travelTime"] =
-        averageTimeValue; // USD per hour
-    defaultWeights["distance"] =
-        0.0; // USD per km (not counting directly)
-    defaultWeights["carbonEmissions"] =
-        carbonTaxRate / 1000.0; // USD per kg of CO2
-    defaultWeights["risk"] =
-        100.0; // USD per risk unit (percentage * 100)
-    defaultWeights["energyConsumption"] =
-        1.0; // USD per kWh (default)
-    defaultWeights["terminal_delay"] =
-        averageTimeValue; // USD per hour
-    defaultWeights["terminal_cost"] =
-        1.0; // USD per USD (direct cost multiplier)
+    QVariantMap defaultWeights =
+        defaultCanonicalWeights(
+            averageTimeValue, carbonTaxRate);
 
     // Create mode-specific weights by copying default
     // weights
     QVariantMap shipWeights  = defaultWeights;
-    QVariantMap trainWeights = defaultWeights;
+    QVariantMap railWeights  = defaultWeights;
     QVariantMap truckWeights = defaultWeights;
 
     // Set time values of money if mode-specific is enabled
     if (useModeSpecific)
     {
-        shipWeights["travelTime"] =
-            timeValueOfMoney.value("ship", 13.43)
-                .toDouble();
-        shipWeights["terminal_delay"] =
-            timeValueOfMoney.value("ship", 13.43)
-                .toDouble();
+        double tvmShip  = timeValueOfMoney.value("ship",  kDefaultShipTVM).toDouble();
+        double tvmRail  = timeValueOfMoney.value("rail",  kDefaultRailTVM).toDouble();
+        double tvmTruck = timeValueOfMoney.value("truck", kDefaultTruckTVM).toDouble();
 
-        trainWeights["travelTime"] =
-            timeValueOfMoney.value("rail", 16.43)
-                .toDouble();
-        trainWeights["terminal_delay"] =
-            timeValueOfMoney.value("rail", 16.43)
-                .toDouble();
-
-        truckWeights["travelTime"] =
-            timeValueOfMoney.value("truck", 31.43)
-                .toDouble();
-        truckWeights["terminal_delay"] =
-            timeValueOfMoney.value("truck", 31.43)
-                .toDouble();
+        applyTimeValueUsdPerHour(
+            shipWeights, tvmShip);
+        applyTimeValueUsdPerHour(
+            railWeights, tvmRail);
+        applyTimeValueUsdPerHour(
+            truckWeights, tvmTruck);
     }
 
     // Set carbon emission multipliers
-    shipWeights["carbonEmissions"] =
-        shipWeights["carbonEmissions"].toDouble()
-        * carbonTaxes.value("ship_multiplier", 1.2)
+    shipWeights[PK::Segment::CarbonEmissions] =
+        shipWeights[PK::Segment::CarbonEmissions].toDouble()
+        * carbonTaxes.value("ship_multiplier", 1.0)
               .toDouble();
-    trainWeights["carbonEmissions"] =
-        trainWeights["carbonEmissions"].toDouble()
-        * carbonTaxes.value("train_multiplier", 1.1)
+    railWeights[PK::Segment::CarbonEmissions] =
+        railWeights[PK::Segment::CarbonEmissions].toDouble()
+        * carbonTaxes.value("rail_multiplier", 1.0)
               .toDouble();
-    truckWeights["carbonEmissions"] =
-        truckWeights["carbonEmissions"].toDouble()
-        * carbonTaxes.value("truck_multiplier", 1.1)
+    truckWeights[PK::Segment::CarbonEmissions] =
+        truckWeights[PK::Segment::CarbonEmissions].toDouble()
+        * carbonTaxes.value("truck_multiplier", 1.0)
               .toDouble();
 
     // Extract transport mode data
     QVariantMap shipData =
         transportModes.value("ship").toMap();
-    QVariantMap trainData =
+    QVariantMap railData =
         transportModes.value("rail").toMap();
     QVariantMap truckData =
         transportModes.value("truck").toMap();
 
     // Set risk factors
-    shipWeights["risk"] =
-        shipWeights["risk"].toDouble()
-        * shipData.value("risk_factor", 0.025).toDouble();
-    trainWeights["risk"] =
-        trainWeights["risk"].toDouble()
-        * trainData.value("risk_factor", 0.006).toDouble();
-    truckWeights["risk"] =
-        truckWeights["risk"].toDouble()
-        * truckData.value("risk_factor", 0.012).toDouble();
+    shipWeights[PK::Segment::Risk] =
+        shipWeights[PK::Segment::Risk].toDouble()
+        * shipData.value(PK::Mode::RiskFactor, 0.025).toDouble();
+    railWeights[PK::Segment::Risk] =
+        railWeights[PK::Segment::Risk].toDouble()
+        * railData.value(PK::Mode::RiskFactor, 0.006).toDouble();
+    truckWeights[PK::Segment::Risk] =
+        truckWeights[PK::Segment::Risk].toDouble()
+        * truckData.value(PK::Mode::RiskFactor, 0.012).toDouble();
 
     // Calculate energy costs based on fuel types and
     // calorific values Ship energy cost
     QString shipFuelType =
-        shipData.value("fuel_type", "HFO").toString();
+        shipData.value(PK::Mode::FuelType, "HFO").toString();
     double shipFuelPrice =
         fuelPrices
             .value(shipFuelType,
@@ -584,28 +625,28 @@ QVariantMap ConfigController::getCostFunctionWeights() const
     shipEnergyCost =
         shipFuelPrice / shipCalorificValue; // USD per kWh
 
-    shipWeights["energyConsumption"] = shipEnergyCost;
+    shipWeights[PK::Segment::EnergyConsumption] = shipEnergyCost;
 
-    // Train energy cost
-    QString trainFuelType =
-        trainData.value("fuel_type", "diesel_1").toString();
-    double trainFuelPrice =
+    // Rail energy cost
+    QString railFuelType =
+        railData.value(PK::Mode::FuelType, "diesel_1").toString();
+    double railFuelPrice =
         fuelPrices
-            .value(trainFuelType,
+            .value(railFuelType,
                    fuelPrices.value("diesel_1", 1.35))
             .toDouble();
-    double trainCalorificValue =
+    double railCalorificValue =
         fuelEnergy
-            .value(trainFuelType,
+            .value(railFuelType,
                    fuelEnergy.value("diesel_1", 10.7))
             .toDouble();
-    double trainEnergyCost =
-        trainFuelPrice / trainCalorificValue; // USD per kWh
-    trainWeights["energyConsumption"] = trainEnergyCost;
+    double railEnergyCost =
+        railFuelPrice / railCalorificValue; // USD per kWh
+    railWeights[PK::Segment::EnergyConsumption] = railEnergyCost;
 
     // Truck energy cost
     QString truckFuelType =
-        truckData.value("fuel_type", "diesel_2").toString();
+        truckData.value(PK::Mode::FuelType, "diesel_2").toString();
     double truckFuelPrice =
         fuelPrices
             .value(truckFuelType,
@@ -618,7 +659,7 @@ QVariantMap ConfigController::getCostFunctionWeights() const
             .toDouble();
     double truckEnergyCost =
         truckFuelPrice / truckCalorificValue; // USD per kWh
-    truckWeights["energyConsumption"] = truckEnergyCost;
+    truckWeights[PK::Segment::EnergyConsumption] = truckEnergyCost;
 
     // Using TransportationTypes enum values for
     // transportation modes
@@ -629,7 +670,7 @@ QVariantMap ConfigController::getCostFunctionWeights() const
         shipWeights;
     updatedWeights[QString::number(static_cast<int>(
         TransportationTypes::TransportationMode::Train))] =
-        trainWeights;
+        railWeights;
     updatedWeights[QString::number(static_cast<int>(
         TransportationTypes::TransportationMode::Truck))] =
         truckWeights;

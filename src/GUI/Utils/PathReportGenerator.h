@@ -13,7 +13,8 @@
 
 #pragma once
 
-#include "GUI/Widgets/ShortestPathTable.h"
+#include "Backend/Application/PathPresentationService.h"
+#include "GUI/Utils/PathComparisonViewModel.h"
 #include <KDReportsAutoTableElement.h>
 #include <KDReportsCell.h>
 #include <KDReportsChartElement.h>
@@ -47,6 +48,8 @@ class PathReportGenerator : public QObject
     Q_OBJECT
 
 public:
+    using PathData = Backend::Application::PathPresentationRecord;
+
     /**
      * @brief Constructor for PathReportGenerator
      * @param pathData List of path data pointers to include
@@ -54,8 +57,7 @@ public:
      * @param parent Parent QObject
      */
     explicit PathReportGenerator(
-        const QList<const ShortestPathsTable::PathData *>
-                &pathData,
+        const QList<const PathData *> &pathData,
         QObject *parent = nullptr);
 
     /**
@@ -85,6 +87,18 @@ private:
     void addTableOfContents(KDReports::Report *report);
 
     /**
+     * @brief Adds a high-level report summary
+     * @param report KDReports report object
+     */
+    void addExecutiveSummary(KDReports::Report *report);
+
+    /**
+     * @brief Adds notes explaining predicted/actual semantics
+     * @param report KDReports report object
+     */
+    void addReportNotes(KDReports::Report *report);
+
+    /**
      * @brief Adds individual path sections
      * @param report KDReports report object
      */
@@ -97,8 +111,8 @@ private:
      * @param pathData Pointer to the path data to add
      */
     void addPathDetails(
-        KDReports::Report                  *report,
-        const ShortestPathsTable::PathData *pathData);
+        KDReports::Report *report,
+        const PathData    *pathData);
 
     /**
      * @brief Adds path summary information
@@ -106,8 +120,17 @@ private:
      * @param pathData Pointer to the path data
      */
     void addPathSummary(
-        KDReports::Report                  *report,
-        const ShortestPathsTable::PathData *pathData);
+        KDReports::Report *report,
+        const PathData    *pathData);
+
+    /**
+     * @brief Adds path-level physical metrics
+     * @param report KDReports report object
+     * @param pathData Pointer to the path data
+     */
+    void addPathMetricsOverview(
+        KDReports::Report *report,
+        const PathData    *pathData);
 
     /**
      * @brief Adds path terminal information
@@ -115,8 +138,17 @@ private:
      * @param pathData Pointer to the path data
      */
     void addPathTerminals(
-        KDReports::Report                  *report,
-        const ShortestPathsTable::PathData *pathData);
+        KDReports::Report *report,
+        const PathData    *pathData);
+
+    /**
+     * @brief Adds detailed terminal predicted/actual values
+     * @param report KDReports report object
+     * @param pathData Pointer to the path data
+     */
+    void addPathTerminalDetails(
+        KDReports::Report *report,
+        const PathData    *pathData);
 
     /**
      * @brief Adds path segment information
@@ -124,8 +156,8 @@ private:
      * @param pathData Pointer to the path data
      */
     void addPathSegments(
-        KDReports::Report                  *report,
-        const ShortestPathsTable::PathData *pathData);
+        KDReports::Report *report,
+        const PathData    *pathData);
 
     /**
      * @brief Adds path cost information
@@ -133,8 +165,8 @@ private:
      * @param pathData Pointer to the path data
      */
     void addPathCosts(
-        KDReports::Report                  *report,
-        const ShortestPathsTable::PathData *pathData);
+        KDReports::Report *report,
+        const PathData    *pathData);
 
     /**
      * @brief Adds path visualization
@@ -142,8 +174,8 @@ private:
      * @param pathData Pointer to the path data
      */
     void addPathVisualization(
-        KDReports::Report                  *report,
-        const ShortestPathsTable::PathData *pathData);
+        KDReports::Report *report,
+        const PathData    *pathData);
 
     /**
      * @brief Adds comparative analysis section
@@ -164,6 +196,11 @@ private:
      */
     void
     addTerminalComparisonTable(KDReports::Report *report);
+
+    void addTerminalAttributeComparisonTables(
+        KDReports::Report *report);
+    void addTerminalPositionAttributeTable(
+        KDReports::Report *report, int terminalIdx);
 
     /**
      * @brief Adds segment comparison table
@@ -205,7 +242,7 @@ private:
      * @return Image containing the path visualization
      */
     QImage createPathVisualizationImage(
-        const ShortestPathsTable::PathData *pathData);
+        const PathData *pathData);
 
     /**
      * @brief Applies styles to table cells based on content
@@ -223,19 +260,10 @@ private:
                         bool           isHeader = false,
                         bool           rowLabel = false);
 
-    /**
-     * @brief Gets the terminal display name by ID
-     * @param path Pointer to the path object
-     * @param terminalID Terminal ID to look up
-     * @return Display name of the terminal
-     */
-    QString
-    getTerminalDisplayNameByID(Backend::Path *path,
-                               const QString &terminalID);
-
     // Data members
-    const QList<const ShortestPathsTable::PathData *>
+    const QList<const PathData *>
          &m_pathData; ///< Path data to include in report
+    PathComparisonViewModel m_viewModel;
     QFont m_pageTitleFont;    ///< Font for page titles
     QFont m_sectionTitleFont; ///< Font for section titles
     QFont m_normalTextFont;   ///< Font for normal text

@@ -29,12 +29,15 @@
 #include <QObject>
 #include <QReadWriteLock>
 #include <QString>
+#include <QStringList>
 #include <containerLib/container.h>
 
 namespace CargoNetSim
 {
 namespace Backend
 {
+
+class SimulatorHealthProbeTransport;
 
 /**
  * @class TerminalSimulationClient
@@ -91,6 +94,15 @@ public:
      * Sends a reset command to clear server state.
      */
     Q_INVOKABLE bool resetServer();
+
+    /**
+     * @brief Clears TerminalSim runtime inventory, reservations, execution
+     *        records, and SD state while preserving loaded terminals/routes.
+     * @param terminalIds Optional subset of terminal IDs. Empty means all.
+     * @return True if TerminalSim acknowledged the runtime reset.
+     */
+    Q_INVOKABLE bool resetRuntimeState(
+        const QStringList &terminalIds = {});
 
     /**
      * @brief Sets cost function parameters for path finding
@@ -182,8 +194,14 @@ public:
     /**
      * @brief Gets status of a terminal
      * @param terminalId Terminal identifier
-     * @return Terminal pointer, nullptr if not found
-     * @note Caller must delete the returned pointer
+     * @return Borrowed Terminal pointer from the internal
+     *         cache, or nullptr if not found.
+     * @note The returned pointer is **owned by this client**
+     *       (parented to it, destroyed on server reset or on
+     *       client destruction). Callers must NOT delete it;
+     *       doing so corrupts the cache and crashes any later
+     *       reader (e.g. `Path::fromJson`) that still holds
+     *       the address.
      *
      * Fetches and returns terminal status as an object.
      */
@@ -296,7 +314,9 @@ public:
     Q_INVOKABLE bool
     addContainer(const QString                  &terminalId,
                  const ContainerCore::Container *container,
-                 double addTime = -1.0);
+                 double addTime = -1.0,
+                 const QString &arrivalMode = "",
+                 const QString &arrivalSemantics = "");
 
     /**
      * @brief Adds multiple containers to a terminal
@@ -309,13 +329,17 @@ public:
      */
     Q_INVOKABLE bool
     addContainers(const QString &terminalId,
-                  QString &containers, double addTime);
+                  const QString &containers,
+                  double         addTime,
+                  const QString &arrivalMode = "",
+                  const QString &arrivalSemantics = "");
 
     /**
      * @brief Adds multiple containers to a terminal
      * @param terminalId Terminal identifier
      * @param containers List of container pointers
      * @param addTime Addition time, default -1.0
+     * @param arrivalMode Transportation mode string
      * @return True if addition succeeds
      *
      * Adds multiple containers to the terminal.
@@ -323,13 +347,16 @@ public:
     Q_INVOKABLE bool addContainers(
         const QString                     &terminalId,
         QList<ContainerCore::Container *> &containers,
-        double                             addTime = -1.0);
+        double                             addTime = -1.0,
+        const QString                     &arrivalMode = "",
+        const QString                     &arrivalSemantics = "");
 
     /**
      * @brief Adds containers from JSON data
      * @param terminalId Terminal identifier
      * @param json JSON string of containers
      * @param addTime Addition time, default -1.0
+     * @param arrivalMode Transportation mode string
      * @return True if addition succeeds
      *
      * Parses and adds containers from JSON.
@@ -337,65 +364,67 @@ public:
     Q_INVOKABLE bool
     addContainersFromJson(const QString &terminalId,
                           const QString &json,
-                          double         addTime = -1.0);
+                          double         addTime = -1.0,
+                          const QString &arrivalMode = "",
+                          const QString &arrivalSemantics = "");
 
     /**
-     * @brief Gets containers by departing time
+     * @brief Gets containers matching generic TerminalSim criteria
      * @param terminalId Terminal identifier
-     * @param time Departing time threshold
-     * @param condition Comparison operator
-     * @return List of container pointers
-     * @note Server-owned; do not delete
+     * @param criteria TerminalSim container selection criteria
+     * @return Client-owned cached container pointers, valid until the next
+     *         fetch/dequeue for the same terminal or client reset.
      *
-     * Fetches containers based on departure time.
+     * Uses TerminalSim's SQL-backed generic criteria API. Prefer this over
+     * destination-only retrieval for execution-scoped or path-scoped
+     * container selection.
      */
     Q_INVOKABLE QList<ContainerCore::Container *>
-    getContainersByDepartingTime(const QString &terminalId,
-                                 double         time,
-                                 const QString &condition);
+    getContainers(const QString     &terminalId,
+                  const QJsonObject &criteria);
 
     /**
-     * @brief Gets containers by added time
+     * @brief Dequeues containers matching generic TerminalSim criteria
      * @param terminalId Terminal identifier
-     * @param time Added time threshold
-     * @param condition Comparison operator
-     * @return List of container pointers
-     * @note Server-owned; do not delete
+     * @param criteria TerminalSim container selection criteria
+     * @return Client-owned cached container pointers, valid until the next
+     *         fetch/dequeue for the same terminal or client reset.
      *
-     * Fetches containers based on addition time.
+     * This is a state-changing TerminalSim operation. CargoNetSim execution
+     * should prefer reservation/commit once TerminalSim exposes that contract.
      */
     Q_INVOKABLE QList<ContainerCore::Container *>
-    getContainersByAddedTime(const QString &terminalId,
-                             double         time,
-                             const QString &condition);
+    dequeueContainers(const QString     &terminalId,
+                      const QJsonObject &criteria,
+                      double operationTimeSeconds = -1.0);
 
     /**
-     * @brief Gets containers by next destination
-     * @param terminalId Terminal identifier
-     * @param destination Next destination ID
-     * @return List of container pointers
-     * @note Server-owned; do not delete
+     * @brief Reserves containers matching generic criteria for later pickup
+     * commit or release.
      *
-     * Fetches containers headed to a destination.
+     * Reservation keeps containers in TerminalSim inventory while excluding
+     * them from other pickup operations. This is the safe execution boundary
+     * CargoNetSim should use before simulator dispatch.
      */
-    Q_INVOKABLE QList<ContainerCore::Container *>
-                getContainersByNextDestination(
-                    const QString &terminalId,
-                    const QString &destination);
+    Q_INVOKABLE QJsonObject
+    reserveContainers(const QString     &terminalId,
+                      const QString     &reservationId,
+                      const QJsonObject &criteria);
 
     /**
-     * @brief Dequeues containers by destination
-     * @param terminalId Terminal identifier
-     * @param destination Next destination ID
-     * @return List of container pointers
-     * @note Caller must delete each pointer
-     *
-     * Removes and returns containers for a destination.
+     * @brief Commits a prior TerminalSim reservation as a pickup departure.
      */
-    Q_INVOKABLE QList<ContainerCore::Container *>
-                dequeueContainersByNextDestination(
-                    const QString &terminalId,
-                    const QString &destination);
+    Q_INVOKABLE QJsonObject
+    commitContainerReservation(const QString &terminalId,
+                               const QString &reservationId,
+                               double operationTimeSeconds = -1.0);
+
+    /**
+     * @brief Releases a prior TerminalSim reservation without pickup effects.
+     */
+    Q_INVOKABLE QJsonObject
+    releaseContainerReservation(const QString &terminalId,
+                                const QString &reservationId);
 
     /**
      * @brief Gets container count for a terminal
@@ -437,6 +466,75 @@ public:
     Q_INVOKABLE bool
     clearTerminal(const QString &terminalId);
 
+    // System Dynamics Management
+    /**
+     * @brief Update System Dynamics for all terminals
+     * @param currentTime Current simulation time in seconds
+     * @param deltaT Time step in seconds
+     * @return True if update succeeded
+     */
+    Q_INVOKABLE bool updateAllTerminalsSystemDynamics(
+        double currentTime,
+        double deltaT);
+
+    /**
+     * @brief Update System Dynamics for a specific terminal
+     * @param terminalId Terminal to update
+     * @param currentTime Current simulation time in seconds
+     * @param deltaT Time step in seconds
+     * @return True if update succeeded
+     */
+    Q_INVOKABLE bool updateTerminalSystemDynamics(
+        const QString& terminalId,
+        double currentTime,
+        double deltaT);
+
+    /**
+     * @brief Get System Dynamics state for a terminal
+     * @param terminalId Terminal to query
+     * @return JSON object with SD state
+     */
+    Q_INVOKABLE QJsonObject getTerminalSystemDynamicsState(
+        const QString& terminalId);
+
+    /**
+     * @brief Get runtime-state snapshots for a batch of terminals.
+     * @param terminalIds Terminal ids to query
+     * @return One runtime snapshot object per requested terminal
+     */
+    Q_INVOKABLE QJsonArray getTerminalsRuntimeState(
+        const QStringList &terminalIds);
+
+    /**
+     * @brief Get runtime handling projections for a batch of terminals.
+     * @param terminalIds Terminal ids to query
+     * @return One projection object per requested terminal
+     */
+    Q_INVOKABLE QJsonArray getTerminalsRuntimeProjections(
+        const QStringList &terminalIds);
+
+    /**
+     * @brief Get terminal execution results filtered by execution id/canonical paths.
+     * @param executionId Execution id to query
+     * @param terminalIds Optional runtime terminal ids to limit the search
+     * @param canonicalPathKeys Optional canonical path keys to limit results
+     * @return Matching terminal execution result objects
+     */
+    Q_INVOKABLE QJsonArray getTerminalExecutionResults(
+        const QString     &executionId,
+        const QStringList &terminalIds = {},
+        const QStringList &canonicalPathKeys = {});
+
+    /**
+     * @brief Clear terminal execution results for an execution id.
+     * @param executionId Execution id to clear
+     * @param terminalIds Optional runtime terminal ids to limit the clear
+     * @return Number of terminal execution records cleared
+     */
+    Q_INVOKABLE int clearTerminalExecutionResults(
+        const QString     &executionId,
+        const QStringList &terminalIds = {});
+
     // Serialization and Diagnostics
     /**
      * @brief Serializes the server graph
@@ -465,17 +563,37 @@ public:
      */
     Q_INVOKABLE QJsonObject ping(const QString &echo = "");
 
+    /**
+     * @brief Application-level command readiness probe
+     *
+     * TerminalSim exposes `ping` rather than `checkConnection`, so the
+     * terminal client overrides the base readiness probe accordingly.
+     */
+    bool probeCommandAvailability(int timeoutMs = 500) override;
+
 protected:
     /**
-     * @brief Processes incoming server messages
-     * @param message JSON message from server
+     * @brief Populates terminal-specific caches from an
+     *        incoming event.
      *
-     * Handles server responses and updates local state.
+     * Dispatched by the base class `processMessage` before
+     * waiters are woken, so state (e.g. m_topPaths) is
+     * visible by the time `sendCommandAndWait` returns.
      */
-    void
-    processMessage(const QJsonObject &message) override;
+    void onEventReceived(const QString     &normalizedEvent,
+                         const QJsonObject &message) override;
 
 private:
+    static QString makeTopPathsCacheKey(
+        const QString &start, const QString &end, int mode,
+        int requestedTopN,
+        bool skipSameModeTerminalDelaysAndCosts);
+
+    bool didContainersAddedEventSucceed(
+        const QString &operation,
+        const QString &terminalId,
+        const QString &arrivalMode = QString()) const;
+
     /**
      * @brief Handles terminal added event
      * @param message Event data from server
@@ -548,6 +666,13 @@ private:
      */
     void onCapacityFetched(const QJsonObject &message);
 
+    void onSystemDynamicsState(const QJsonObject &message);
+    void onTerminalRuntimeState(const QJsonObject &message);
+    void onTerminalRuntimeProjections(const QJsonObject &message);
+    void onTerminalExecutionResults(const QJsonObject &message);
+    void onTerminalExecutionResultsCleared(
+        const QJsonObject &message);
+
     /**
      * @brief Read-write lock for thread-safe data access
      *
@@ -593,6 +718,12 @@ private:
      */
     QMap<QString, double> m_capacities;
 
+    QMap<QString, QJsonObject> m_terminalSystemDynamicsStates;
+    QMap<QString, QJsonObject> m_terminalRuntimeStates;
+    QMap<QString, QJsonObject> m_terminalRuntimeProjections;
+    QJsonArray                 m_lastTerminalExecutionResults;
+    QJsonObject                m_lastTerminalExecutionResultsCleared;
+
     /**
      * @brief serialized graph data.
      */
@@ -602,6 +733,17 @@ private:
      * @brief ping Response
      */
     QJsonObject m_pingResponse;
+
+    /**
+     * @brief Dedicated low-level probe transport
+     *
+     * Keeps readiness probing off the main terminal event
+     * lane so command-availability waits do not depend on
+     * the terminal client thread servicing queued
+     * responses.
+     */
+    SimulatorHealthProbeTransport *m_probeTransport =
+        nullptr;
 
     /**
      * @brief Current count of terminals

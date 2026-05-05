@@ -73,6 +73,9 @@ QPixmap createTransportationModePixmap(const QString &mode,
 
 QPixmap createCalculatorIcon(int size = 128);
 QPixmap createFilterConnectionsIcon(int size = 128);
+QPixmap createStatusReadyIcon(int size = 16);
+QPixmap createStatusWarningIcon(int size = 16);
+QPixmap createStatusUnavailableIcon(int size = 16);
 
 } // namespace IconFactory
 } // namespace GUI

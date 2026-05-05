@@ -4,10 +4,91 @@
 #include <QThread>
 #include <stdexcept>
 
+#include "Backend/Clients/BaseClient/SimulatorHealthProbeTransport.h"
+#include "Backend/Commons/LogCategories.h"
+
 namespace CargoNetSim
 {
 namespace Backend
 {
+
+namespace
+{
+
+QJsonArray jsonArrayFromStringList(const QStringList &values)
+{
+    QJsonArray array;
+    for (const auto &value : values)
+    {
+        if (!value.isEmpty())
+            array.append(value);
+    }
+    return array;
+}
+
+} // namespace
+
+QString TerminalSimulationClient::makeTopPathsCacheKey(
+    const QString &start, const QString &end, int mode,
+    int requestedTopN,
+    bool skipSameModeTerminalDelaysAndCosts)
+{
+    return QStringLiteral("%1|%2|mode=%3|top=%4|skip=%5")
+        .arg(start, end, QString::number(mode),
+             QString::number(requestedTopN),
+             skipSameModeTerminalDelaysAndCosts
+                 ? QStringLiteral("1")
+                 : QStringLiteral("0"));
+}
+
+bool TerminalSimulationClient::didContainersAddedEventSucceed(
+    const QString &operation, const QString &terminalId,
+    const QString &arrivalMode) const
+{
+    const QJsonObject eventData =
+        getEventData(QStringLiteral("containersAdded"));
+    if (eventData.isEmpty())
+    {
+        const QString errorMessage =
+            QStringLiteral(
+                "%1 did not receive a containersAdded "
+                "payload for terminal '%2'")
+                .arg(operation, terminalId);
+        qCWarning(lcClientTerminal)
+            << operation << "terminalId=" << terminalId
+            << "arrivalMode=" << arrivalMode
+            << "error=" << errorMessage;
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+        return false;
+    }
+
+    const bool payloadSuccess =
+        eventData.value(QStringLiteral("success"))
+            .toBool(true);
+    if (!payloadSuccess)
+    {
+        const QString errorMessage =
+            eventData.value(QStringLiteral("error"))
+                .toString(QStringLiteral(
+                    "TerminalSim rejected the container "
+                    "handoff"));
+        qCWarning(lcClientTerminal)
+            << operation << "terminalId=" << terminalId
+            << "arrivalMode=" << arrivalMode
+            << "error=" << errorMessage;
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+    }
+
+    return payloadSuccess;
+}
 
 // Constructor implementation
 TerminalSimulationClient::TerminalSimulationClient(
@@ -21,12 +102,15 @@ TerminalSimulationClient::TerminalSimulationClient(
           ClientType::TerminalClient)
 {
     // Log initialization for debugging and auditing
-    qDebug() << "TerminalSimulationClient initialized";
+    qCInfo(lcClientTerminal) << "TerminalSimulationClient initialized";
 }
 
 // Destructor implementation
 TerminalSimulationClient::~TerminalSimulationClient()
 {
+    delete m_probeTransport;
+    m_probeTransport = nullptr;
+
     // Lock mutex to ensure thread-safe cleanup
     Commons::ScopedWriteLock locker(m_dataMutex);
 
@@ -76,12 +160,17 @@ TerminalSimulationClient::~TerminalSimulationClient()
 
     // Clear capacities and terminal count
     m_capacities.clear();
+    m_terminalSystemDynamicsStates.clear();
+    m_terminalRuntimeStates.clear();
+    m_terminalRuntimeProjections.clear();
+    m_lastTerminalExecutionResults = QJsonArray();
+    m_lastTerminalExecutionResultsCleared = QJsonObject();
     m_serializedGraph = QJsonObject();
     m_pingResponse    = QJsonObject();
     m_terminalCount   = 0;
 
     // Log destruction for tracking
-    qDebug() << "TerminalSimulationClient destroyed";
+    qCInfo(lcClientTerminal) << "TerminalSimulationClient destroyed";
 }
 
 // Reset server state
@@ -92,6 +181,27 @@ bool TerminalSimulationClient::resetServer()
         // Send reset command with no parameters
         return sendCommandAndWait(
             "resetServer", QJsonObject(), {"serverReset"});
+    });
+}
+
+bool TerminalSimulationClient::resetRuntimeState(
+    const QStringList &terminalIds)
+{
+    return executeSerializedCommand([this, terminalIds]() {
+        QJsonObject params;
+        QJsonArray ids;
+        for (const QString &terminalId : terminalIds)
+        {
+            if (!terminalId.trimmed().isEmpty())
+                ids.append(terminalId.trimmed());
+        }
+        if (!ids.isEmpty())
+        {
+            params["terminal_ids"] = ids;
+        }
+        return sendCommandAndWait("reset_runtime_state",
+                                  params,
+                                  {"runtimeStateReset"});
     });
 }
 
@@ -115,8 +225,24 @@ void TerminalSimulationClient::initializeClient(
     // Configure heartbeat for connection health
     m_rabbitMQHandler->setupHeartbeat(5);
 
+    if (m_probeTransport == nullptr)
+    {
+        m_probeTransport = new SimulatorHealthProbeTransport(
+            this, m_host, m_port, m_username, m_password,
+            m_exchange,
+            QStringLiteral(
+                "CargoNetSim.CommandQueue.TerminalSim.Health"),
+            QStringLiteral(
+                "CargoNetSim.ResponseQueue.TerminalSim.Health"),
+            QStringLiteral("CargoNetSim.Command.Health.TerminalSim"),
+            QStringList{
+                QStringLiteral(
+                    "CargoNetSim.Response.Health.TerminalSim")},
+            ClientType::TerminalClient);
+    }
+
     // Log initialization details for audit
-    qDebug() << "Client initialized in thread:"
+    qCInfo(lcClientTerminal) << "Client initialized in thread:"
              << QThread::currentThreadId();
 }
 
@@ -163,7 +289,7 @@ bool TerminalSimulationClient::setCostFunctionParameters(
                     defaultModeParams[attr] = 1.0;
                 }
                 completeParams[mode] = defaultModeParams;
-                qDebug() << "Created default parameters "
+                qCDebug(lcClientTerminal) << "Created default parameters "
                             "for mode:"
                          << mode;
             }
@@ -182,7 +308,7 @@ bool TerminalSimulationClient::setCostFunctionParameters(
                     {
                         modeParams[attr] = 1.0;
                         modeUpdated      = true;
-                        qDebug()
+                        qCDebug(lcClientTerminal)
                             << "Added default value for"
                             << attr << "in mode" << mode;
                     }
@@ -217,7 +343,7 @@ bool TerminalSimulationClient::addTerminal(
         // Validate terminal pointer
         if (!terminal)
         {
-            qCritical() << "Null terminal pointer";
+            qCCritical(lcClientTerminal) << "Null terminal pointer";
             return false;
         }
         // Send terminal addition command
@@ -235,7 +361,7 @@ bool TerminalSimulationClient::addTerminals(
         // Validate input
         if (terminals.isEmpty())
         {
-            qCritical() << "Empty terminals list";
+            qCCritical(lcClientTerminal) << "Empty terminals list";
             return false;
         }
 
@@ -248,7 +374,7 @@ bool TerminalSimulationClient::addTerminals(
         {
             if (!terminal)
             {
-                qWarning()
+                qCWarning(lcClientTerminal)
                     << "Skipping null terminal pointer";
                 continue;
             }
@@ -258,7 +384,7 @@ bool TerminalSimulationClient::addTerminals(
         // Skip if no valid terminals
         if (terminalsArray.isEmpty())
         {
-            qCritical() << "No valid terminals to add";
+            qCCritical(lcClientTerminal) << "No valid terminals to add";
             return false;
         }
 
@@ -291,6 +417,8 @@ bool TerminalSimulationClient::addTerminalAlias(
 QStringList TerminalSimulationClient::getTerminalAliases(
     const QString &terminalId)
 {
+    qCDebug(lcClientTerminal) << "getTerminalAliases: terminalId=" << terminalId;
+
     // Execute alias fetch command serially
     executeSerializedCommand([&]() {
         // Prepare parameters for alias retrieval
@@ -306,8 +434,11 @@ QStringList TerminalSimulationClient::getTerminalAliases(
     Commons::ScopedReadLock locker(m_dataMutex);
 
     // Retrieve aliases from dedicated map
-    return m_terminalAliases.value(terminalId,
-                                   QStringList());
+    QStringList aliases = m_terminalAliases.value(terminalId,
+                                                  QStringList());
+    qCDebug(lcClientTerminal) << "getTerminalAliases: terminalId=" << terminalId
+                              << "count=" << aliases.size();
+    return aliases;
 }
 
 // Remove terminal
@@ -344,12 +475,14 @@ int TerminalSimulationClient::getTerminalCount()
 Terminal *TerminalSimulationClient::getTerminalStatus(
     const QString &terminalId)
 {
+    qCDebug(lcClientTerminal) << "getTerminalStatus: terminalId=" << terminalId;
+
     // Execute status fetch serially
     executeSerializedCommand([&]() {
         // Validate input parameter
         if (terminalId.isEmpty())
         {
-            qWarning() << "Empty terminalId not supported";
+            qCWarning(lcClientTerminal) << "Empty terminalId not supported";
             return false;
         }
         // Prepare parameters for status query
@@ -373,7 +506,7 @@ bool TerminalSimulationClient::addRoute(
         // Validate route pointer
         if (!route)
         {
-            qCritical() << "Null PathSegment pointer";
+            qCCritical(lcClientTerminal) << "Null PathSegment pointer";
             return false;
         }
         // Send route addition command
@@ -390,7 +523,7 @@ bool TerminalSimulationClient::addRoutes(
         // Validate input
         if (routes.isEmpty())
         {
-            qCritical() << "Empty routes list";
+            qCCritical(lcClientTerminal) << "Empty routes list";
             return false;
         }
 
@@ -403,7 +536,7 @@ bool TerminalSimulationClient::addRoutes(
         {
             if (!route)
             {
-                qWarning() << "Skipping null route pointer";
+                qCWarning(lcClientTerminal) << "Skipping null route pointer";
                 continue;
             }
             routesArray.append(route->toJson());
@@ -412,7 +545,7 @@ bool TerminalSimulationClient::addRoutes(
         // Skip if no valid routes
         if (routesArray.isEmpty())
         {
-            qCritical() << "No valid routes to add";
+            qCCritical(lcClientTerminal) << "No valid routes to add";
             return false;
         }
 
@@ -534,15 +667,23 @@ QList<Path *> TerminalSimulationClient::findTopPaths(
     });
     // Access paths thread-safely
     Commons::ScopedReadLock locker(m_dataMutex);
-    QString                 key = start + "-" + end;
-    return m_topPaths.value(key, QList<Path *>());
+    const QString key = makeTopPathsCacheKey(
+        start, end, modeInt, n, skipDelays);
+    QList<Path *> out;
+    const auto cached = m_topPaths.value(key);
+    out.reserve(cached.size());
+    for (const auto *path : cached)
+        out.append(path ? path->clone() : nullptr);
+    return out;
 }
 
 // Add single container
 bool TerminalSimulationClient::addContainer(
     const QString                  &terminalId,
     const ContainerCore::Container *container,
-    double                          addTime)
+    double                          addTime,
+    const QString                   &arrivalMode,
+    const QString                   &arrivalSemantics)
 {
     // Execute container addition serially
     return executeSerializedCommand([&]() {
@@ -554,16 +695,42 @@ bool TerminalSimulationClient::addContainer(
         {
             params["adding_time"] = addTime;
         }
+        if (!arrivalMode.isEmpty())
+        {
+            params["arrival_mode"] = arrivalMode;
+        }
+        if (!arrivalSemantics.isEmpty())
+        {
+            params["arrival_semantics"] = arrivalSemantics;
+        }
         // Send container addition command
-        return sendCommandAndWait("add_container", params,
-                                  {"containersAdded"});
+        const bool success = sendCommandAndWait(
+            "add_container", params, {"containersAdded"});
+        if (!success)
+        {
+            return false;
+        }
+
+        return didContainersAddedEventSucceed(
+            QStringLiteral(
+                "TerminalSimulationClient::addContainer:"),
+            terminalId);
     });
 }
 
 bool TerminalSimulationClient::addContainers(
-    const QString &terminalId, QString &containers,
-    double addTime)
+    const QString &terminalId,
+    const QString &containers, double addTime,
+    const QString &arrivalMode,
+    const QString &arrivalSemantics)
 {
+    qCInfo(lcClientTerminal)
+        << "TerminalSimulationClient::addContainers(string):"
+        << "terminalId=" << terminalId
+        << "arrivalMode=" << arrivalMode
+        << "arrivalSemantics=" << arrivalSemantics
+        << "payloadBytes=" << containers.toUtf8().size();
+
     // Execute containers addition serially
     return executeSerializedCommand([&]() {
         // Prepare parameters for containers addition
@@ -575,9 +742,39 @@ bool TerminalSimulationClient::addContainers(
         {
             params["adding_time"] = addTime;
         }
+        if (!arrivalMode.isEmpty())
+        {
+            params["arrival_mode"] = arrivalMode;
+        }
+        if (!arrivalSemantics.isEmpty())
+        {
+            params["arrival_semantics"] = arrivalSemantics;
+        }
         // Send containers addition command
-        return sendCommandAndWait("add_containers", params,
-                                  {"containersAdded"});
+        const bool success = sendCommandAndWait(
+            "add_containers", params, {"containersAdded"});
+        if (!success)
+        {
+            qCInfo(lcClientTerminal)
+                << "TerminalSimulationClient::addContainers(string):"
+                << "terminalId=" << terminalId
+                << "arrivalMode=" << arrivalMode
+                << "arrivalSemantics=" << arrivalSemantics
+                << "success=false";
+            return false;
+        }
+        const bool payloadSuccess =
+            didContainersAddedEventSucceed(
+                QStringLiteral(
+                    "TerminalSimulationClient::addContainers(string):"),
+                terminalId, arrivalMode);
+        qCInfo(lcClientTerminal)
+            << "TerminalSimulationClient::addContainers(string):"
+            << "terminalId=" << terminalId
+            << "arrivalMode=" << arrivalMode
+            << "arrivalSemantics=" << arrivalSemantics
+            << "success=" << payloadSuccess;
+        return payloadSuccess;
     });
 }
 
@@ -585,7 +782,9 @@ bool TerminalSimulationClient::addContainers(
 bool TerminalSimulationClient::addContainers(
     const QString                     &terminalId,
     QList<ContainerCore::Container *> &containers,
-    double                             addTime)
+    double                             addTime,
+    const QString                     &arrivalMode,
+    const QString                     &arrivalSemantics)
 {
     // Execute containers addition serially
     return executeSerializedCommand([&]() {
@@ -605,16 +804,34 @@ bool TerminalSimulationClient::addContainers(
         {
             params["adding_time"] = addTime;
         }
+        if (!arrivalMode.isEmpty())
+        {
+            params["arrival_mode"] = arrivalMode;
+        }
+        if (!arrivalSemantics.isEmpty())
+        {
+            params["arrival_semantics"] = arrivalSemantics;
+        }
         // Send containers addition command
-        return sendCommandAndWait("add_containers", params,
-                                  {"containersAdded"});
+        const bool success = sendCommandAndWait(
+            "add_containers", params, {"containersAdded"});
+        if (!success)
+        {
+            return false;
+        }
+
+        return didContainersAddedEventSucceed(
+            QStringLiteral(
+                "TerminalSimulationClient::addContainers(list):"),
+            terminalId, arrivalMode);
     });
 }
 
 // Add containers from JSON
 bool TerminalSimulationClient::addContainersFromJson(
     const QString &terminalId, const QString &json,
-    double addTime)
+    double addTime, const QString &arrivalMode,
+    const QString &arrivalSemantics)
 {
     // Execute JSON addition serially
     return executeSerializedCommand([&]() {
@@ -626,104 +843,140 @@ bool TerminalSimulationClient::addContainersFromJson(
         {
             params["adding_time"] = addTime;
         }
+        if (!arrivalMode.isEmpty())
+        {
+            params["arrival_mode"] = arrivalMode;
+        }
+        if (!arrivalSemantics.isEmpty())
+        {
+            params["arrival_semantics"] = arrivalSemantics;
+        }
         // Send JSON containers command
-        return sendCommandAndWait(
+        const bool success = sendCommandAndWait(
             "add_containers_from_json", params,
             {"containersAdded"});
+        if (!success)
+        {
+            return false;
+        }
+
+        return didContainersAddedEventSucceed(
+            QStringLiteral(
+                "TerminalSimulationClient::addContainersFromJson:"),
+            terminalId, arrivalMode);
     });
 }
 
-// Get containers by departing time
-QList<ContainerCore::Container *>
-TerminalSimulationClient::getContainersByDepartingTime(
-    const QString &terminalId, double time,
-    const QString &condition)
-{
-    // Execute fetch by departing time serially
-    executeSerializedCommand([&]() {
-        // Prepare parameters for fetch
-        QJsonObject params;
-        params["terminal_id"]    = terminalId;
-        params["departing_time"] = time;
-        params["condition"]      = condition;
-        // Send fetch command
-        return sendCommandAndWait(
-            "get_containers_by_departing_time", params,
-            {"containersFetched"});
-    });
-    // Access containers thread-safely
-    Commons::ScopedReadLock locker(m_dataMutex);
-    return m_containers.value(
-        terminalId, QList<ContainerCore::Container *>());
-}
-
-// Get containers by added time
-QList<ContainerCore::Container *>
-TerminalSimulationClient::getContainersByAddedTime(
-    const QString &terminalId, double time,
-    const QString &condition)
-{
-    // Execute fetch by added time serially
-    executeSerializedCommand([&]() {
-        // Prepare parameters for fetch
-        QJsonObject params;
-        params["terminal_id"] = terminalId;
-        params["added_time"]  = time;
-        params["condition"]   = condition;
-        // Send fetch command
-        return sendCommandAndWait(
-            "get_containers_by_added_time", params,
-            {"containersFetched"});
-    });
-    // Access containers thread-safely
-    Commons::ScopedReadLock locker(m_dataMutex);
-    return m_containers.value(
-        terminalId, QList<ContainerCore::Container *>());
-}
-
-// Get containers by next destination
-QList<ContainerCore::Container *>
-TerminalSimulationClient::getContainersByNextDestination(
-    const QString &terminalId, const QString &destination)
-{
-    // Execute fetch by destination serially
-    executeSerializedCommand([&]() {
-        // Prepare parameters for fetch
-        QJsonObject params;
-        params["terminal_id"] = terminalId;
-        params["destination"] = destination;
-        // Send fetch command
-        return sendCommandAndWait(
-            "get_containers_by_next_destination", params,
-            {"containersFetched"});
-    });
-    // Access containers thread-safely
-    Commons::ScopedReadLock locker(m_dataMutex);
-    return m_containers.value(
-        terminalId, QList<ContainerCore::Container *>());
-}
-
-// Dequeue containers by next destination
 QList<ContainerCore::Container *> TerminalSimulationClient::
-    dequeueContainersByNextDestination(
-        const QString &terminalId,
-        const QString &destination)
+    getContainers(const QString &terminalId,
+                  const QJsonObject &criteria)
 {
-    // Execute dequeue serially
-    executeSerializedCommand([&]() {
-        // Prepare parameters for dequeue
+    const bool success = executeSerializedCommand([&]() {
         QJsonObject params;
         params["terminal_id"] = terminalId;
-        params["destination"] = destination;
-        // Send dequeue command
+        params["criteria"] = criteria;
         return sendCommandAndWait(
-            "dequeue_containers_by_next_destination",
-            params, {"containersFetched"});
+            "get_containers", params, {"containersFetched"});
     });
-    // Access dequeued containers thread-safely
+    if (!success)
+        return {};
+
     Commons::ScopedReadLock locker(m_dataMutex);
     return m_containers.value(
         terminalId, QList<ContainerCore::Container *>());
+}
+
+QList<ContainerCore::Container *> TerminalSimulationClient::
+    dequeueContainers(const QString &terminalId,
+                      const QJsonObject &criteria,
+                      double operationTimeSeconds)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["criteria"] = criteria;
+        params["dequeue"] = true;
+        if (operationTimeSeconds >= 0.0)
+            params["operation_time"] = operationTimeSeconds;
+        return sendCommandAndWait(
+            "dequeue_containers", params, {"containersFetched"});
+    });
+    if (!success)
+        return {};
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    return m_containers.value(
+        terminalId, QList<ContainerCore::Container *>());
+}
+
+QJsonObject TerminalSimulationClient::reserveContainers(
+    const QString &terminalId,
+    const QString &reservationId,
+    const QJsonObject &criteria)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["reservation_id"] = reservationId;
+        params["criteria"] = criteria;
+        return sendCommandAndWait(
+            "reserve_containers", params, {"containersReserved"});
+    });
+    if (!success)
+        return {};
+
+    const QJsonObject eventData =
+        getEventData(QStringLiteral("containersReserved"));
+    if (!eventData.value(QStringLiteral("success")).toBool(false))
+        return {};
+    return eventData.value(QStringLiteral("result")).toObject();
+}
+
+QJsonObject TerminalSimulationClient::commitContainerReservation(
+    const QString &terminalId,
+    const QString &reservationId,
+    double operationTimeSeconds)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["reservation_id"] = reservationId;
+        if (operationTimeSeconds >= 0.0)
+            params["operation_time"] = operationTimeSeconds;
+        return sendCommandAndWait(
+            "commit_container_reservation", params,
+            {"containerReservationCommitted"});
+    });
+    if (!success)
+        return {};
+
+    const QJsonObject eventData = getEventData(
+        QStringLiteral("containerReservationCommitted"));
+    if (!eventData.value(QStringLiteral("success")).toBool(false))
+        return {};
+    return eventData.value(QStringLiteral("result")).toObject();
+}
+
+QJsonObject TerminalSimulationClient::releaseContainerReservation(
+    const QString &terminalId,
+    const QString &reservationId)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["reservation_id"] = reservationId;
+        return sendCommandAndWait(
+            "release_container_reservation", params,
+            {"containerReservationReleased"});
+    });
+    if (!success)
+        return {};
+
+    const QJsonObject eventData = getEventData(
+        QStringLiteral("containerReservationReleased"));
+    if (!eventData.value(QStringLiteral("success")).toBool(false))
+        return {};
+    return eventData.value(QStringLiteral("result")).toObject();
 }
 
 // Get container count
@@ -799,6 +1052,195 @@ bool TerminalSimulationClient::clearTerminal(
     });
 }
 
+// Update System Dynamics for all terminals
+bool TerminalSimulationClient::updateAllTerminalsSystemDynamics(
+    double currentTime,
+    double deltaT)
+{
+    return executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["current_time"] = currentTime;
+        params["delta_t"] = deltaT;
+
+        return sendCommandAndWait(
+            "update_all_terminals_sd",
+            params,
+            {"systemDynamicsUpdated"});
+    });
+}
+
+// Update System Dynamics for a specific terminal
+bool TerminalSimulationClient::updateTerminalSystemDynamics(
+    const QString& terminalId,
+    double currentTime,
+    double deltaT)
+{
+    return executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+        params["current_time"] = currentTime;
+        params["delta_t"] = deltaT;
+
+        return sendCommandAndWait(
+            "update_system_dynamics",
+            params,
+            {"systemDynamicsUpdated"});
+    });
+}
+
+// Get System Dynamics state for a terminal
+QJsonObject TerminalSimulationClient::getTerminalSystemDynamicsState(
+    const QString& terminalId)
+{
+    qCDebug(lcClientTerminal) << "getTerminalSystemDynamicsState: terminalId=" << terminalId;
+
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_id"] = terminalId;
+
+        return sendCommandAndWait(
+            "get_system_dynamics_state",
+            params,
+            {"systemDynamicsState"});
+    });
+
+    if (!success)
+        return QJsonObject();
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    const QJsonObject result =
+        m_terminalSystemDynamicsStates.value(terminalId);
+
+    if (result.isEmpty())
+    {
+        qCWarning(lcClientTerminal) << "getTerminalSystemDynamicsState:"
+                                    << "returning empty result for terminalId="
+                                    << terminalId;
+    }
+
+    return result;
+}
+
+QJsonArray TerminalSimulationClient::getTerminalsRuntimeState(
+    const QStringList &terminalIds)
+{
+    if (terminalIds.isEmpty())
+        return QJsonArray();
+
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_ids"] =
+            jsonArrayFromStringList(terminalIds);
+        return sendCommandAndWait(
+            "get_terminals_runtime_state",
+            params,
+            {"terminalRuntimeState"});
+    });
+
+    if (!success)
+        return QJsonArray();
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    QJsonArray results;
+    for (const auto &terminalId : terminalIds)
+    {
+        const auto snapshot =
+            m_terminalRuntimeStates.value(terminalId);
+        if (!snapshot.isEmpty())
+            results.append(snapshot);
+    }
+    return results;
+}
+
+QJsonArray TerminalSimulationClient::getTerminalsRuntimeProjections(
+    const QStringList &terminalIds)
+{
+    if (terminalIds.isEmpty())
+        return QJsonArray();
+
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminal_ids"] =
+            jsonArrayFromStringList(terminalIds);
+        return sendCommandAndWait(
+            "get_terminals_runtime_projections",
+            params,
+            {"terminalRuntimeProjections"});
+    });
+
+    if (!success)
+        return QJsonArray();
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    QJsonArray results;
+    for (const auto &terminalId : terminalIds)
+    {
+        const auto projection =
+            m_terminalRuntimeProjections.value(terminalId);
+        if (!projection.isEmpty())
+            results.append(projection);
+    }
+    return results;
+}
+
+QJsonArray TerminalSimulationClient::getTerminalExecutionResults(
+    const QString     &executionId,
+    const QStringList &terminalIds,
+    const QStringList &canonicalPathKeys)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["execution_id"] = executionId;
+        if (!terminalIds.isEmpty())
+        {
+            params["terminal_ids"] =
+                jsonArrayFromStringList(terminalIds);
+        }
+        if (!canonicalPathKeys.isEmpty())
+        {
+            params["canonical_path_keys"] =
+                jsonArrayFromStringList(canonicalPathKeys);
+        }
+        return sendCommandAndWait(
+            "get_terminal_execution_results",
+            params,
+            {"terminalExecutionResults"});
+    });
+
+    if (!success)
+        return QJsonArray();
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    return m_lastTerminalExecutionResults;
+}
+
+int TerminalSimulationClient::clearTerminalExecutionResults(
+    const QString     &executionId,
+    const QStringList &terminalIds)
+{
+    const bool success = executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["execution_id"] = executionId;
+        if (!terminalIds.isEmpty())
+        {
+            params["terminal_ids"] =
+                jsonArrayFromStringList(terminalIds);
+        }
+        return sendCommandAndWait(
+            "clear_terminal_execution_results",
+            params,
+            {"terminalExecutionResultsCleared"});
+    });
+
+    if (!success)
+        return 0;
+
+    Commons::ScopedReadLock locker(m_dataMutex);
+    return m_lastTerminalExecutionResultsCleared
+        .value(QStringLiteral("records_cleared"))
+        .toInt(0);
+}
+
 // Serialize server graph
 QJsonObject TerminalSimulationClient::serializeGraph()
 {
@@ -852,23 +1294,38 @@ TerminalSimulationClient::ping(const QString &echo)
     return m_pingResponse;
 }
 
-// Process incoming server messages
-void TerminalSimulationClient::processMessage(
-    const QJsonObject &message)
+bool TerminalSimulationClient::probeCommandAvailability(
+    int timeoutMs)
 {
-    // Delegate to base class for initial processing
-    SimulationClientBase::processMessage(message);
-
-    // Check for event field presence
-    if (!message.contains("event"))
+    if (m_probeTransport == nullptr)
     {
-        return;
+        qCCritical(lcClientTerminal)
+            << "TerminalSimulationClient::probeCommandAvailability:"
+            << "probe transport unavailable after client startup";
+        return false;
     }
 
-    // Normalize event name for consistent handling
-    QString event     = message["event"].toString();
-    QString normEvent = normalizeEventName(event);
+    try
+    {
+        return m_probeTransport->probe(
+            QStringLiteral("ping"),
+            {QStringLiteral("pingResponse")}, timeoutMs);
+    }
+    catch (const std::exception &e)
+    {
+        qCWarning(lcClientTerminal)
+            << "TerminalSimulationClient::probeCommandAvailability failed:"
+            << e.what();
+        return false;
+    }
+}
 
+// Populate terminal caches before waiters are woken.
+// Invoked by SimulationClientBase::processMessage.
+void TerminalSimulationClient::onEventReceived(
+    const QString     &normEvent,
+    const QJsonObject &message)
+{
     // Dispatch event to appropriate handler
     if (normEvent == "terminaladded")
     {
@@ -898,6 +1355,24 @@ void TerminalSimulationClient::processMessage(
     {
         onServerReset(message);
     }
+    else if (normEvent == "runtimestatereset")
+    {
+        Commons::ScopedWriteLock locker(m_dataMutex);
+        for (const QList<ContainerCore::Container *>
+                 &containers : m_containers.values())
+        {
+            for (ContainerCore::Container *container : containers)
+                delete container;
+        }
+        m_containers.clear();
+        m_terminalSystemDynamicsStates.clear();
+        m_terminalRuntimeStates.clear();
+        m_terminalRuntimeProjections.clear();
+        m_lastTerminalExecutionResults = QJsonArray();
+        m_lastTerminalExecutionResultsCleared = QJsonObject();
+        qCInfo(lcClientTerminal)
+            << "Terminal runtime state reset acknowledged";
+    }
     else if (normEvent == "erroroccurred")
     {
         onErrorOccurred(message);
@@ -914,6 +1389,13 @@ void TerminalSimulationClient::processMessage(
     {
         onContainersFetched(message);
     }
+    else if (normEvent == "containersreserved"
+             || normEvent == "containerreservationcommitted"
+             || normEvent == "containerreservationreleased")
+    {
+        // Reservation responses are returned through getEventData() by the
+        // synchronous caller; no additional typed cache is needed here.
+    }
     else if (normEvent == "capacityfetched")
     {
         onCapacityFetched(message);
@@ -928,20 +1410,45 @@ void TerminalSimulationClient::processMessage(
         Commons::ScopedWriteLock locker(m_dataMutex);
         m_pingResponse = message["result"].toObject();
     }
+    else if (normEvent == "systemdynamicsupdated")
+    {
+        // SD update acknowledged - no special handling needed
+        qCInfo(lcClientTerminal) << "System Dynamics updated";
+    }
+    else if (normEvent == "systemdynamicsstate")
+    {
+        onSystemDynamicsState(message);
+    }
+    else if (normEvent == "terminalruntimestate")
+    {
+        onTerminalRuntimeState(message);
+    }
+    else if (normEvent == "terminalruntimeprojections")
+    {
+        onTerminalRuntimeProjections(message);
+    }
+    else if (normEvent == "terminalexecutionresults")
+    {
+        onTerminalExecutionResults(message);
+    }
+    else if (normEvent == "terminalexecutionresultscleared")
+    {
+        onTerminalExecutionResultsCleared(message);
+    }
     else
     {
         if (m_logger)
         {
             m_logger->logError(
                 QString("Unknown event received:%1")
-                    .arg(event),
+                    .arg(normEvent),
                 static_cast<int>(m_clientType));
         }
         else
         {
             // Log unknown events for debugging
-            qWarning()
-                << "Unknown event received:" << event;
+            qCWarning(lcClientTerminal)
+                << "Unknown event received:" << normEvent;
         }
     }
 }
@@ -960,6 +1467,12 @@ void TerminalSimulationClient::onTerminalAdded(
         delete existing;
     }
     Terminal *terminal = Terminal::fromJson(result);
+    if (!terminal)
+    {
+        qCWarning(lcClientTerminal) << "Failed to deserialize terminal from JSON:"
+                   << name;
+        return;
+    }
     terminal->setParent(this);
 
     m_terminalStatus[name] = terminal;
@@ -975,7 +1488,7 @@ void TerminalSimulationClient::onTerminalAdded(
         }
         m_terminalAliases[name] = aliasList;
     }
-    qDebug() << "Terminal added:" << name;
+    qCInfo(lcClientTerminal) << "Terminal added:" << name;
 }
 
 void TerminalSimulationClient::onTerminalsAdded(
@@ -1005,6 +1518,12 @@ void TerminalSimulationClient::onTerminalsAdded(
         // Create new terminal from JSON
         Terminal *terminal =
             Terminal::fromJson(terminalJson);
+        if (!terminal)
+        {
+            qCWarning(lcClientTerminal) << "Failed to deserialize terminal"
+                       << "from JSON:" << name;
+            continue;
+        }
         terminal->setParent(this);
 
         // Store in map
@@ -1039,7 +1558,7 @@ void TerminalSimulationClient::onRouteAdded(
     Commons::ScopedWriteLock locker(m_dataMutex);
 
     // Log event for auditing
-    qDebug() << "Route added from" << startTerminal << "to"
+    qCInfo(lcClientTerminal) << "Route added from" << startTerminal << "to"
              << endTerminal;
 }
 
@@ -1048,6 +1567,7 @@ void TerminalSimulationClient::onRoutesAdded(
 {
     // Extract array of route results
     QJsonArray routesArray = message["result"].toArray();
+    qCDebug(lcClientTerminal) << "onRoutesAdded: routeCount=" << routesArray.size();
 
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
@@ -1067,12 +1587,26 @@ void TerminalSimulationClient::onRoutesAdded(
 void TerminalSimulationClient::onPathsFound(
     const QJsonObject &message)
 {
-    // Extract result and parameters from message
+    // Extract result and parameters from message. The cache key must
+    // include the full request identity so one discovery variant never
+    // overwrites another.
     QJsonObject result = message["result"].toObject();
+    QJsonObject params = message["params"].toObject();
     QString     start = result["start_terminal"].toString();
     QString     end   = result["end_terminal"].toString();
     QJsonArray  paths = result["paths"].toArray();
-    QString     key   = start + "-" + end;
+    const int mode =
+        params.value("mode")
+            .toInt(result.value("requested_mode").toInt(0));
+    const int requestedTopN =
+        params.value("n")
+            .toInt(result.value("requested_top_n").toInt(0));
+    const bool skipDelays =
+        params.value("skip_same_mode_terminal_delays_and_costs")
+            .toBool(result.value("skip_same_mode_terminal_delays_and_costs")
+                        .toBool(true));
+    const QString key = makeTopPathsCacheKey(
+        start, end, mode, requestedTopN, skipDelays);
 
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
@@ -1099,7 +1633,10 @@ void TerminalSimulationClient::onPathsFound(
     }
 
     // Log event for auditing
-    qDebug() << "Path found from" << start << "to" << end;
+    qCInfo(lcClientTerminal) << "Path found from" << start << "to"
+                             << end << "mode" << mode
+                             << "topN" << requestedTopN
+                             << "skipDelays" << skipDelays;
 }
 
 // Handle containers added event
@@ -1109,13 +1646,16 @@ void TerminalSimulationClient::onContainersAdded(
     // Extract parameters and results
     QJsonObject params = message["params"].toObject();
     QString terminalId = params["terminal_id"].toString();
+    QString arrivalMode = params["arrival_mode"].toString();
 
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
 
     // Log event for auditing
-    qDebug() << "Containers added to terminal:"
-             << terminalId;
+    qCInfo(lcClientTerminal)
+        << "Containers added to terminal:"
+        << terminalId
+        << "arrivalMode=" << arrivalMode;
 }
 
 // Handle server reset event
@@ -1124,11 +1664,11 @@ void TerminalSimulationClient::onServerReset(
 {
     // Lock mutex for thread-safe cleanup
     Commons::ScopedWriteLock locker(m_dataMutex);
-
     // Clean up all terminal status objects
-    for (Terminal *terminal : m_terminalStatus.values())
+    for (auto it = m_terminalStatus.constBegin();
+         it != m_terminalStatus.constEnd(); ++it)
     {
-        delete terminal;
+        delete it.value();
     }
     m_terminalStatus.clear();
     m_terminalAliases.clear();
@@ -1168,12 +1708,17 @@ void TerminalSimulationClient::onServerReset(
 
     // Reset capacities and terminal count
     m_capacities.clear();
+    m_terminalSystemDynamicsStates.clear();
+    m_terminalRuntimeStates.clear();
+    m_terminalRuntimeProjections.clear();
+    m_lastTerminalExecutionResults = QJsonArray();
+    m_lastTerminalExecutionResultsCleared = QJsonObject();
     m_serializedGraph = QJsonObject();
     m_pingResponse    = QJsonObject();
     m_terminalCount   = 0;
 
     // Log event for auditing
-    qDebug() << "Server reset successfully";
+    qCInfo(lcClientTerminal) << "Server reset successfully";
 }
 
 // Handle error event
@@ -1184,7 +1729,7 @@ void TerminalSimulationClient::onErrorOccurred(
     QString error = message["error"].toString();
 
     // Log error for debugging and review
-    qCritical() << "Error occurred:" << error;
+    qCCritical(lcClientTerminal) << "Error occurred:" << error;
 }
 
 // Handle terminal removed event
@@ -1208,7 +1753,7 @@ void TerminalSimulationClient::onTerminalRemoved(
     m_terminalAliases.remove(terminalId);
 
     // Log event for auditing
-    qDebug() << "Terminal removed:" << terminalId;
+    qCInfo(lcClientTerminal) << "Terminal removed:" << terminalId;
 }
 
 // Handle terminal count event
@@ -1223,7 +1768,7 @@ void TerminalSimulationClient::onTerminalCount(
     m_terminalCount = count;
 
     // Log event for tracking
-    qDebug() << "Terminal count updated:" << count;
+    qCInfo(lcClientTerminal) << "Terminal count updated:" << count;
 }
 
 // Handle containers fetched event
@@ -1238,20 +1783,14 @@ void TerminalSimulationClient::onContainersFetched(
     // Lock mutex for thread-safe update
     Commons::ScopedWriteLock locker(m_dataMutex);
 
-    // Check if this is a dequeue operation
-    bool isDequeue = params.contains("destination")
-                     && params.contains("dequeue");
-
-    // Clean up old containers if dequeued
+    // The client owns the cached response objects for both read-only fetches
+    // and dequeue responses. Replacing the cache must release the old objects
+    // regardless of which TerminalSim command produced them.
     QList<ContainerCore::Container *> oldContainers =
         m_containers.value(terminalId);
-    if (isDequeue)
+    for (ContainerCore::Container *container : oldContainers)
     {
-        for (ContainerCore::Container *container :
-             oldContainers)
-        {
-            delete container; // Ownership transferred
-        }
+        delete container;
     }
 
     // Create new container list from response
@@ -1267,7 +1806,7 @@ void TerminalSimulationClient::onContainersFetched(
     m_containers[terminalId] = newContainers;
 
     // Log event for auditing
-    qDebug() << "Containers fetched for:" << terminalId;
+    qCInfo(lcClientTerminal) << "Containers fetched for:" << terminalId;
 }
 
 // Handle capacity fetched event
@@ -1286,7 +1825,83 @@ void TerminalSimulationClient::onCapacityFetched(
     m_capacities[terminalId] = capacity;
 
     // Log event for tracking
-    qDebug() << "Capacity fetched for:" << terminalId;
+    qCInfo(lcClientTerminal) << "Capacity fetched for:" << terminalId;
+}
+
+void TerminalSimulationClient::onSystemDynamicsState(
+    const QJsonObject &message)
+{
+    const QJsonObject result = message["result"].toObject();
+    const QString terminalId =
+        result.value("terminal_id").toString(
+            message.value("params").toObject()
+                .value("terminal_id").toString());
+    if (terminalId.isEmpty())
+        return;
+
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    m_terminalSystemDynamicsStates[terminalId] = result;
+    qCInfo(lcClientTerminal)
+        << "System Dynamics state received for:" << terminalId;
+}
+
+void TerminalSimulationClient::onTerminalRuntimeState(
+    const QJsonObject &message)
+{
+    const QJsonArray results =
+        message.value("result").toObject()
+            .value("results").toArray();
+
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    for (const auto &value : results)
+    {
+        if (!value.isObject())
+            continue;
+        const QJsonObject snapshot = value.toObject();
+        const QString terminalId =
+            snapshot.value("terminal_id").toString();
+        if (terminalId.isEmpty())
+            continue;
+        m_terminalRuntimeStates[terminalId] = snapshot;
+    }
+}
+
+void TerminalSimulationClient::onTerminalRuntimeProjections(
+    const QJsonObject &message)
+{
+    const QJsonArray results =
+        message.value("result").toObject()
+            .value("results").toArray();
+
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    for (const auto &value : results)
+    {
+        if (!value.isObject())
+            continue;
+        const QJsonObject projection = value.toObject();
+        const QString terminalId =
+            projection.value("terminal_id").toString();
+        if (terminalId.isEmpty())
+            continue;
+        m_terminalRuntimeProjections[terminalId] = projection;
+    }
+}
+
+void TerminalSimulationClient::onTerminalExecutionResults(
+    const QJsonObject &message)
+{
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    m_lastTerminalExecutionResults =
+        message.value("result").toObject()
+            .value("results").toArray();
+}
+
+void TerminalSimulationClient::onTerminalExecutionResultsCleared(
+    const QJsonObject &message)
+{
+    Commons::ScopedWriteLock locker(m_dataMutex);
+    m_lastTerminalExecutionResultsCleared =
+        message.value("result").toObject();
 }
 
 } // namespace Backend

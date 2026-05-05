@@ -46,13 +46,10 @@ if(CARGONET_BUILD_INSTALLER)
     # Ensure that CargoNetSim is built first by specifying it as a dependency
     add_dependencies(CargoNetSimInstaller CargoNetSim)
 
-    # Define install paths for the executables and libraries
+    # Install CargoNetSim executable with component
+    # This is needed because the install in src/CMakeLists.txt may not be processed correctly by CPack
     install(TARGETS CargoNetSim
         RUNTIME DESTINATION bin
-        COMPONENT CargoNetSim_COMP
-        LIBRARY DESTINATION lib
-        COMPONENT CargoNetSim_COMP
-        ARCHIVE DESTINATION lib/static
         COMPONENT CargoNetSim_COMP)
 
     # ========================================
@@ -467,7 +464,241 @@ if(CARGONET_BUILD_INSTALLER)
         # Call the function to find and install missing DLLs
         find_and_install_missing_dlls()
 
-    endif() # WIN32
+    # ========================================
+    # macOS-SPECIFIC DEPLOYMENT
+    # ========================================
+    elseif(APPLE)
+        message(STATUS "=== Configuring macOS Installer ===")
+
+        # Get Qt parent directory
+        get_filename_component(QT_PARENT_DIR ${QT6_INSTALL_PREFIX} ABSOLUTE)
+
+        # Use qt_generate_deploy_app_script for automatic dependency collection (Qt 6.3+)
+        if(QT_VERSION VERSION_GREATER_EQUAL "6.3")
+            qt_generate_deploy_app_script(
+                TARGET CargoNetSim
+                OUTPUT_SCRIPT MACOS_DEPLOY_SCRIPT
+                NO_UNSUPPORTED_PLATFORM_ERROR
+            )
+            # Run deployment script at install time
+            install(SCRIPT ${MACOS_DEPLOY_SCRIPT}
+                COMPONENT CargoNetSim_COMP
+            )
+        else()
+            message(WARNING "Qt version < 6.3 detected. Manual macOS deployment may be required.")
+            message(STATUS "Consider using macdeployqt manually after build.")
+        endif()
+
+        # Install the app bundle
+        install(TARGETS CargoNetSim
+            BUNDLE DESTINATION .
+            COMPONENT CargoNetSim_COMP
+        )
+
+        # Install macOS icon if it exists
+        set(MACOS_ICON_PATH "${CMAKE_SOURCE_DIR}/resources/images/CargoNetSim.icns")
+        if(EXISTS "${MACOS_ICON_PATH}")
+            install(FILES "${MACOS_ICON_PATH}"
+                DESTINATION CargoNetSim.app/Contents/Resources
+                COMPONENT CargoNetSim_COMP
+            )
+            message(STATUS "Found macOS icon: ${MACOS_ICON_PATH}")
+        else()
+            message(WARNING "macOS icon not found at: ${MACOS_ICON_PATH}")
+        endif()
+
+        # Install third-party libraries
+        # Container library
+        if(DEFINED CONTAINER_LIB_DIR AND EXISTS "${CONTAINER_LIB_DIR}")
+            file(GLOB CONTAINER_DYLIBS
+                "${CONTAINER_LIB_DIR}/libcontainer*.dylib"
+                "${CONTAINER_LIB_DIR}/libContainer*.dylib"
+            )
+            if(CONTAINER_DYLIBS)
+                message(STATUS "Found Container libraries: ${CONTAINER_DYLIBS}")
+                install(FILES ${CONTAINER_DYLIBS}
+                    DESTINATION CargoNetSim.app/Contents/Frameworks
+                    COMPONENT CargoNetSim_COMP
+                )
+            endif()
+        endif()
+
+        # RabbitMQ library
+        if(DEFINED RABBITMQ_SHRD_LIB_DIR AND EXISTS "${RABBITMQ_SHRD_LIB_DIR}")
+            file(GLOB RABBITMQ_DYLIBS "${RABBITMQ_SHRD_LIB_DIR}/*.dylib")
+            if(RABBITMQ_DYLIBS)
+                message(STATUS "Found RabbitMQ libraries: ${RABBITMQ_DYLIBS}")
+                install(FILES ${RABBITMQ_DYLIBS}
+                    DESTINATION CargoNetSim.app/Contents/Frameworks
+                    COMPONENT CargoNetSim_COMP
+                )
+            endif()
+        endif()
+
+        # Create qt.conf for macOS bundle
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/qt.conf.macos"
+            "[Paths]\nPlugins = PlugIns\n")
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/qt.conf.macos"
+            DESTINATION CargoNetSim.app/Contents/Resources
+            RENAME qt.conf
+            COMPONENT CargoNetSim_COMP
+        )
+
+    # ========================================
+    # LINUX-SPECIFIC DEPLOYMENT
+    # ========================================
+    elseif(UNIX)
+        message(STATUS "=== Configuring Linux Installer ===")
+
+        # Get Qt parent directory
+        get_filename_component(QT_PARENT_DIR ${QT6_INSTALL_PREFIX} ABSOLUTE)
+        set(QT_LIB_DIR "${QT_PARENT_DIR}/lib")
+
+        # Use qt_generate_deploy_app_script for automatic dependency collection (Qt 6.3+)
+        if(QT_VERSION VERSION_GREATER_EQUAL "6.3")
+            qt_generate_deploy_app_script(
+                TARGET CargoNetSim
+                OUTPUT_SCRIPT LINUX_DEPLOY_SCRIPT
+                NO_UNSUPPORTED_PLATFORM_ERROR
+            )
+            # Run deployment script at install time
+            install(SCRIPT ${LINUX_DEPLOY_SCRIPT}
+                COMPONENT CargoNetSim_COMP
+            )
+        else()
+            message(WARNING "Qt version < 6.3 detected. Manual Linux deployment may be required.")
+            # Fallback: Install Qt libraries manually
+            set(REQUIRED_QT_LIBS
+                "${QT_LIB_DIR}/libQt6Core.so.6"
+                "${QT_LIB_DIR}/libQt6Network.so.6"
+                "${QT_LIB_DIR}/libQt6Xml.so.6"
+                "${QT_LIB_DIR}/libQt6Gui.so.6"
+                "${QT_LIB_DIR}/libQt6Widgets.so.6"
+                "${QT_LIB_DIR}/libQt6PrintSupport.so.6"
+                "${QT_LIB_DIR}/libQt6Sql.so.6"
+                "${QT_LIB_DIR}/libQt6DBus.so.6"
+                "${QT_LIB_DIR}/libQt6XcbQpa.so.6"
+            )
+            foreach(QT_LIB ${REQUIRED_QT_LIBS})
+                if(EXISTS "${QT_LIB}")
+                    install(FILES "${QT_LIB}"
+                        DESTINATION lib
+                        COMPONENT CargoNetSim_COMP
+                    )
+                    # Also install the .so symlinks
+                    get_filename_component(LIB_NAME "${QT_LIB}" NAME)
+                    string(REGEX REPLACE "\\.so\\.6$" ".so" LIB_SYMLINK "${LIB_NAME}")
+                    if(EXISTS "${QT_LIB_DIR}/${LIB_SYMLINK}")
+                        install(FILES "${QT_LIB_DIR}/${LIB_SYMLINK}"
+                            DESTINATION lib
+                            COMPONENT CargoNetSim_COMP
+                        )
+                    endif()
+                endif()
+            endforeach()
+        endif()
+
+        # Install Qt plugins
+        if(EXISTS "${QT_PARENT_DIR}/plugins/platforms/")
+            install(DIRECTORY "${QT_PARENT_DIR}/plugins/platforms/"
+                DESTINATION lib/plugins/platforms
+                COMPONENT CargoNetSim_COMP
+                FILES_MATCHING PATTERN "*.so"
+            )
+        endif()
+
+        if(EXISTS "${QT_PARENT_DIR}/plugins/imageformats/")
+            install(DIRECTORY "${QT_PARENT_DIR}/plugins/imageformats/"
+                DESTINATION lib/plugins/imageformats
+                COMPONENT CargoNetSim_COMP
+                FILES_MATCHING PATTERN "*.so"
+            )
+        endif()
+
+        # Optional plugin directories
+        set(OPTIONAL_PLUGIN_DIRS "iconengines" "styles" "tls" "xcbglintegrations" "platforminputcontexts")
+        foreach(PLUGIN_DIR ${OPTIONAL_PLUGIN_DIRS})
+            if(EXISTS "${QT_PARENT_DIR}/plugins/${PLUGIN_DIR}/")
+                install(DIRECTORY "${QT_PARENT_DIR}/plugins/${PLUGIN_DIR}/"
+                    DESTINATION lib/plugins/${PLUGIN_DIR}
+                    COMPONENT CargoNetSim_COMP
+                    FILES_MATCHING PATTERN "*.so"
+                )
+            endif()
+        endforeach()
+
+        # Install Container library
+        if(DEFINED CONTAINER_LIB_DIR AND EXISTS "${CONTAINER_LIB_DIR}")
+            file(GLOB CONTAINER_LIBS
+                "${CONTAINER_LIB_DIR}/libcontainer*.so*"
+                "${CONTAINER_LIB_DIR}/libContainer*.so*"
+            )
+            if(CONTAINER_LIBS)
+                message(STATUS "Found Container libraries: ${CONTAINER_LIBS}")
+                install(FILES ${CONTAINER_LIBS}
+                    DESTINATION lib
+                    COMPONENT CargoNetSim_COMP
+                )
+            endif()
+        endif()
+
+        # Install RabbitMQ library
+        if(DEFINED RABBITMQ_SHRD_LIB_DIR AND EXISTS "${RABBITMQ_SHRD_LIB_DIR}")
+            file(GLOB RABBITMQ_LIBS "${RABBITMQ_SHRD_LIB_DIR}/*.so*")
+            if(RABBITMQ_LIBS)
+                message(STATUS "Found RabbitMQ libraries: ${RABBITMQ_LIBS}")
+                install(FILES ${RABBITMQ_LIBS}
+                    DESTINATION lib
+                    COMPONENT CargoNetSim_COMP
+                )
+            endif()
+        endif()
+
+        # Create qt.conf for Linux
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/qt.conf.linux"
+            "[Paths]\nPrefix = ..\nPlugins = lib/plugins\nLibraries = lib\n")
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/qt.conf.linux"
+            DESTINATION bin
+            RENAME qt.conf
+            COMPONENT CargoNetSim_COMP
+        )
+
+        # Install .desktop file
+        if(EXISTS "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.desktop")
+            install(FILES "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.desktop"
+                DESTINATION share/applications
+                COMPONENT CargoNetSim_COMP
+            )
+        endif()
+
+        # Install icons for XDG compliance
+        if(EXISTS "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.png")
+            install(FILES "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.png"
+                DESTINATION share/icons/hicolor/256x256/apps
+                COMPONENT CargoNetSim_COMP
+            )
+            # Also install to pixmaps for broader compatibility
+            install(FILES "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.png"
+                DESTINATION share/pixmaps
+                COMPONENT CargoNetSim_COMP
+            )
+        endif()
+
+        # Create a wrapper script that sets LD_LIBRARY_PATH
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/CargoNetSim.sh"
+"#!/bin/bash
+# CargoNetSim launcher script
+SCRIPT_DIR=\"$(cd \"$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
+export LD_LIBRARY_PATH=\"\${SCRIPT_DIR}/../lib:\${LD_LIBRARY_PATH}\"
+export QT_PLUGIN_PATH=\"\${SCRIPT_DIR}/../lib/plugins\"
+exec \"\${SCRIPT_DIR}/CargoNetSim\" \"$@\"
+")
+        install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/CargoNetSim.sh"
+            DESTINATION bin
+            COMPONENT CargoNetSim_COMP
+        )
+
+    endif() # Platform-specific deployment
 
     # ========================================
     # INSTALL DATA DIRECTORIES
@@ -492,6 +723,10 @@ if(CARGONET_BUILD_INSTALLER)
 
     # Include CPack module to generate the installer
     set(CPACK_GENERATOR "IFW")
+
+    # Only include the CargoNetSim_COMP component, ignore Unspecified
+    set(CPACK_COMPONENTS_ALL CargoNetSim_COMP)
+
     set(CPACK_PACKAGE_VENDOR "CargoNet Development Team")
     set(CPACK_PACKAGE_DESCRIPTION "An installer for CargoNetSim simulation software.")
     set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
@@ -830,22 +1065,231 @@ Component.prototype.createOperations = function() {
     }
 }")
 
-    endif()
+    # ========================================
+    # macOS CPack IFW CONFIGURATION
+    # ========================================
+    elseif(APPLE)
+        set(CPACK_IFW_PACKAGE_TITLE "CargoNetSim")
+        set(CPACK_IFW_PACKAGE_PUBLISHER "CargoNet Development Team")
+        set(CPACK_IFW_PACKAGE_WIZARD_STYLE "Modern")
+        set(CPACK_IFW_PACKAGE_WIZARD_DEFAULT_WIDTH 800)
+        set(CPACK_IFW_PACKAGE_WIZARD_DEFAULT_HEIGHT 600)
+        set(CPACK_IFW_PACKAGE_ALLOW_NON_ASCII_CHARACTERS ON)
+        set(CPACK_IFW_PACKAGE_ALLOW_SPACE_IN_PATH ON)
+
+        # macOS-specific settings
+        set(CPACK_IFW_PACKAGE_RUN_PROGRAM "@TargetDir@/CargoNetSim.app/Contents/MacOS/CargoNetSim")
+        set(CPACK_IFW_PACKAGE_RUN_PROGRAM_DESCRIPTION "Launch CargoNetSim now")
+
+        # Set macOS icon if it exists
+        set(MACOS_ICON_PATH "${CMAKE_SOURCE_DIR}/resources/images/CargoNetSim.icns")
+        if(EXISTS "${MACOS_ICON_PATH}")
+            set(CPACK_IFW_PACKAGE_ICON "${MACOS_ICON_PATH}")
+            set(CPACK_IFW_PACKAGE_WINDOW_ICON "${MACOS_ICON_PATH}")
+            message(STATUS "Set macOS installer icon: ${MACOS_ICON_PATH}")
+        endif()
+
+        # QtIFW settings
+        set(CPACK_IFW_VERBOSE ON)
+        set(CPACK_IFW_PACKAGE_REMOVE_TARGET_DIR ON)
+        set(CPACK_IFW_PACKAGE_NAME "CargoNetSim")
+        set(CPACK_IFW_PACKAGE_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
+        set(CPACK_IFW_PACKAGE_MAINTENANCE_TOOL_NAME "CargoNetSimMaintenanceTool")
+
+        # Create macOS control script
+        set(CPACK_IFW_PACKAGE_CONTROL_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/controlscript.qs")
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/controlscript.qs" "
+function Controller() {
+    installer.setMessageBoxAutomaticAnswer('OverwriteTargetDirectory', QMessageBox.Yes);
+    installer.setMessageBoxAutomaticAnswer('stopProcessesForUpdates', QMessageBox.Ignore);
+
+    // Set default installation directory for macOS
+    installer.setValue('TargetDir', '/Applications/CargoNetSim');
+}
+
+Controller.prototype.IntroductionPageCallback = function() {
+    console.log('DEBUG: macOS Installation - IntroductionPageCallback');
+}
+
+Controller.prototype.TargetDirectoryPageCallback = function() {
+    var widget = gui.currentPageWidget();
+    if (widget && widget.TargetDirectoryLineEdit) {
+        var currentPath = installer.value('TargetDir');
+        widget.TargetDirectoryLineEdit.setText(currentPath);
+    }
+}")
+
+        # Create macOS component script
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cargonet_component.qs" "
+function Component() {
+    // macOS component - no admin selection page needed
+}
+
+Component.prototype.createOperations = function() {
+    try {
+        component.createOperations();
+
+        var targetDir = installer.value('TargetDir');
+        console.log('DEBUG: macOS - Creating operations for target: ' + targetDir);
+
+        // Create symlink in /Applications (optional - user may not have permissions)
+        // Most users will install directly to /Applications
+        if (targetDir !== '/Applications/CargoNetSim') {
+            try {
+                component.addOperation('Execute', 'ln', '-sf',
+                    targetDir + '/CargoNetSim.app',
+                    '/Applications/CargoNetSim.app',
+                    'UNDOEXECUTE', 'rm', '-f', '/Applications/CargoNetSim.app');
+            } catch (e) {
+                console.log('Note: Could not create symlink in /Applications: ' + e.message);
+            }
+        }
+    } catch (e) {
+        console.log('ERROR in macOS createOperations: ' + e.message);
+    }
+}")
 
     # ========================================
-    # QtIFW PATH CONFIGURATION
+    # LINUX CPack IFW CONFIGURATION
+    # ========================================
+    elseif(UNIX)
+        set(CPACK_IFW_PACKAGE_TITLE "CargoNetSim")
+        set(CPACK_IFW_PACKAGE_PUBLISHER "CargoNet Development Team")
+        set(CPACK_IFW_PACKAGE_WIZARD_STYLE "Modern")
+        set(CPACK_IFW_PACKAGE_WIZARD_DEFAULT_WIDTH 800)
+        set(CPACK_IFW_PACKAGE_WIZARD_DEFAULT_HEIGHT 600)
+        set(CPACK_IFW_PACKAGE_ALLOW_NON_ASCII_CHARACTERS ON)
+        set(CPACK_IFW_PACKAGE_ALLOW_SPACE_IN_PATH ON)
+
+        # Linux-specific settings
+        set(CPACK_IFW_PACKAGE_RUN_PROGRAM "@TargetDir@/bin/CargoNetSim.sh")
+        set(CPACK_IFW_PACKAGE_RUN_PROGRAM_DESCRIPTION "Launch CargoNetSim now")
+
+        # Use PNG icon for Linux
+        set(LINUX_ICON_PATH "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.png")
+        if(EXISTS "${LINUX_ICON_PATH}")
+            # QtIFW on Linux uses PNG icons
+            set(CPACK_IFW_PACKAGE_ICON "${LINUX_ICON_PATH}")
+            set(CPACK_IFW_PACKAGE_WINDOW_ICON "${LINUX_ICON_PATH}")
+            message(STATUS "Set Linux installer icon: ${LINUX_ICON_PATH}")
+        endif()
+
+        # QtIFW settings
+        set(CPACK_IFW_VERBOSE ON)
+        set(CPACK_IFW_PACKAGE_REMOVE_TARGET_DIR ON)
+        set(CPACK_IFW_PACKAGE_NAME "CargoNetSim")
+        set(CPACK_IFW_PACKAGE_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
+        set(CPACK_IFW_PACKAGE_MAINTENANCE_TOOL_NAME "CargoNetSimMaintenanceTool")
+
+        # Create Linux control script
+        set(CPACK_IFW_PACKAGE_CONTROL_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/controlscript.qs")
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/controlscript.qs" "
+function Controller() {
+    installer.setMessageBoxAutomaticAnswer('OverwriteTargetDirectory', QMessageBox.Yes);
+    installer.setMessageBoxAutomaticAnswer('stopProcessesForUpdates', QMessageBox.Ignore);
+
+    // Set default installation directory for Linux
+    var homeDir = installer.value('HomeDir');
+    installer.setValue('TargetDir', homeDir + '/CargoNetSim');
+}
+
+Controller.prototype.IntroductionPageCallback = function() {
+    console.log('DEBUG: Linux Installation - IntroductionPageCallback');
+}
+
+Controller.prototype.TargetDirectoryPageCallback = function() {
+    var widget = gui.currentPageWidget();
+    if (widget && widget.TargetDirectoryLineEdit) {
+        var currentPath = installer.value('TargetDir');
+        widget.TargetDirectoryLineEdit.setText(currentPath);
+    }
+}")
+
+        # Create Linux component script with CreateDesktopEntry
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cargonet_component.qs" "
+function Component() {
+    // Linux component - no admin selection page needed
+}
+
+Component.prototype.createOperations = function() {
+    try {
+        component.createOperations();
+
+        var targetDir = installer.value('TargetDir');
+        console.log('DEBUG: Linux - Creating operations for target: ' + targetDir);
+
+        // Create .desktop entry for application menu integration
+        component.addOperation('CreateDesktopEntry',
+            'CargoNetSim.desktop',
+            'Type=Application\\n' +
+            'Name=CargoNetSim\\n' +
+            'GenericName=Cargo Network Simulator\\n' +
+            'Comment=Simulation software for cargo networks\\n' +
+            'Exec=' + targetDir + '/bin/CargoNetSim.sh\\n' +
+            'Icon=' + targetDir + '/share/icons/hicolor/256x256/apps/CargoNetSim.png\\n' +
+            'Terminal=false\\n' +
+            'Categories=Science;Simulation;Education;\\n'
+        );
+
+        // Update icon cache (best effort - may fail if not root)
+        try {
+            component.addOperation('Execute', 'gtk-update-icon-cache', '-f', '-t',
+                '/usr/share/icons/hicolor',
+                'errormessage=Note: Could not update system icon cache');
+        } catch (e) {
+            console.log('Note: Could not update icon cache: ' + e.message);
+        }
+
+    } catch (e) {
+        console.log('ERROR in Linux createOperations: ' + e.message);
+    }
+}")
+
+    endif() # Platform-specific CPack configuration
+
+    # ========================================
+    # QtIFW PATH CONFIGURATION (Cross-Platform)
     # ========================================
     if(NOT DEFINED CPACK_IFW_ROOT)
-        set(POSSIBLE_IFW_ROOTS
-            "C:/Qt/Tools/QtInstallerFramework/4.10"
-            "C:/Qt/Tools/QtInstallerFramework/4.1"
-            "C:/QtIFW-4.10.0"
-            "C:/QtIFW"
-            "$ENV{QTIFWDIR}"
-        )
+        if(WIN32)
+            set(POSSIBLE_IFW_ROOTS
+                "C:/Qt/Tools/QtInstallerFramework/4.10"
+                "C:/Qt/Tools/QtInstallerFramework/4.8"
+                "C:/Qt/Tools/QtInstallerFramework/4.7"
+                "C:/Qt/Tools/QtInstallerFramework/4.6"
+                "C:/Qt/Tools/QtInstallerFramework/4.1"
+                "C:/QtIFW-4.10.0"
+                "C:/QtIFW"
+                "$ENV{QTIFWDIR}"
+            )
+            set(IFW_BINARY "binarycreator.exe")
+        elseif(APPLE)
+            set(POSSIBLE_IFW_ROOTS
+                "$ENV{HOME}/Qt/Tools/QtInstallerFramework/4.10"
+                "$ENV{HOME}/Qt/Tools/QtInstallerFramework/4.8"
+                "$ENV{HOME}/Qt/Tools/QtInstallerFramework/4.7"
+                "/opt/Qt/Tools/QtInstallerFramework/4.10"
+                "/opt/Qt/Tools/QtInstallerFramework/4.8"
+                "/usr/local/opt/qt-installer-framework"
+                "/Applications/QtIFW"
+                "$ENV{QTIFWDIR}"
+            )
+            set(IFW_BINARY "binarycreator")
+        else() # Linux
+            set(POSSIBLE_IFW_ROOTS
+                "$ENV{HOME}/Qt/Tools/QtInstallerFramework/4.10"
+                "$ENV{HOME}/Qt/Tools/QtInstallerFramework/4.8"
+                "$ENV{HOME}/Qt/Tools/QtInstallerFramework/4.7"
+                "/opt/Qt/Tools/QtInstallerFramework/4.10"
+                "/opt/Qt/Tools/QtInstallerFramework/4.8"
+                "/usr/local/QtIFW"
+                "$ENV{QTIFWDIR}"
+            )
+            set(IFW_BINARY "binarycreator")
+        endif()
 
         foreach(IFW_PATH ${POSSIBLE_IFW_ROOTS})
-            if(EXISTS "${IFW_PATH}/bin/binarycreator.exe")
+            if(EXISTS "${IFW_PATH}/bin/${IFW_BINARY}")
                 set(CPACK_IFW_ROOT "${IFW_PATH}")
                 message(STATUS "Found QtIFW at: ${IFW_PATH}")
                 break()
@@ -853,8 +1297,14 @@ Component.prototype.createOperations = function() {
         endforeach()
 
         if(NOT DEFINED CPACK_IFW_ROOT)
-            message(WARNING "QtIFW not found. Please set CPACK_IFW_ROOT manually.")
-            set(CPACK_IFW_ROOT "C:/Qt/Tools/QtInstallerFramework/4.10")
+            message(WARNING "QtIFW not found. Please set CPACK_IFW_ROOT manually or install Qt Installer Framework.")
+            if(WIN32)
+                set(CPACK_IFW_ROOT "C:/Qt/Tools/QtInstallerFramework/4.10")
+            elseif(APPLE)
+                set(CPACK_IFW_ROOT "$ENV{HOME}/Qt/Tools/QtInstallerFramework/4.10")
+            else()
+                set(CPACK_IFW_ROOT "$ENV{HOME}/Qt/Tools/QtInstallerFramework/4.10")
+            endif()
         endif()
     endif()
 
@@ -879,19 +1329,32 @@ Component.prototype.createOperations = function() {
     endif()
 
     # Enhanced component configuration with proper versioning and update support
-    cpack_ifw_configure_component(CargoNetSim_COMP
-        ESSENTIAL ON
-        FORCED_INSTALLATION ON
-        VISIBLE ON
-        NAME "com.cargonet.simulator"
-        VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
-        SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/cargonet_component.qs"
-        USER_INTERFACES "${CMAKE_CURRENT_BINARY_DIR}/adminselectionform.ui"
-        LICENSES "License" ${CPACK_RESOURCE_FILE_LICENSE}
-        SORTING_PRIORITY 100)
+    # Windows has admin selection UI, other platforms do not
+    if(WIN32)
+        cpack_ifw_configure_component(CargoNetSim_COMP
+            ESSENTIAL ON
+            FORCED_INSTALLATION ON
+            VISIBLE ON
+            NAME "com.cargonet.simulator"
+            VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
+            SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/cargonet_component.qs"
+            USER_INTERFACES "${CMAKE_CURRENT_BINARY_DIR}/adminselectionform.ui"
+            LICENSES "License" ${CPACK_RESOURCE_FILE_LICENSE}
+            SORTING_PRIORITY 100)
+    else()
+        cpack_ifw_configure_component(CargoNetSim_COMP
+            ESSENTIAL ON
+            FORCED_INSTALLATION ON
+            VISIBLE ON
+            NAME "com.cargonet.simulator"
+            VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
+            SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/cargonet_component.qs"
+            LICENSES "License" ${CPACK_RESOURCE_FILE_LICENSE}
+            SORTING_PRIORITY 100)
+    endif()
 
-    # Configure RabbitMQ Server component if available
-    if(EXISTS "${RABBITMQ_INSTALLER_FILE}")
+    # Configure RabbitMQ Server component if available (Windows only)
+    if(WIN32 AND EXISTS "${RABBITMQ_INSTALLER_FILE}")
         # Create RabbitMQ component script
         file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/rabbitmq_component.qs" "
 function Component() {

@@ -1,4 +1,5 @@
 #include "SimulationTime.h"
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -11,6 +12,7 @@ SimulationTime::SimulationTime(double   timeStep,
     , m_currentTime(0.0)
     , m_timeStep(timeStep)
 {
+    qCDebug(lcModel) << "SimulationTime: created with timeStep=" << timeStep;
 }
 
 double SimulationTime::getTimeStep() const
@@ -26,7 +28,11 @@ double SimulationTime::getCurrentTime() const
 void SimulationTime::setTimeStep(double timeStep)
 {
     if (qFuzzyCompare(m_timeStep, timeStep))
+    {
+        qCDebug(lcModel) << "SimulationTime::setTimeStep:"
+                         << "skipping — value unchanged at" << timeStep;
         return;
+    }
 
     m_timeStep = timeStep;
     emit timeStepChanged(m_timeStep);
@@ -35,6 +41,9 @@ void SimulationTime::setTimeStep(double timeStep)
 void SimulationTime::advanceByTimeStep()
 {
     m_currentTime += m_timeStep;
+    qCDebug(lcModel) << "SimulationTime::advanceByTimeStep:"
+                     << "time=" << m_currentTime
+                     << "step=" << m_timeStep;
     emit currentTimeChanged(m_currentTime);
 }
 

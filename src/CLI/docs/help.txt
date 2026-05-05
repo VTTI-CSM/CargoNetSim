@@ -1,0 +1,60 @@
+cargonetsim-cli — headless runner for CargoNetSim scenarios
+
+USAGE
+    cargonetsim-cli <subcommand> [options]
+
+SUBCOMMANDS
+    run         [--all|--paths LIST] [--top N] [--verbose] [--all-errors] <scenario.yml>
+                                 Execute the scenario end-to-end.
+                                 `--all` selects every discovered
+                                 candidate path and simulates each as
+                                 an isolated what-if alternative with
+                                 the same OD demand for comparison. A
+                                 bare scenario path is accepted as an
+                                 alias for `--all`.
+                                 `--paths LIST` selects a comma-separated
+                                 subset by the 1-based Select values
+                                 printed by the `discover` command.
+                                 `--top N` overrides the number of
+                                 candidates discovered before selection.
+                                 `--verbose` enables Qt logs and
+                                 per-path progress details.
+                                 `--all-errors` prints every validation
+                                 issue instead of grouped summaries.
+
+    validate    [--all-errors] <scenario.yml>
+                                 Parse + validate; exit non-zero on
+                                 error. Large issue sets are grouped by
+                                 default; `--all-errors` prints every
+                                 issue.
+
+    preview     [--all-errors] <scenario.yml>
+                                 Load, validate, run linker, emit JSON
+                                 to stdout.
+
+    discover    [--top N] [--json|--details] [--verbose] [--all-errors] <scenario.yml>
+                                 Discover and print candidate paths with
+                                 prepared numeric values only. The Select
+                                 column is accepted by `run --paths`.
+                                 Does not start simulation or write results.
+                                 `--all-errors` prints every validation
+                                 issue instead of grouped summaries.
+
+    connections [--watch]        Show per-server RabbitMQ connection status.
+
+    --help, -h                   This help.
+    --version, -v                Print version and exit.
+
+EXIT CODES
+    0   success
+    1   simulation run failed at runtime
+    2   scenario validation failed
+    3   required simulator or fleet dependency unavailable before simulation start
+    5   at least one simulator disconnected (for connections)
+   64   misuse / bad command-line arguments
+
+ENVIRONMENT
+    CARGONETSIM_CLI_RUNTIME_DIR  Override the runtime state directory.
+    QT_LOGGING_RULES             Qt logging filter (respected).
+
+See docs/superpowers/specs/2026-04-12-cargonetsim-cli-and-scenario-model-design.md

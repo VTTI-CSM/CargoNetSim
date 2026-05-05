@@ -1,5 +1,6 @@
 #include "TrainNetwork.h"
-#include <QDebug>
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -721,6 +722,9 @@ NeTrainSimNetwork::getVariables() const
 void NeTrainSimNetwork::loadNetwork(
     const QString &nodesFile, const QString &linksFile)
 {
+    qCDebug(lcRail) << "[RailLoad] loadNetwork start"
+             << "nodes=" << nodesFile
+             << "links=" << linksFile;
     QMutexLocker locker(&m_mutex);
 
     // Clean up existing objects
@@ -736,27 +740,43 @@ void NeTrainSimNetwork::loadNetwork(
     try
     {
         // Read nodes
+        qCDebug(lcRail) << "[RailLoad] readNodesFile begin";
         QVector<QMap<QString, QString>> nodeRecords =
             NeTrainSimNodeDataReader::readNodesFile(
                 nodesFile);
+        qCDebug(lcRail) << "[RailLoad] readNodesFile ok, records="
+                 << nodeRecords.size();
         m_nodes = generateNodes(nodeRecords);
+        qCDebug(lcRail) << "[RailLoad] generateNodes ok, nodes="
+                 << m_nodes.size();
 
         // Read links
+        qCDebug(lcRail) << "[RailLoad] readLinksFile begin";
         QVector<QMap<QString, QString>> linkRecords =
             NeTrainSimLinkDataReader::readLinksFile(
                 linksFile);
+        qCDebug(lcRail) << "[RailLoad] readLinksFile ok, records="
+                 << linkRecords.size();
         m_links = generateLinks(linkRecords);
+        qCDebug(lcRail) << "[RailLoad] generateLinks ok, links="
+                 << m_links.size();
 
         // Build graph representation
+        qCDebug(lcRail) << "[RailLoad] buildGraph begin";
         buildGraph();
+        qCDebug(lcRail) << "[RailLoad] buildGraph ok";
 
+        qCDebug(lcRail) << "[RailLoad] emit signals";
         emit networkChanged();
         emit nodesChanged();
         emit linksChanged();
+        qCDebug(lcRail) << "[RailLoad] loadNetwork done";
     }
     catch (const std::exception &e)
     {
-        qCritical() << "Error loading network:" << e.what();
+        qCCritical(lcRail)
+            << "[RailLoad] Error loading network:"
+            << e.what();
         throw;
     }
 }
@@ -885,6 +905,13 @@ QVector<NeTrainSimLink *> NeTrainSimNetwork::generateLinks(
 
         if (!fromNode || !toNode)
         {
+            qCCritical(lcRail)
+                << "[RailLoad] missing node(s) for"
+                        << " linkId=" << record["UserID"]
+                        << " fromId=" << record["FromNodeID"]
+                        << " toId=" << record["ToNodeID"]
+                        << " fromResolved=" << (fromNode != nullptr)
+                        << " toResolved=" << (toNode != nullptr);
             throw std::runtime_error(
                 QString("Could not find nodes for link %1")
                     .arg(record["UserID"])
@@ -932,7 +959,8 @@ void NeTrainSimNetwork::buildGraph()
         attributes["y"]            = node->getY();
         attributes["description"]  = node->getDescription();
         attributes["is_terminal"]  = node->isTerminal();
-        attributes["dwell_time"]   = node->getDwellTime();
+        attributes["dwell_time"] =
+            node->dwellTimeUnits().value();
         attributes["x_scale"]      = node->getXScale();
         attributes["y_scale"]      = node->getYScale();
 
@@ -945,14 +973,16 @@ void NeTrainSimNetwork::buildGraph()
     {
         int   fromNodeId = link->getFromNode()->getUserId();
         int   toNodeId   = link->getToNode()->getUserId();
-        float length     = link->getLength();
+        float length = static_cast<float>(
+            link->lengthUnits().value());
         int   numDirections = link->getNumDirections();
 
         // Create attributes map for the edge
         QMap<QString, QVariant> attributes;
         attributes["simulator_id"] = link->getSimulatorId();
         attributes["user_id"]      = link->getUserId();
-        attributes["max_speed"]    = link->getMaxSpeed();
+        attributes["max_speed"] =
+            link->maxSpeedUnits().value();
         attributes["signal_id"]    = link->getSignalId();
         attributes["signals_at_nodes"] =
             link->getSignalsAtNodes();
@@ -1004,7 +1034,8 @@ NeTrainSimNetwork::getPathLinks(
                 && linkToNodeId == toNodeId)
             {
                 linkIds.append(link->getUserId());
-                distances.append(link->getLength());
+                distances.append(static_cast<float>(
+                    link->lengthUnits().value()));
                 found = true;
                 break;
             }
@@ -1016,7 +1047,8 @@ NeTrainSimNetwork::getPathLinks(
                 && linkToNodeId == fromNodeId)
             {
                 linkIds.append(link->getUserId());
-                distances.append(link->getLength());
+                distances.append(static_cast<float>(
+                    link->lengthUnits().value()));
                 found = true;
                 break;
             }
@@ -1024,7 +1056,7 @@ NeTrainSimNetwork::getPathLinks(
 
         if (!found)
         {
-            qWarning()
+            qCWarning(lcRail)
                 << "Could not find link between nodes"
                 << fromNodeId << "and" << toNodeId;
         }
@@ -1066,27 +1098,38 @@ ShortestPathResult NeTrainSimNetwork::findShortestPath(
     result.pathLinks             = pathLinksInfo.first;
     QVector<float> linkDistances = pathLinksInfo.second;
 
-    // Calculate total distance and travel time
-    result.totalLength   = 0.0;
-    result.minTravelTime = 0.0;
+    // Calculate total distance and travel time in canonical
+    // SI units that match the upstream NeTrainSim contract:
+    // length in meters, speed in meters/second, time in seconds.
+    double totalLengthMeters    = 0.0;
+    double minTravelTimeSeconds = 0.0;
 
     for (int i = 0; i < result.pathLinks.size(); ++i)
     {
         int   linkId   = result.pathLinks[i];
-        float distance = linkDistances[i];
-        result.totalLength += distance;
+        const double distanceMeters =
+            static_cast<double>(linkDistances[i]);
+        totalLengthMeters += distanceMeters;
 
-        // Find the link to get its max_speed
+        // Rebuild per-link travel time from the same SI
+        // edge contract the graph uses when optimizing for
+        // "time".
         for (NeTrainSimLink *link : m_links)
         {
             if (link->getUserId() == linkId)
             {
-                float maxSpeed = link->getMaxSpeed();
-                result.minTravelTime += distance / maxSpeed;
+                const double safeMaxSpeedMetersPerSecond =
+                    std::max(link->maxSpeedUnits().value(),
+                             0.01);
+                minTravelTimeSeconds +=
+                    distanceMeters / safeMaxSpeedMetersPerSecond;
                 break;
             }
         }
     }
+
+    result.setTotalLength(Units::meters(totalLengthMeters));
+    result.setMinTravelTime(Units::seconds(minTravelTimeSeconds));
 
     return result;
 }
@@ -1118,7 +1161,8 @@ QJsonObject NeTrainSimNetwork::nodesToJson() const
             {"y", node->getY()},
             {"description", node->getDescription()},
             {"isTerminal", node->isTerminal()},
-            {"terminalDwellTime", node->getDwellTime()}};
+            {"terminalDwellTime",
+             node->dwellTimeUnits().value()}};
         nodesArray.append(nodeData);
     }
 
@@ -1157,8 +1201,8 @@ QJsonObject NeTrainSimNetwork::linksToJson() const
             {"fromNodeID",
              link->getFromNode()->getUserId()},
             {"toNodeID", link->getToNode()->getUserId()},
-            {"length", link->getLength()},
-            {"maxSpeed", link->getMaxSpeed()},
+            {"length", link->lengthUnits().value()},
+            {"maxSpeed", link->maxSpeedUnits().value()},
             {"trafficSignalID", link->getSignalId()},
             {"grade", link->getGrade()},
             {"curvature", link->getCurvature()},
@@ -1238,7 +1282,7 @@ void NeTrainSimNetwork::setNodesAndLinksFromJson(
         }
         else
         {
-            qWarning() << "Could not find nodes for link"
+            qCWarning(lcRail) << "Could not find nodes for link"
                        << linkJson["user_id"].toInt();
         }
     }

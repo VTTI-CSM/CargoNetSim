@@ -1,4 +1,6 @@
 #include "DistanceMeasurementTool.h"
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/Commons/Units.h"
 #include "../Widgets/GraphicsView.h"
 
 #include <QFontMetrics>
@@ -22,6 +24,10 @@ DistanceMeasurementTool::DistanceMeasurementTool(
     , m_cachedDistance(0.0)
     , m_distanceDirty(true)
 {
+    qCInfo(lcGuiScene)
+        << "DistanceMeasurementTool::DistanceMeasurementTool:"
+        << "created, view=" << (view ? "valid" : "null");
+
     // Ensure the tool is always drawn on top of other items
     setZValue(1000);
 
@@ -32,7 +38,9 @@ DistanceMeasurementTool::DistanceMeasurementTool(
 
 DistanceMeasurementTool::~DistanceMeasurementTool()
 {
-    // Clean up any resources if needed
+    qCInfo(lcGuiScene)
+        << "DistanceMeasurementTool::~DistanceMeasurementTool:"
+        << "destroyed";
 }
 
 void DistanceMeasurementTool::setStartPoint(
@@ -40,6 +48,10 @@ void DistanceMeasurementTool::setStartPoint(
 {
     if (m_startPoint != point)
     {
+        qCDebug(lcGuiScene)
+            << "DistanceMeasurementTool::setStartPoint:"
+            << "point=" << point;
+
         prepareGeometryChange();
         m_startPoint    = point;
         m_distanceDirty = true;
@@ -63,6 +75,10 @@ void DistanceMeasurementTool::setEndPoint(
 {
     if (m_endPoint != point)
     {
+        qCDebug(lcGuiScene)
+            << "DistanceMeasurementTool::setEndPoint:"
+            << "point=" << point;
+
         prepareGeometryChange();
         m_endPoint      = point;
         m_distanceDirty = true;
@@ -98,21 +114,32 @@ double DistanceMeasurementTool::getDistance() const
 
 QString DistanceMeasurementTool::getDistanceText() const
 {
-    double distance = getDistance();
+    const auto distanceMeters =
+        CargoNetSim::Backend::Units::meters(getDistance());
 
-    if (distance >= 1000.0)
+    if (distanceMeters.value()
+        >= CargoNetSim::Backend::Units::toMeters(
+               CargoNetSim::Backend::Units::kilometers(1.0))
+               .value())
     {
-        return QString("%1 km").arg(distance / 1000.0, 0,
-                                    'f', 1);
+        return QString("%1 km").arg(
+            CargoNetSim::Backend::Units::toKilometers(
+                distanceMeters)
+                .value(),
+            0, 'f', 1);
     }
     else
     {
-        return QString("%1 m").arg(qRound(distance));
+        return QString("%1 m").arg(qRound(distanceMeters.value()));
     }
 }
 
 void DistanceMeasurementTool::reset()
 {
+    qCDebug(lcGuiScene)
+        << "DistanceMeasurementTool::reset:"
+        << "clearing measurement";
+
     prepareGeometryChange();
     m_startPoint    = QPointF();
     m_endPoint      = QPointF();
@@ -174,6 +201,11 @@ void DistanceMeasurementTool::paint(
     {
         return;
     }
+
+    qCDebug(lcGuiScene)
+        << "DistanceMeasurementTool::paint:"
+        << "start=" << m_startPoint
+        << "end=" << m_endPoint;
 
     // --- Draw the measurement line ---
     QPen pen(QColor("red"), 1);
@@ -250,6 +282,11 @@ double DistanceMeasurementTool::calculateDistance() const
     {
         return 0.0;
     }
+
+    qCDebug(lcGuiScene)
+        << "DistanceMeasurementTool::calculateDistance:"
+        << "start=" << m_startPoint
+        << "end=" << m_endPoint;
 
     // Get start/end coordinates in WGS84
     double startLat = 0.0, startLon = 0.0, endLat = 0.0,

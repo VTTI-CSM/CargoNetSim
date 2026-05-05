@@ -1,4 +1,5 @@
 #include "CustomMainWindow.h"
+#include "Backend/Commons/LogCategories.h"
 
 #include <QHBoxLayout>
 #include <QSizePolicy>
@@ -12,6 +13,7 @@ namespace GUI
 CustomMainWindow::CustomMainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
+    qCDebug(lcGui) << "CustomMainWindow::CustomMainWindow: creating";
     // Create a central widget
     centralWidget = new QWidget();
     setCentralWidget(centralWidget);
@@ -42,18 +44,23 @@ CustomMainWindow::CustomMainWindow(QWidget *parent)
 
 CustomMainWindow::~CustomMainWindow()
 {
+    qCDebug(lcGui) << "CustomMainWindow::~CustomMainWindow: destroying";
     // Qt's parent-child mechanism handles cleanup
 }
 
 void CustomMainWindow::addDockWidget(
     Qt::DockWidgetArea area, QDockWidget *dockWidget)
 {
+    qCDebug(lcGui) << "CustomMainWindow::addDockWidget:"
+                   << (dockWidget ? dockWidget->objectName() : "null")
+                   << "area:" << area;
     // Check if this is a special case dock that should go
     // in the center splitter
     if (dockWidget
         && dockWidget->objectName()
                == "ShortestPathTableDock")
     {
+        qCDebug(lcGui) << "CustomMainWindow::addDockWidget: routing to center splitter";
         // Add bottom dock to center splitter
         centerSplitter->addWidget(dockWidget);
     }

@@ -21,6 +21,7 @@
 #include <QVector>
 #include <QtMath>
 
+#include "Backend/Commons/Units.h"
 #include "../Commons/ClientType.h"
 
 namespace CargoNetSim
@@ -311,6 +312,11 @@ public:
         return m_maxSpeed;
     }
 
+    Units::SpeedKnots maxSpeedUnits() const
+    {
+        return Units::knots(m_maxSpeed);
+    }
+
     /**
      * @brief Get the ship's waterline length.
      * @return Waterline length in meters.
@@ -318,6 +324,11 @@ public:
     float getWaterlineLength() const
     {
         return m_waterlineLength;
+    }
+
+    Units::LengthMeters waterlineLengthUnits() const
+    {
+        return Units::meters(m_waterlineLength);
     }
 
     /**
@@ -329,6 +340,11 @@ public:
         return m_lengthBetweenPerpendiculars;
     }
 
+    Units::LengthMeters lengthBetweenPerpendicularsUnits() const
+    {
+        return Units::meters(m_lengthBetweenPerpendiculars);
+    }
+
     /**
      * @brief Get the ship's beam (width).
      * @return Beam in meters.
@@ -336,6 +352,11 @@ public:
     float getBeam() const
     {
         return m_beam;
+    }
+
+    Units::LengthMeters beamUnits() const
+    {
+        return Units::meters(m_beam);
     }
 
     /**
@@ -347,6 +368,11 @@ public:
         return m_draftAtForward;
     }
 
+    Units::LengthMeters draftAtForwardUnits() const
+    {
+        return Units::meters(m_draftAtForward);
+    }
+
     /**
      * @brief Get the ship's draft at the aft.
      * @return Draft at aft in meters.
@@ -354,6 +380,11 @@ public:
     float getDraftAtAft() const
     {
         return m_draftAtAft;
+    }
+
+    Units::LengthMeters draftAtAftUnits() const
+    {
+        return Units::meters(m_draftAtAft);
     }
 
     /**
@@ -365,6 +396,11 @@ public:
         return m_volumetricDisplacement;
     }
 
+    Units::VolumeCubicMeters volumetricDisplacementUnits() const
+    {
+        return Units::cubicMeters(m_volumetricDisplacement);
+    }
+
     /**
      * @brief Get the ship's wetted hull surface area.
      * @return Wetted hull surface in square meters.
@@ -374,6 +410,11 @@ public:
         return m_wettedHullSurface;
     }
 
+    Units::AreaSquareMeters wettedHullSurfaceUnits() const
+    {
+        return Units::squareMeters(m_wettedHullSurface);
+    }
+
     /**
      * @brief Get the ship's area above waterline.
      * @return Area above waterline in square meters.
@@ -381,6 +422,11 @@ public:
     float getAreaAboveWaterline() const
     {
         return m_areaAboveWaterline;
+    }
+
+    Units::AreaSquareMeters areaAboveWaterlineUnits() const
+    {
+        return Units::squareMeters(m_areaAboveWaterline);
     }
 
     /**
@@ -426,6 +472,11 @@ public:
     float getSurfaceRoughness() const
     {
         return m_surfaceRoughness;
+    }
+
+    Units::LengthMillimeters surfaceRoughnessUnits() const
+    {
+        return Units::millimeters(m_surfaceRoughness);
     }
 
     /**
@@ -585,6 +636,11 @@ public:
         return m_propellerDiameter;
     }
 
+    Units::LengthMeters propellerDiameterUnits() const
+    {
+        return Units::meters(m_propellerDiameter);
+    }
+
     /**
      * @brief Get the propeller pitch.
      * @return Propeller pitch in meters.
@@ -592,6 +648,11 @@ public:
     float getPropellerPitch() const
     {
         return m_propellerPitch;
+    }
+
+    Units::LengthMeters propellerPitchUnits() const
+    {
+        return Units::meters(m_propellerPitch);
     }
 
     /**
@@ -630,6 +691,11 @@ public:
         return m_maxRudderAngle;
     }
 
+    Units::AngleDegrees maxRudderAngleUnits() const
+    {
+        return Units::degrees(m_maxRudderAngle);
+    }
+
     /**
      * @brief Get the vessel weight.
      * @return Vessel weight in tons.
@@ -639,6 +705,11 @@ public:
         return m_vesselWeight;
     }
 
+    Units::MassMetricTons vesselWeightUnits() const
+    {
+        return Units::metricTons(m_vesselWeight);
+    }
+
     /**
      * @brief Get the cargo weight.
      * @return Cargo weight in tons.
@@ -646,6 +717,11 @@ public:
     float getCargoWeight() const
     {
         return m_cargoWeight;
+    }
+
+    Units::MassMetricTons cargoWeightUnits() const
+    {
+        return Units::metricTons(m_cargoWeight);
     }
 
     /**
@@ -677,12 +753,24 @@ public:
      */
     void setMaxSpeed(float maxSpeed);
 
+    void setMaxSpeedUnits(Units::SpeedKnots maxSpeed)
+    {
+        setMaxSpeed(static_cast<float>(maxSpeed.value()));
+    }
+
     /**
      * @brief Set the ship's waterline length.
      * @param waterlineLength New waterline length in
      * meters.
      */
     void setWaterlineLength(float waterlineLength);
+
+    void setWaterlineLengthUnits(
+        Units::LengthMeters waterlineLength)
+    {
+        setWaterlineLength(
+            static_cast<float>(waterlineLength.value()));
+    }
 
     /**
      * @brief Set the ship's length between perpendiculars.
@@ -698,17 +786,35 @@ public:
      */
     void setBeam(float beam);
 
+    void setBeamUnits(Units::LengthMeters beam)
+    {
+        setBeam(static_cast<float>(beam.value()));
+    }
+
     /**
      * @brief Set the ship's draft at the forward.
      * @param draftAtForward New draft at forward in meters.
      */
     void setDraftAtForward(float draftAtForward);
 
+    void setDraftAtForwardUnits(
+        Units::LengthMeters draftAtForward)
+    {
+        setDraftAtForward(
+            static_cast<float>(draftAtForward.value()));
+    }
+
     /**
      * @brief Set the ship's draft at the aft.
      * @param draftAtAft New draft at aft in meters.
      */
     void setDraftAtAft(float draftAtAft);
+
+    void setDraftAtAftUnits(Units::LengthMeters draftAtAft)
+    {
+        setDraftAtAft(
+            static_cast<float>(draftAtAft.value()));
+    }
 
     /**
      * @brief Set the ship's volumetric displacement.
@@ -873,11 +979,25 @@ public:
      */
     void setPropellerDiameter(float propellerDiameter);
 
+    void setPropellerDiameterUnits(
+        Units::LengthMeters propellerDiameter)
+    {
+        setPropellerDiameter(
+            static_cast<float>(propellerDiameter.value()));
+    }
+
     /**
      * @brief Set the propeller pitch.
      * @param propellerPitch New pitch in meters.
      */
     void setPropellerPitch(float propellerPitch);
+
+    void setPropellerPitchUnits(
+        Units::LengthMeters propellerPitch)
+    {
+        setPropellerPitch(
+            static_cast<float>(propellerPitch.value()));
+    }
 
     /**
      * @brief Set the number of blades per propeller.
@@ -903,17 +1023,37 @@ public:
      */
     void setMaxRudderAngle(float maxRudderAngle);
 
+    void setMaxRudderAngleUnits(
+        Units::AngleDegrees maxRudderAngle)
+    {
+        setMaxRudderAngle(
+            static_cast<float>(maxRudderAngle.value()));
+    }
+
     /**
      * @brief Set the vessel weight.
      * @param vesselWeight New weight in tons.
      */
     void setVesselWeight(float vesselWeight);
 
+    void setVesselWeightUnits(
+        Units::MassMetricTons vesselWeight)
+    {
+        setVesselWeight(
+            static_cast<float>(vesselWeight.value()));
+    }
+
     /**
      * @brief Set the cargo weight.
      * @param cargoWeight New weight in tons.
      */
     void setCargoWeight(float cargoWeight);
+
+    void setCargoWeightUnits(Units::MassMetricTons cargoWeight)
+    {
+        setCargoWeight(
+            static_cast<float>(cargoWeight.value()));
+    }
 
     /**
      * @brief Set the appendages wetted surfaces.

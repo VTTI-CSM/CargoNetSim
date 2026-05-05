@@ -1,10 +1,10 @@
 #include "RegionManagerWidget.h"
-#include "../Controllers/ViewController.h"
-#include "../Items/RegionCenterPoint.h"
+#include "../Controllers/RegionController.h"
 #include "../MainWindow.h"
 #include "../Utils/ColorUtils.h"
 #include "../Widgets/ColorPickerDialog.h"
-#include "Backend/Controllers/CargoNetSimController.h"
+#include "Backend/Application/NetworkViewService.h"
+#include "Backend/Commons/LogCategories.h"
 
 #include <QColor>
 #include <QIcon>
@@ -78,25 +78,72 @@ void RegionManagerWidget::setupUI()
     updateButtonStates();
     connect(regionList, &QListWidget::itemSelectionChanged,
             this, &RegionManagerWidget::updateButtonStates);
+
+    // Refresh the list whenever the authoritative region store changes.
+    // Without these, the "Open Scenario" path populates
+    // RegionDataController (via ScenarioApplier::applyRegions) but this
+    // widget keeps showing the pre-load snapshot — regions appear on the
+    // canvas but never in the manager.
+    if (auto *networkView = mainWindow->networkViewService())
+    {
+        connect(networkView,
+                &Backend::Application::NetworkViewService::regionAdded,
+                this, [this](const QString &) { updateRegionList(); });
+        connect(networkView,
+                &Backend::Application::NetworkViewService::regionRemoved,
+                this, [this](const QString &) { updateRegionList(); });
+        connect(networkView,
+                &Backend::Application::NetworkViewService::regionRenamed,
+                this, [this](const QString &, const QString &) {
+                    updateRegionList();
+                });
+        connect(networkView,
+                &Backend::Application::NetworkViewService::regionsCleared,
+                this, [this]() { updateRegionList(); });
+        // Startup and scenario-load both route through ScenarioApplier,
+        // which adds the region to RDC FIRST and only then writes its
+        // "color" variable. The regionAdded refresh above fires with no
+        // colour set — we'd render a black swatch. Re-refresh whenever
+        // the colour key actually lands so the swatch catches up.
+        connect(networkView,
+                &Backend::Application::NetworkViewService::regionVariableChanged,
+                this,
+                [this](const QString &, const QString &key, const QVariant &) {
+                    if (key == QStringLiteral("color"))
+                        updateRegionList();
+                });
+    }
 }
 
 void RegionManagerWidget::updateRegionList()
 {
     regionList->clear();
 
-    for (const QString &regionName :
-         CargoNetSim::CargoNetSimController::getInstance()
-             .getRegionDataController()
-             ->getAllRegionNames())
-    {
+    const QStringList regionNames =
+        mainWindow && mainWindow->networkViewService()
+            ? mainWindow->networkViewService()->regionNames()
+            : QStringList();
 
-        // get the color assigned to the region
+    for (const QString &regionName : regionNames)
+    {
+        const QVariant rawColor =
+            mainWindow && mainWindow->networkViewService()
+                ? mainWindow->networkViewService()->regionVariable(
+                      regionName, QStringLiteral("color"))
+                : QVariant();
+        qCInfo(lcGuiUtil)
+            << "RegionManagerWidget::updateRegionList:"
+            << "region=" << regionName
+            << "variantType=" << rawColor.typeName()
+            << "userType=" << rawColor.userType()
+            << "rawValue=" << rawColor
+            << "canConvertQColor=" << rawColor.canConvert<QColor>();
+
         QColor color =
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getRegionData(regionName)
-                    ->getVariableAs<QColor>("color");
+            rawColor.value<QColor>();
+        qCInfo(lcGuiUtil)
+            << "  -> QColor via QVariant: valid=" << color.isValid()
+            << "name=" << color.name();
 
         // Create color swatch pixmap
         QPixmap pixmap(24, 24);
@@ -132,11 +179,14 @@ void RegionManagerWidget::changeRegionColor()
     }
 
     QString regionName = currentItem->text();
+    qCDebug(lcGuiUtil) << "RegionManagerWidget::changeRegionColor:"
+                       << "name=" << regionName;
     QColor  currentColor =
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->getRegionData(regionName)
-            ->getVariableAs<QColor>("color");
+        mainWindow && mainWindow->networkViewService()
+            ? mainWindow->networkViewService()->regionVariable(
+                  regionName, QStringLiteral("color"))
+                  .value<QColor>()
+            : QColor();
 
     ColorPickerDialog dialog(currentColor, this);
     if (dialog.exec())
@@ -144,37 +194,10 @@ void RegionManagerWidget::changeRegionColor()
         QColor newColor = dialog.getSelectedColor();
         if (newColor.isValid())
         {
-            // Update color in main window
-            CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getRegionData(regionName)
-                    ->setVariable("color", newColor);
-
-            // Update region center color
-            QMap<QString, RegionCenterPoint *>
-                regionCenters =
-                    CargoNetSim::CargoNetSimController::
-                        getInstance()
-                            .getRegionDataController()
-                            ->getAllRegionVariableAs<
-                                RegionCenterPoint *>(
-                                "regionCenterPoint");
-            if (regionCenters.contains(regionName))
-            {
-                RegionCenterPoint *center =
-                    regionCenters[regionName];
-                center->setColor(newColor);
-                center->update();
-            }
-
-            // Update region list
+            mainWindow->regionCtrl()->updateRegionColor(
+                regionName, newColor);
+            // No RDC signal fires for color changes — refresh manually.
             updateRegionList();
-
-            // Update visuals
-            // ViewController::updateSceneVisibility(mainWindow);
-            // ViewController::updateGlobalMapScene(mainWindow);
-
             mainWindow->showStatusBarMessage(
                 tr("Updated color for region '%1'")
                     .arg(regionName),
@@ -185,6 +208,7 @@ void RegionManagerWidget::changeRegionColor()
 
 void RegionManagerWidget::addRegion()
 {
+    qCDebug(lcGuiUtil) << "RegionManagerWidget::addRegion: begin";
     bool    ok;
     QString newRegionName = QInputDialog::getText(
         this, tr("Add Region"),
@@ -194,11 +218,9 @@ void RegionManagerWidget::addRegion()
     if (ok && !newRegionName.isEmpty())
     {
         // Check if name already exists
-        if (CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getAllRegionNames()
-                    .contains(newRegionName))
+        if (mainWindow && mainWindow->networkViewService()
+            && mainWindow->networkViewService()->regionNames()
+                   .contains(newRegionName))
         {
             QMessageBox::warning(
                 this, tr("Error"),
@@ -207,25 +229,9 @@ void RegionManagerWidget::addRegion()
             return;
         }
 
-        // Add color for new region
         QColor color = ColorUtils::getRandomColor();
-
-        // Add to main window's region tracking
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->addRegion(newRegionName);
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->setRegionVariable(newRegionName, "color",
-                                color);
-
-        // Create region center point
-        ViewController::createRegionCenter(
-            mainWindow, newRegionName, color, QPointF(0, 0),
-            false);
-
-        // // Update UI
-        updateRegionList();
+        mainWindow->regionCtrl()->addRegion(
+            newRegionName, color, QPointF(0, 0));
         updateButtonStates();
     }
 }
@@ -240,21 +246,19 @@ void RegionManagerWidget::renameRegion()
     }
 
     QString oldName = currentItem->text();
+    qCDebug(lcGuiUtil) << "RegionManagerWidget::renameRegion:"
+                       << "name=" << oldName;
     bool    ok;
     QString newName = QInputDialog::getText(
         this, tr("Rename Region"), tr("Enter new name:"),
         QLineEdit::Normal, oldName, &ok);
 
-    // TODO
-
     if (ok && !newName.isEmpty() && newName != oldName)
     {
         // Check if name already exists
-        if (CargoNetSim::CargoNetSimController::
-                getInstance()
-                    .getRegionDataController()
-                    ->getAllRegionNames()
-                    .contains(newName))
+        if (mainWindow && mainWindow->networkViewService()
+            && mainWindow->networkViewService()->regionNames()
+                   .contains(newName))
         {
             QMessageBox::warning(
                 this, tr("Error"),
@@ -263,16 +267,20 @@ void RegionManagerWidget::renameRegion()
             return;
         }
 
-        // Update main window's region data
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->renameRegion(oldName, newName);
+        // Update the backend-owned region view store first.
+        // NOTE: NetworkViewService::renameRegion emits
+        // signals that may rebuild this widget's list,
+        // invalidating currentItem. Do NOT access
+        // currentItem after this call.
+        if (auto *networkView = mainWindow->networkViewService())
+            networkView->renameRegion(oldName, newName);
 
-        ViewController::renameRegion(mainWindow, oldName,
-                                     newName);
+        mainWindow->regionCtrl()->renameRegion(oldName,
+                                              newName);
 
-        // Update UI
-        currentItem->setText(newName);
+        // Refresh the list (currentItem is stale after
+        // the signals above may have rebuilt it).
+        updateRegionList();
     }
 }
 
@@ -286,112 +294,26 @@ void RegionManagerWidget::deleteRegion()
     }
 
     QString regionName = currentItem->text();
+    qCDebug(lcGuiUtil) << "RegionManagerWidget::deleteRegion:"
+                       << "name=" << regionName;
     int     reply      = QMessageBox::question(
         this, tr("Delete Region"),
         tr("Are you sure you want to delete region '%1'?\n"
-                             "All items in this region will be moved to the "
-                             "default region.")
+           "All items in this region will be permanently deleted.")
             .arg(regionName),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No);
 
-    // TODO
     if (reply == QMessageBox::Yes)
     {
-        // Return color to available colors
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->removeRegion(regionName);
-
-        // // Move all items in this region to default
-        // region QString defaultRegion =
-        // Backend::RegionDataController::getInstance().getAllRegionNames().at(0);
-        // for (QGraphicsItem* item :
-        // mainWindow->getScene()->items()) {
-        //     if (item->data(0).toString() == "Region" &&
-        //         item->data(1).toString() == regionName) {
-        //         item->setData(1, defaultRegion);
-        //         if (item->data(2).isValid()) {
-        //             QMap<QString, QVariant> props =
-        //             item->data(2).toMap(); if
-        //             (props.contains("Region")) {
-        //                 props["Region"] = defaultRegion;
-        //                 item->setData(2, props);
-        //             }
-        //         }
-        //     }
-        // }
-
-        // Update UI
-        int row = regionList->row(currentItem);
-        delete regionList->takeItem(row);
+        mainWindow->regionCtrl()->removeRegion(regionName);
         updateButtonStates();
-
-        // // Update visuals
-        // ViewController::updateSceneVisibility(mainWindow);
-        // ViewController::updateGlobalMapScene(mainWindow);
     }
 }
 
 void RegionManagerWidget::clearRegions()
 {
-    // TODO
-    // Get all regions except Default Region
-    QStringList regionsToRemove;
-    for (int i = 0; i < regionList->count(); i++)
-    {
-        QString regionName = regionList->item(i)->text();
-        if (regionName != "Default Region")
-        {
-            regionsToRemove.append(regionName);
-        }
-    }
-
-    // Process each region
-    for (const QString &regionName : regionsToRemove)
-    {
-        // Remove from RegionsData
-        CargoNetSim::CargoNetSimController::getInstance()
-            .getRegionDataController()
-            ->removeRegion(regionName);
-
-        // Remove region center
-        // QMap<QString, RegionCenterPoint*>& regionCenters
-        // = mainWindow->getRegionCenters(); if
-        // (regionCenters.contains(regionName))
-        // {
-        //     RegionCenterPoint* center =
-        //     regionCenters.take(regionName); try {
-        //         mainWindow->getScene()->removeItem(center);
-        //         delete center;
-        //     } catch (const std::exception& e) {
-        //         qWarning() << "Exception removing region
-        //         center:" << e.what();
-        //     }
-        // }
-
-        // Remove from region list
-        for (int i = 0; i < regionList->count(); i++)
-        {
-            if (regionList->item(i)->text() == regionName)
-            {
-                delete regionList->takeItem(i);
-                break;
-            }
-        }
-    }
-
-    // // Make sure Default Region exists
-    // if
-    // (!Backend::RegionDataController::getInstance()->getAllRegionsNames().contains("Default
-    // Region")) {
-    //     RegionsData::getInstance()->addRegion("Default
-    //     Region", QColor(Qt::green));
-    // }
-
-    // Update visuals
-    // ViewController::updateSceneVisibility(mainWindow);
-    // ViewController::updateGlobalMapScene(mainWindow);
+    mainWindow->regionCtrl()->clearRegions();
     updateButtonStates();
 }
 

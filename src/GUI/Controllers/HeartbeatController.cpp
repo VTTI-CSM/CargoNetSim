@@ -1,6 +1,6 @@
 #include "HeartbeatController.h"
 #include "../MainWindow.h"
-#include "Backend/Clients/BaseClient/RabbitMQHandler.h"
+#include "Backend/Application/AvailabilityService.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include <QDateTime>
 #include <QDebug>
@@ -11,6 +11,7 @@
 #include <QVariant>
 #include <QtWidgets/qstatusbar.h>
 #include <exception>
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -27,6 +28,7 @@ HeartbeatController::HeartbeatController(
     , lastConsumerCheck(0)
     , consumerCheckInterval(20) // Check every 20 seconds
 {
+    qCDebug(lcGuiHeartbeat) << "HeartbeatController::HeartbeatController: begin";
     // Initialize server indicators mapping from MainWindow
     // status bar
     QStatusBar *statusBar = mainWindow->statusBar();
@@ -85,6 +87,7 @@ HeartbeatController::~HeartbeatController()
 
 void HeartbeatController::initialize()
 {
+    qCInfo(lcGuiHeartbeat) << "HeartbeatController::initialize: begin";
     // Make sure we have our server indicators set up
     if (serverIndicators.isEmpty())
     {
@@ -103,6 +106,7 @@ void HeartbeatController::initialize()
     checkQueueConsumers();
 
     // Create and start monitor thread for periodic checks
+    qCDebug(lcGuiHeartbeat) << "HeartbeatController::initialize: creating monitor thread and timer";
     monitorThread = new QThread();
 
     // Create a timer for the monitoring thread
@@ -128,113 +132,44 @@ void HeartbeatController::initialize()
 
 void HeartbeatController::checkQueueConsumers()
 {
-    // Get the current time
     qint64 currentTime =
         QDateTime::currentDateTime().toMSecsSinceEpoch();
-
-    // Only check if enough time has passed since last check
     if (currentTime - lastConsumerCheck
         < (consumerCheckInterval * 1000))
     {
         return;
     }
-
-    // Update last check time
     lastConsumerCheck = currentTime;
 
-    try
+    const auto statuses =
+        Backend::Application::AvailabilityService()
+            .pollAll();
+    QStringList changedServers;
+    qCDebug(lcGuiHeartbeat) << "HeartbeatController::checkQueueConsumers:"
+                            << "serversPolled=" << statuses.size();
+
+    for (const auto &status : statuses)
     {
-        // Get controller instance and check clients
-        auto &controller = CargoNetSim::
-            CargoNetSimController::getInstance();
-
-        // Check Terminal client
-        auto *terminalClient =
-            controller.getTerminalClient();
-
-        if (terminalClient)
-        {
-            auto *handler =
-                terminalClient->getRabbitMQHandler();
-            if (handler)
-            {
-                bool hasConsumers =
-                    handler->hasCommandQueueConsumers();
-                updateServerStatus("TerminalSim",
-                                   hasConsumers);
-                activeConsumers["TerminalSim"] =
-                    hasConsumers;
-            }
-        }
-        else
-        {
-            updateServerStatus("TerminalSim", false);
-            activeConsumers["TerminalSim"] = false;
-        }
-
-        // Check Train client
-        auto *trainClient = controller.getTrainClient();
-        if (trainClient)
-        {
-            auto *handler =
-                trainClient->getRabbitMQHandler();
-            if (handler)
-            {
-                bool hasConsumers =
-                    handler->hasCommandQueueConsumers();
-                updateServerStatus("NeTrainSim",
-                                   hasConsumers);
-                activeConsumers["NeTrainSim"] =
-                    hasConsumers;
-            }
-        }
-        else
-        {
-            updateServerStatus("NeTrainSim", false);
-            activeConsumers["NeTrainSim"] = false;
-        }
-
-        // Check Ship client
-        auto *shipClient = controller.getShipClient();
-        if (shipClient)
-        {
-            auto *handler =
-                shipClient->getRabbitMQHandler();
-            if (handler)
-            {
-                bool hasConsumers =
-                    handler->hasCommandQueueConsumers();
-                updateServerStatus("ShipNetSim",
-                                   hasConsumers);
-                activeConsumers["ShipNetSim"] =
-                    hasConsumers;
-            }
-        }
-        else
-        {
-            updateServerStatus("ShipNetSim", false);
-            activeConsumers["ShipNetSim"] = false;
-        }
-
-        // Check Truck client (INTEGRATION)
-        auto *truckManager = controller.getTruckManager();
-        if (truckManager)
-        {
-            bool hasConsumers =
-                truckManager->hasCommandQueueConsumers();
-            updateServerStatus("INTEGRATION", hasConsumers);
-            activeConsumers["INTEGRATION"] = hasConsumers;
-        }
-        else
-        {
-            updateServerStatus("INTEGRATION", false);
-            activeConsumers["INTEGRATION"] = false;
-        }
+        const bool ok = status.commandAvailable;
+        const bool hadPrevious =
+            activeConsumers.contains(status.server);
+        const bool previous =
+            activeConsumers.value(status.server, false);
+        qCDebug(lcGuiHeartbeat) << "HeartbeatController::checkQueueConsumers:"
+                                << "server=" << status.server
+                                << "connected=" << ok;
+        updateServerStatus(status.server, ok);
+        if (!hadPrevious || previous != ok)
+            changedServers.append(status.server);
+        activeConsumers[status.server] = ok;
     }
-    catch (const std::exception &e)
+
+    if (!changedServers.isEmpty())
     {
-        qWarning() << "Exception during client check:"
-                   << e.what();
+        qCInfo(lcGuiHeartbeat)
+            << "HeartbeatController::checkQueueConsumers:"
+            << "availability changed for" << changedServers;
+        emit backendAvailabilityChanged();
     }
 }
 
@@ -244,8 +179,8 @@ void HeartbeatController::updateServerStatus(
 
     if (!serverIndicators.contains(serverId))
     {
-        qWarning() << "Server indicator not found for"
-                   << serverId;
+        qCWarning(lcGuiHeartbeat) << "Server indicator not found for"
+                                  << serverId;
         return;
     }
 
@@ -312,11 +247,14 @@ void HeartbeatController::updateServerStatus(
 
     if (!indicator)
     {
-        qWarning() << "Could not find indicator label for"
-                   << serverId;
+        qCWarning(lcGuiHeartbeat) << "Could not find indicator label for"
+                                  << serverId;
         return;
     }
 
+    qCDebug(lcGuiHeartbeat) << "HeartbeatController::updateServerStatus:"
+                            << "server=" << serverId
+                            << "connected=" << connected;
     // Update the indicator color based on connection status
     if (connected)
     {

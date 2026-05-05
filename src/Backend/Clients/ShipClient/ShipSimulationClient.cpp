@@ -23,10 +23,10 @@
  * (onSimulationCreated, onShipReachedDestination,
  *   onShipStateAvailable) use appropriate locking
  * mechanisms.
- * - In onShipReachedDestination, the lock is temporarily
- * released with unlock()/relock() while calling
- * unloadContainersFromShipAtTerminalsPrivate to avoid
- * deadlocks.
+ * - Terminal unload and handoff are driven by explicit
+ *   shipReachedSeaport events or by final
+ *   shipReachedDestination events mapped to the planned
+ *   scenario terminal.
  *
  * @author Ahmed Aredah
  * @date March 19, 2025
@@ -41,10 +41,14 @@
 #include <QJsonDocument>
 #include <QThread>
 
+#include "Backend/Clients/TerminalClient/TerminalSimulationClient.h"
+#include "Backend/Clients/BaseClient/SimulatorHealthProbeTransport.h"
+#include "Backend/Commons/LogCategories.h"
 #include "Backend/Commons/LoggerInterface.h"
 #include "Backend/Commons/ThreadSafetyUtils.h"
 #include "Backend/Models/ShipSystem.h"
 #include "Backend/Models/SimulationTime.h"
+#include "Backend/Scenario/TerminalHandoffResolver.h"
 // #include "TerminalGraphServer.h"
 // #include "SimulatorTimeServer.h"
 // #include "ProgressBarManager.h"
@@ -56,6 +60,26 @@ namespace Backend
 {
 namespace ShipClient
 {
+
+namespace
+{
+
+QString previewContainers(const QJsonArray &containers)
+{
+    if (containers.isEmpty())
+        return QStringLiteral("<empty>");
+    return QString::fromUtf8(
+        QJsonDocument(containers.first().toObject())
+            .toJson(QJsonDocument::Compact));
+}
+
+QString finalDestinationHandledKey(const QString &networkName,
+                                   const QString &shipId)
+{
+    return networkName + QChar::Null + shipId;
+}
+
+} // namespace
 
 /**
  * @brief Constructs a ShipSimulationClient instance
@@ -77,7 +101,7 @@ ShipSimulationClient::ShipSimulationClient(
           QStringList{"CargoNetSim.Response.ShipNetSim"},
           ClientType::ShipClient)
 {
-    qDebug() << "ShipSimulatorClient initialized";
+    qCInfo(lcClientShip) << "ShipSimulatorClient initialized";
 }
 
 /**
@@ -88,6 +112,9 @@ ShipSimulationClient::ShipSimulationClient(
  */
 ShipSimulationClient::~ShipSimulationClient()
 {
+    delete m_healthProbeTransport;
+    m_healthProbeTransport = nullptr;
+
     CargoNetSim::Backend::Commons::ScopedWriteLock locker(
         m_dataAccessMutex);
     for (auto &resultsList : m_networkData)
@@ -102,6 +129,7 @@ ShipSimulationClient::~ShipSimulationClient()
     m_shipState.clear();
     qDeleteAll(m_loadedShips);
     m_loadedShips.clear();
+    m_finalDestinationHandledShips.clear();
     if (m_logger)
     {
         m_logger->log("ShipSimulationClient destroyed",
@@ -109,7 +137,7 @@ ShipSimulationClient::~ShipSimulationClient()
     }
     else
     {
-        qDebug() << "ShipSimulatorClient destroyed";
+        qCInfo(lcClientShip) << "ShipSimulatorClient destroyed";
     }
 }
 
@@ -140,6 +168,12 @@ bool ShipSimulationClient::resetServer()
                     "Server reset failed",
                     static_cast<int>(m_clientType));
             }
+        }
+        if (success)
+        {
+            CargoNetSim::Backend::Commons::ScopedWriteLock
+                locker(m_dataAccessMutex);
+            m_finalDestinationHandledShips.clear();
         }
         return success;
     });
@@ -173,6 +207,23 @@ void ShipSimulationClient::initializeClient(
             "RabbitMQ handler not initialized");
     }
     m_rabbitMQHandler->setupHeartbeat(5);
+
+    if (m_healthProbeTransport == nullptr)
+    {
+        m_healthProbeTransport = new SimulatorHealthProbeTransport(
+            this, m_host, m_port, m_username, m_password,
+            m_exchange,
+            QStringLiteral(
+                "CargoNetSim.CommandQueue.ShipNetSim.Health"),
+            QStringLiteral(
+                "CargoNetSim.ResponseQueue.ShipNetSim.Health"),
+            QStringLiteral("CargoNetSim.Command.Health.ShipNetSim"),
+            QStringList{
+                QStringLiteral(
+                    "CargoNetSim.Response.Health.ShipNetSim")},
+            ClientType::ShipClient);
+    }
+
     if (m_logger)
     {
         m_logger->log(
@@ -184,9 +235,31 @@ void ShipSimulationClient::initializeClient(
     }
     else
     {
-        qDebug()
+        qCInfo(lcClientShip)
             << "ShipSimulationClient initialized in thread:"
             << QThread::currentThreadId();
+    }
+}
+
+bool ShipSimulationClient::probeCommandAvailability(int timeoutMs)
+{
+    if (m_healthProbeTransport == nullptr)
+    {
+        return SimulationClientBase::probeCommandAvailability(timeoutMs);
+    }
+
+    try
+    {
+        return m_healthProbeTransport->probe(
+            QStringLiteral("checkConnection"),
+            {QStringLiteral("connectionStatus")}, timeoutMs);
+    }
+    catch (const std::exception &e)
+    {
+        qCWarning(lcClientShip)
+            << "ShipSimulationClient::probeCommandAvailability failed:"
+            << e.what();
+        return false;
     }
 }
 
@@ -248,6 +321,9 @@ bool ShipSimulationClient::defineSimulator(
                                 ship->getUserId());
                         m_shipsDestinationTerminals
                             [ship->getUserId()] = terminals;
+                        m_finalDestinationHandledShips.remove(
+                            finalDestinationHandledKey(
+                                networkName, ship->getUserId()));
                     }
                 }
             }
@@ -264,7 +340,7 @@ bool ShipSimulationClient::defineSimulator(
             }
             else
             {
-                qCritical()
+                qCCritical(lcClientShip)
                     << "Exception in defineSimulator:"
                     << e.what();
             }
@@ -274,17 +350,25 @@ bool ShipSimulationClient::defineSimulator(
 }
 
 /**
- * @brief Runs the simulator for specified networks
+ * @brief Runs the simulator for a bounded interactive chunk
  *
- * Initiates simulation execution for given networks.
+ * Initiates simulation execution for the given networks.
  *
  * @param networkNames Networks to run or "*" for all
- * @param byTimeSteps Time steps to run, -1 for unlimited
+ * @param byTimeSteps Explicit chunk length to request
  * @return True if successful
  */
 bool ShipSimulationClient::runSimulator(
     const QStringList &networkNames, double byTimeSteps)
 {
+    if (byTimeSteps <= 0.0)
+    {
+        qCWarning(lcClientShip)
+            << "ShipSimulationClient::runSimulator: rejecting non-positive bounded chunk"
+            << byTimeSteps;
+        return false;
+    }
+
     return executeSerializedCommand([&]() {
         QStringList networks = networkNames;
         if (networks.contains("*"))
@@ -322,6 +406,86 @@ bool ShipSimulationClient::runSimulator(
             }
         }
         return success;
+    });
+}
+
+/**
+ * @brief Advances simulation by a specific time step
+ *
+ * Runs the simulation for a specified time step, waiting
+ * for simulationAdvanced event instead of completion.
+ *
+ * @param networkNames Networks to advance or "*" for all
+ * @param deltaT Time step in seconds
+ * @return True if successful
+ */
+bool ShipSimulationClient::advanceByTimeStep(
+    const QStringList& networkNames,
+    double deltaT)
+{
+    return executeSerializedCommand([&]() {
+        QJsonObject params;
+
+        QJsonArray networks;
+        for (const QString& name : networkNames)
+        {
+            networks.append(name);
+        }
+        params["networkNames"] = networks;
+        params["byTimeSteps"] = deltaT;
+
+        // Wait for simulationAdvanced instead of allShipsReachedDestination
+        bool success = sendCommandAndWait(
+            "runSimulator",
+            params,
+            {"simulationadvanced", "allshipsreacheddestination"});
+
+        return success;
+    });
+}
+
+/**
+ * @brief Notifies about terminal closure for rerouting
+ *
+ * Sends notification about a closed terminal to the server.
+ *
+ * @param terminalId Closed terminal identifier
+ * @param alternativeId Alternative terminal for rerouting
+ */
+void ShipSimulationClient::notifyTerminalClosure(
+    const QString& terminalId,
+    const QString& alternativeId)
+{
+    executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["closedTerminal"] = terminalId;
+        params["alternativeTerminal"] = alternativeId;
+
+        return sendCommandAndWait(
+            "notifyTerminalClosure",
+            params,
+            {"terminalClosureAcknowledged"});
+    });
+}
+
+/**
+ * @brief Notifies about terminal reopening
+ *
+ * Sends notification about a reopened terminal to the server.
+ *
+ * @param terminalId Reopened terminal identifier
+ */
+void ShipSimulationClient::notifyTerminalReopened(
+    const QString& terminalId)
+{
+    executeSerializedCommand([&]() {
+        QJsonObject params;
+        params["terminalId"] = terminalId;
+
+        return sendCommandAndWait(
+            "notifyTerminalReopened",
+            params,
+            {"terminalReopenedAcknowledged"});
     });
 }
 
@@ -418,6 +582,9 @@ bool ShipSimulationClient::addShipsToSimulator(
                             ship->getUserId());
                     m_shipsDestinationTerminals
                         [ship->getUserId()] = terminals;
+                    m_finalDestinationHandledShips.remove(
+                        finalDestinationHandledKey(
+                            networkName, ship->getUserId()));
                 }
             }
             if (m_logger)
@@ -493,8 +660,15 @@ bool ShipSimulationClient::addContainersToShip(
 bool ShipSimulationClient::
     unloadContainersFromShipAtTerminalsPrivate(
         const QString &networkName, const QString &shipId,
-        const QStringList &terminalNames)
+        const QStringList &terminalNames,
+        QString           *errorMessage)
 {
+    qCInfo(lcClientShip)
+        << "ShipSimulationClient::unloadContainersFromShipAtTerminalsPrivate:"
+        << "network=" << networkName
+        << "shipId=" << shipId
+        << "requestedTerminals=" << terminalNames;
+
     QJsonObject params;
     params["networkName"] = networkName;
     params["shipID"]      = shipId;
@@ -511,17 +685,25 @@ bool ShipSimulationClient::
 
     // Connect the event signal to break the local event
     // loop
-    connect(this, &SimulationClientBase::eventReceived,
-            [this, &eventLoop,
-             &success](const QString     &event,
-                       const QJsonObject &data) {
-                if (normalizeEventName(event)
-                    == "containersunloaded")
-                {
+    const QMetaObject::Connection eventConnection =
+        connect(this, &SimulationClientBase::eventReceived,
+                [this, &eventLoop, &success, networkName, shipId](
+                    const QString &event,
+                    const QJsonObject &message) {
+                    if (normalizeEventName(event)
+                            != "containersunloaded"
+                        || message["networkName"].toString()
+                            != networkName
+                        || message["shipID"].toString()
+                            != shipId
+                        || message["containers"].toArray().isEmpty())
+                    {
+                        return;
+                    }
+
                     success = true;
                     eventLoop.quit();
-                }
-            });
+                });
 
     // Send the command without waiting
     if (sendCommand("unloadContainersFromShipAtTerminal",
@@ -532,6 +714,19 @@ bool ShipSimulationClient::
             30000, &eventLoop,
             &QEventLoop::quit); // 30-second timeout
         eventLoop.exec();
+    }
+    else if (errorMessage)
+    {
+        *errorMessage = QStringLiteral(
+            "Failed to send unloadContainersFromShipAtTerminal for %1 on %2")
+                            .arg(shipId, networkName);
+    }
+    QObject::disconnect(eventConnection);
+    if (!success && errorMessage && errorMessage->isEmpty())
+    {
+        *errorMessage = QStringLiteral(
+            "Timed out waiting for containersUnloaded for ship %1 on %2")
+                            .arg(shipId, networkName);
     }
 
     if (m_logger)
@@ -754,25 +949,10 @@ ShipSimulationClient::getAllShipsStates() const
  *
  * @param message JSON message from the server
  */
-void ShipSimulationClient::processMessage(
+void ShipSimulationClient::onEventReceived(
+    const QString     &normalizedEvent,
     const QJsonObject &message)
 {
-
-    // Delegate for the base class for the initial
-    // processing
-    SimulationClientBase::processMessage(message);
-
-    if (!message.contains("event"))
-    {
-        if (m_logger)
-        {
-            m_logger->log("Received message without event",
-                          static_cast<int>(m_clientType));
-        }
-        return;
-    }
-    QString eventType = message.value("event").toString();
-    QString normalizedEvent = normalizeEventName(eventType);
     if (normalizedEvent == "simulationnetworkloaded")
     {
         onSimulationNetworkLoaded(message);
@@ -856,13 +1036,13 @@ void ShipSimulationClient::processMessage(
         if (m_logger)
         {
             m_logger->log("Unrecognized event: "
-                              + eventType,
+                              + normalizedEvent,
                           static_cast<int>(m_clientType));
         }
         else
         {
-            qWarning()
-                << "Unrecognized event:" << eventType;
+            qCWarning(lcClientShip)
+                << "Unrecognized event:" << normalizedEvent;
         }
     }
 }
@@ -884,7 +1064,7 @@ void ShipSimulationClient::onSimulationNetworkLoaded(
     }
     else
     {
-        qDebug() << "Simulation network loaded.";
+        qCInfo(lcClientShip) << "Simulation network loaded.";
     }
     // No shared state modification, no mutex needed
 }
@@ -914,7 +1094,7 @@ void ShipSimulationClient::onSimulationCreated(
     }
     else
     {
-        qDebug() << "Simulation created.";
+        qCInfo(lcClientShip) << "Simulation created.";
     }
 }
 
@@ -935,7 +1115,7 @@ void ShipSimulationClient::onSimulationPaused(
     }
     else
     {
-        qDebug() << "Simulation paused.";
+        qCInfo(lcClientShip) << "Simulation paused.";
     }
 }
 
@@ -956,7 +1136,7 @@ void ShipSimulationClient::onSimulationResumed(
     }
     else
     {
-        qDebug() << "Simulation resumed.";
+        qCInfo(lcClientShip) << "Simulation resumed.";
     }
 }
 
@@ -977,7 +1157,7 @@ void ShipSimulationClient::onSimulationRestarted(
     }
     else
     {
-        qDebug() << "Simulation restarted.";
+        qCInfo(lcClientShip) << "Simulation restarted.";
     }
 }
 
@@ -998,7 +1178,7 @@ void ShipSimulationClient::onSimulationEnded(
     }
     else
     {
-        qDebug() << "Simulation ended.";
+        qCInfo(lcClientShip) << "Simulation ended.";
     }
 }
 
@@ -1042,9 +1222,9 @@ void ShipSimulationClient::onSimulationAdvanced(
         }
         else
         {
-            qDebug() << "Simulation advanced to time:"
+            qCDebug(lcClientShip) << "Simulation advanced to time:"
                      << newTime;
-            qDebug() << "Simulations advanced for"
+            qCDebug(lcClientShip) << "Simulations advanced for"
                      << networks.join(", ");
         }
     }
@@ -1058,7 +1238,7 @@ void ShipSimulationClient::onSimulationAdvanced(
         }
         else
         {
-            qWarning() << "Invalid or missing "
+            qCWarning(lcClientShip) << "Invalid or missing "
                           "'networkNamesProgress'";
         }
     }
@@ -1105,7 +1285,7 @@ void ShipSimulationClient::onShipAddedToSimulator(
     }
     else
     {
-        qDebug() << "Ship" << shipId
+        qCInfo(lcClientShip) << "Ship" << shipId
                  << "added to simulator.";
     }
 }
@@ -1131,7 +1311,7 @@ void ShipSimulationClient::onAllShipsReachedDestination(
     }
     else
     {
-        qDebug()
+        qCInfo(lcClientShip)
             << "All ships reached destination of network:"
             << networkName;
     }
@@ -1140,23 +1320,26 @@ void ShipSimulationClient::onAllShipsReachedDestination(
 /**
  * @brief Handles ship reached destination event
  *
- * Updates ship state and unloads containers when a ship
- * arrives.
+ * Updates cached ship state when the simulator reports a
+ * destination-state snapshot.
  *
  * @param message Event data
  */
 void ShipSimulationClient::onShipReachedDestination(
     const QJsonObject &message)
 {
-    QStringList shipIds;
-    QMap<QString, QStringList>
-        unloadOperations; // Store operations to perform
-                          // after releasing lock
-
-    // First critical section: Extract data and prepare
-    // operations
+    struct FinalArrival
     {
-        // Mutex needed because we're modifying m_shipState
+        QString networkName;
+        QString shipId;
+        QString terminalId;
+        int     containersCount = 0;
+    };
+
+    QStringList shipIds;
+    QVector<FinalArrival> finalArrivals;
+
+    {
         CargoNetSim::Backend::Commons::ScopedWriteLock
                     locker(m_dataAccessMutex);
         QJsonObject shipStatus =
@@ -1187,39 +1370,100 @@ void ShipSimulationClient::onShipReachedDestination(
                 QStringList terminalIds =
                     m_shipsDestinationTerminals.value(
                         shipId);
+                const bool reachedDestination =
+                    shipData.value("reachedDestination")
+                        .toBool(false);
+                qCInfo(lcClientShip)
+                    << "ShipSimulationClient::onShipReachedDestination:"
+                    << "network=" << networkName
+                    << "shipId=" << shipId
+                    << "containersCount=" << containersCount
+                    << "cachedDestinationTerminals="
+                    << terminalIds
+                    << "position="
+                    << QString::fromUtf8(
+                           QJsonDocument(
+                               shipData.value("position")
+                                   .toObject())
+                               .toJson(QJsonDocument::Compact))
+                    << "destinationPosition="
+                    << QString::fromUtf8(
+                           QJsonDocument(
+                               shipData.value(
+                                           "destinationPosition")
+                                   .toObject())
+                               .toJson(QJsonDocument::Compact));
 
-                // Create and store ship state
                 ShipState *shipState =
                     new ShipState(shipData);
                 m_shipState[networkName].append(shipState);
                 shipIds.append(shipId);
 
-                // Store the unload operation for execution
-                // outside the lock
-                if (!terminalIds.isEmpty())
+                const QString handledKey =
+                    finalDestinationHandledKey(networkName, shipId);
+                if (reachedDestination && !shipId.isEmpty()
+                    && !m_finalDestinationHandledShips.contains(
+                        handledKey))
                 {
-                    unloadOperations[networkName + ":"
-                                     + shipId] =
-                        terminalIds;
+                    m_finalDestinationHandledShips.insert(handledKey);
+                    finalArrivals.append(
+                        { networkName, shipId,
+                          terminalIds.value(0), containersCount });
                 }
             }
         }
     }
 
-    // Second section: Perform unload operations without
-    // holding the lock
-    for (auto it = unloadOperations.constBegin();
-         it != unloadOperations.constEnd(); ++it)
+    for (const auto &arrival : finalArrivals)
     {
-        QStringList parts = it.key().split(":");
-        if (parts.size() == 2)
+        const double currentTime = currentExecutionTime();
+        if (arrival.terminalId.isEmpty())
         {
-            QString     networkName = parts[0];
-            QString     shipId      = parts[1];
-            QStringList terminalIds = it.value();
+            const QString errorMessage =
+                QStringLiteral(
+                    "Ship '%1' reached final destination on network '%2' with %3 container(s), "
+                    "but CargoNetSim has no planned destination terminal for that ship")
+                    .arg(arrival.shipId, arrival.networkName)
+                    .arg(arrival.containersCount);
+            qCWarning(lcClientShip)
+                << "ShipSimulationClient::onShipReachedDestination:"
+                << errorMessage;
+            if (arrival.containersCount > 0)
+            {
+                emit segmentUnloadFailed(
+                    arrival.networkName, arrival.shipId,
+                    QString(), errorMessage, currentTime);
+                emit errorOccurred(errorMessage);
+            }
+            continue;
+        }
 
-            unloadContainersFromShipAtTerminalsPrivate(
-                networkName, shipId, terminalIds);
+        emit segmentVehicleArrived(
+            arrival.networkName, arrival.shipId,
+            arrival.terminalId, currentTime);
+
+        if (arrival.containersCount <= 0)
+            continue;
+
+        QString unloadError;
+        if (!unloadContainersFromShipAtTerminalsPrivate(
+                arrival.networkName, arrival.shipId,
+                QStringList{arrival.terminalId}, &unloadError))
+        {
+            const QString errorMessage =
+                unloadError.isEmpty()
+                    ? QStringLiteral(
+                          "Failed to unload ship containers for final destination on network '%1' terminal '%2'")
+                          .arg(arrival.networkName,
+                               arrival.terminalId)
+                    : unloadError;
+            qCWarning(lcClientShip)
+                << "ShipSimulationClient::onShipReachedDestination:"
+                << errorMessage;
+            emit segmentUnloadFailed(
+                arrival.networkName, arrival.shipId,
+                arrival.terminalId, errorMessage, currentTime);
+            emit errorOccurred(errorMessage);
         }
     }
 
@@ -1232,7 +1476,7 @@ void ShipSimulationClient::onShipReachedDestination(
     }
     else
     {
-        qDebug() << "Ships [" << shipIds.join(", ")
+        qCInfo(lcClientShip) << "Ships [" << shipIds.join(", ")
                  << "] reached destinations";
     }
 }
@@ -1255,8 +1499,37 @@ void ShipSimulationClient::onShipReachedSeaport(
     QString networkName =
         message.value("networkName").toString();
     QString shipId = message.value("shipID").toString();
-    unloadContainersFromShipAtTerminalsPrivate(
-        networkName, shipId, QStringList{terminalId});
+    qCInfo(lcClientShip)
+        << "ShipSimulationClient::onShipReachedSeaport:"
+        << "network=" << networkName
+        << "shipId=" << shipId
+        << "seaPortCode=" << terminalId
+        << "containersCount=" << containersCount;
+    if (containersCount > 0 && !terminalId.isEmpty())
+    {
+        const double currentTime = currentExecutionTime();
+        emit segmentVehicleArrived(
+            networkName, shipId, terminalId, currentTime);
+        QString unloadError;
+        if (!unloadContainersFromShipAtTerminalsPrivate(
+                networkName, shipId, QStringList{terminalId},
+                &unloadError))
+        {
+            const QString errorMessage =
+                unloadError.isEmpty()
+                    ? QStringLiteral(
+                          "Failed to unload ship containers for network '%1' port '%2'")
+                          .arg(networkName, terminalId)
+                    : unloadError;
+            qCWarning(lcClientShip)
+                << "ShipSimulationClient::onShipReachedSeaport:"
+                << errorMessage;
+            emit segmentUnloadFailed(networkName, shipId,
+                                     terminalId, errorMessage,
+                                     currentTime);
+            emit errorOccurred(errorMessage);
+        }
+    }
 
     if (m_logger)
     {
@@ -1276,26 +1549,162 @@ void ShipSimulationClient::onShipReachedSeaport(
 void ShipSimulationClient::onContainersUnloaded(
     const QJsonObject &message)
 {
-    // No shared state modification, no mutex needed
+    QString portName =
+        message.value("portName").toString();
+    QString networkName =
+        message.value("networkName").toString();
+    QString shipId =
+        message.value("shipID").toString();
     QJsonArray containers =
         message.value("containers").toArray();
-    QString portName = message.value("portName").toString();
-    QJsonObject containersObj;
-    containersObj["containers"] = containers;
-    QJsonDocument containersDoc(containersObj);
-    QString       containersJson =
-        containersDoc.toJson(QJsonDocument::Compact);
-    double currentTime = 0.0;
+    const Scenario::TerminalHandoffResolution resolution =
+        Scenario::resolveTerminalHandoff(containers);
+
+    const double currentTime = currentExecutionTime();
+
+    qCInfo(lcClientShip)
+        << "ShipSimulationClient::onContainersUnloaded:"
+        << "network=" << networkName
+        << "portName=" << portName
+        << "resolvedStatus="
+        << static_cast<int>(resolution.status)
+        << "scenarioTerminalId="
+        << resolution.scenarioTerminalId
+        << "containerCount=" << containers.size()
+        << "firstContainer=" << previewContainers(containers);
+
+    if (resolution.isNoOp())
+    {
+        qCInfo(lcClientShip)
+            << "ShipSimulationClient::onContainersUnloaded:"
+            << "ignoring empty unload batch from ShipNetSim"
+            << "network=" << networkName
+            << "portName=" << portName;
+        if (m_logger)
+        {
+            m_logger->log("Ignored empty ship unload at "
+                              + networkName + ":"
+                              + portName,
+                          static_cast<int>(m_clientType));
+        }
+        return;
+    }
+
+    const QString unloadVehicleId =
+        shipId.isEmpty() ? resolution.vehicleId : shipId;
+    const QString unloadTerminalId =
+        resolution.scenarioTerminalId.isEmpty()
+            ? portName
+            : resolution.scenarioTerminalId;
+    if (!unloadVehicleId.isEmpty())
+    {
+        emit segmentUnloadSucceeded(networkName, unloadVehicleId,
+                                    unloadTerminalId, currentTime);
+    }
+
+    if (resolution.isError())
+    {
+        const QString errorMessage =
+            QStringLiteral(
+                "Ship unload handoff rejected for network "
+                "'%1' port '%2': %3")
+                .arg(networkName, portName,
+                     resolution.errorMessage);
+        qCWarning(lcClientShip)
+            << "ShipSimulationClient::onContainersUnloaded:"
+            << errorMessage;
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+        emit terminalHandoffFailed(
+            networkName, resolution.vehicleId, errorMessage,
+            currentTime);
+        emit errorOccurred(errorMessage);
+        return;
+    }
+
+    if (portName.isEmpty())
+    {
+        qCWarning(lcClientShip)
+            << "ShipSimulationClient::onContainersUnloaded:"
+            << "empty portName from ShipNetSim for network"
+            << networkName
+            << "containersCount=" << containers.size();
+    }
+
+    if (!m_terminalClient)
+    {
+        const QString errorMessage =
+            QStringLiteral(
+                "Cannot hand off unloaded ship containers "
+                "for network '%1' port '%2': "
+                "TerminalSimulationClient is not available")
+                .arg(networkName, portName);
+        if (m_logger)
+        {
+            m_logger->logError(errorMessage,
+                               static_cast<int>(m_clientType));
+        }
+        emit terminalHandoffFailed(
+            networkName, resolution.vehicleId, errorMessage,
+            currentTime);
+        emit errorOccurred(errorMessage);
+        return;
+    }
+
+    {
+        const bool addSuccess = m_terminalClient->addContainers(
+            resolution.scenarioTerminalId,
+            resolution.containersJson,
+            currentTime, "Ship");
+        qCInfo(lcClientShip)
+            << "ShipSimulationClient::onContainersUnloaded:"
+            << "terminal handoff result=" << addSuccess;
+
+        if (!addSuccess)
+        {
+            const QString errorMessage =
+                QStringLiteral(
+                    "Failed to hand off unloaded ship "
+                    "containers from network '%1' port '%2' "
+                    "to scenario terminal '%3'")
+                    .arg(networkName, portName,
+                         resolution.scenarioTerminalId);
+            if (m_logger)
+            {
+                m_logger->logError(
+                    errorMessage,
+                    static_cast<int>(m_clientType));
+            }
+            emit terminalHandoffFailed(
+                networkName, resolution.vehicleId, errorMessage,
+                currentTime);
+            emit errorOccurred(errorMessage);
+            return;
+        }
+    }
+
+    emit terminalHandoffSucceeded(
+        networkName, resolution.vehicleId,
+        resolution.scenarioTerminalId, currentTime);
+
     if (m_logger)
     {
-        m_logger->log("Containers unloaded at port: "
-                          + portName,
-                      static_cast<int>(m_clientType));
+        m_logger->log(
+            "Containers unloaded at ship port "
+                + portName
+                + " and handed off to scenario terminal "
+                + resolution.scenarioTerminalId,
+            static_cast<int>(m_clientType));
     }
     else
     {
-        qDebug() << "Containers unloaded at port:"
-                 << portName;
+        qCInfo(lcClientShip)
+            << "Containers unloaded at port:" << portName
+            << "scenarioTerminal="
+            << resolution.scenarioTerminalId;
     }
 }
 
@@ -1319,7 +1728,7 @@ void ShipSimulationClient::onSimulationResultsAvailable(
     }
     else
     {
-        qDebug() << "Simulation results available";
+        qCInfo(lcClientShip) << "Simulation results available";
     }
 }
 
@@ -1391,7 +1800,7 @@ void ShipSimulationClient::onShipStateAvailable(
     }
     else
     {
-        qDebug() << "Ship state available";
+        qCInfo(lcClientShip) << "Ship state available";
     }
 }
 
@@ -1415,7 +1824,7 @@ void ShipSimulationClient::onSimulatorStateAvailable(
     }
     else
     {
-        qDebug() << "Simulator state available";
+        qCInfo(lcClientShip) << "Simulator state available";
     }
 }
 
@@ -1440,7 +1849,7 @@ void ShipSimulationClient::onErrorOccurred(
     }
     else
     {
-        qCritical() << "Error occurred:" << errorMessage;
+        qCCritical(lcClientShip) << "Error occurred:" << errorMessage;
     }
 }
 
@@ -1451,7 +1860,12 @@ void ShipSimulationClient::onErrorOccurred(
  */
 void ShipSimulationClient::onServerReset()
 {
-    // No shared state modification, no mutex needed
+    {
+        CargoNetSim::Backend::Commons::ScopedWriteLock
+            locker(m_dataAccessMutex);
+        m_finalDestinationHandledShips.clear();
+    }
+
     if (m_logger)
     {
         m_logger->log("Server reset successfully",
@@ -1459,7 +1873,7 @@ void ShipSimulationClient::onServerReset()
     }
     else
     {
-        qDebug() << "Server Reset Successfully";
+        qCInfo(lcClientShip) << "Server Reset Successfully";
     }
 }
 
@@ -1485,7 +1899,7 @@ void ShipSimulationClient::onContainersAdded(
     }
     else
     {
-        qDebug() << "Containers added to ship" << shipId
+        qCInfo(lcClientShip) << "Containers added to ship" << shipId
                  << "on network" << network;
     }
 }

@@ -7,6 +7,7 @@
  */
 
 #include "ScrollableToolBar.h"
+#include "Backend/Commons/LogCategories.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -31,6 +32,7 @@ ScrollableToolBar::ScrollableToolBar(const QString &title,
                                      QWidget       *parent)
     : QToolBar(title, parent)
 {
+    qCDebug(lcGuiButton) << "ScrollableToolBar::ScrollableToolBar: creating" << title;
     setSizePolicy(QSizePolicy::Preferred,
                   QSizePolicy::Fixed);
 
@@ -130,12 +132,15 @@ QTabWidget *ScrollableToolBar::getRibbon()
 int ScrollableToolBar::addTab(QWidget       *widget,
                               const QString &label)
 {
+    qCDebug(lcGuiButton) << "ScrollableToolBar::addTab:" << label;
     return ribbon_->addTab(widget, label);
 }
 
 void ScrollableToolBar::setTabVisible(int  index,
                                       bool visible)
 {
+    qCDebug(lcGuiButton) << "ScrollableToolBar::setTabVisible: index" << index
+                         << "visible:" << visible;
     ribbon_->setTabVisible(index, visible);
 }
 
@@ -148,6 +153,8 @@ QAction *ScrollableToolBar::addWidget(QWidget *widget)
         return QToolBar::addWidget(widget);
     }
 
+    qCDebug(lcGuiButton) << "ScrollableToolBar::addWidget:"
+                         << widget->metaObject()->className();
     // Add widget to container layout
     containerLayout->addWidget(widget);
     return new QAction(this); // Return a dummy action
@@ -155,6 +162,7 @@ QAction *ScrollableToolBar::addWidget(QWidget *widget)
 
 QAction *ScrollableToolBar::addAction(const QString &text)
 {
+    qCDebug(lcGuiButton) << "ScrollableToolBar::addAction:" << text;
     QAction *action = new QAction(text, this);
     containerLayout->addWidget(
         createWidgetForAction(action));
@@ -164,6 +172,7 @@ QAction *ScrollableToolBar::addAction(const QString &text)
 QAction *ScrollableToolBar::addAction(const QIcon   &icon,
                                       const QString &text)
 {
+    qCDebug(lcGuiButton) << "ScrollableToolBar::addAction(icon):" << text;
     QAction *action = new QAction(icon, text, this);
     containerLayout->addWidget(
         createWidgetForAction(action));
@@ -172,6 +181,7 @@ QAction *ScrollableToolBar::addAction(const QIcon   &icon,
 
 QAction *ScrollableToolBar::addSeparator()
 {
+    qCDebug(lcGuiButton) << "ScrollableToolBar::addSeparator";
     QAction *action = new QAction(this);
     action->setSeparator(true);
     QWidget *sep = createWidgetForAction(action);
@@ -188,6 +198,7 @@ QAction *ScrollableToolBar::addSeparator()
 QList<QWidget *>
 ScrollableToolBar::findAllInteractiveWidgets()
 {
+    qCDebug(lcGuiButton) << "ScrollableToolBar::findAllInteractiveWidgets";
     QList<QWidget *> allWidgets;
 
     // Function to check if a widget is interactive and
@@ -263,6 +274,8 @@ ScrollableToolBar::findAllInteractiveWidgets()
         }
     }
 
+    qCDebug(lcGuiButton) << "ScrollableToolBar::findAllInteractiveWidgets: found"
+                         << allWidgets.size();
     return allWidgets;
 }
 

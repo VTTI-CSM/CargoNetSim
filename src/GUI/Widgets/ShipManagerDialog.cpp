@@ -1,4 +1,5 @@
 #include "ShipManagerDialog.h"
+#include "Backend/Commons/LogCategories.h"
 
 #include <QApplication>
 #include <QDialogButtonBox>
@@ -24,6 +25,7 @@ ShipManagerDialog::ShipManagerDialog(QWidget *parent)
     : QDialog(parent)
     , m_ships()
 {
+    qCInfo(lcGuiNetwork) << "ShipManagerDialog::ShipManagerDialog: opening";
     setWindowTitle(tr("Ship Manager"));
     setMinimumSize(1000, 700);
 
@@ -32,6 +34,7 @@ ShipManagerDialog::ShipManagerDialog(QWidget *parent)
 
 void ShipManagerDialog::initUI()
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::initUI: building UI";
     QVBoxLayout *layout = new QVBoxLayout(this);
 
     // Create toolbar
@@ -143,15 +146,18 @@ void ShipManagerDialog::initUI()
 
 void ShipManagerDialog::loadShips()
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::loadShips: opening file dialog";
     QString fileName = QFileDialog::getOpenFileName(
         this, tr("Load Ships File"), QString(),
         tr("DAT Files (*.dat);;All Files (*)"));
 
     if (fileName.isEmpty())
     {
+        qCDebug(lcGuiNetwork) << "ShipManagerDialog::loadShips: cancelled";
         return;
     }
 
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::loadShips: reading" << fileName;
     try
     {
         QList<CargoNetSim::Backend::Ship *> loadedShips =
@@ -159,14 +165,18 @@ void ShipManagerDialog::loadShips()
 
         if (loadedShips.isEmpty())
         {
+            qCWarning(lcGuiNetwork) << "ShipManagerDialog::loadShips: no valid ships in file";
             QMessageBox::warning(
                 this, tr("Warning"),
                 tr("No valid ships found in the file."));
             return;
         }
 
+        qCInfo(lcGuiNetwork) << "ShipManagerDialog::loadShips: loaded"
+                         << loadedShips.size() << "ships from" << fileName;
         // Extend the existing ships list
         m_ships.append(loadedShips);
+        m_newlyLoadedFiles.append(fileName);
         updateTable();
 
         // Emit signal
@@ -179,6 +189,7 @@ void ShipManagerDialog::loadShips()
     }
     catch (const std::exception &e)
     {
+        qCWarning(lcGuiNetwork) << "ShipManagerDialog::loadShips: exception" << e.what();
         QMessageBox::critical(
             this, tr("Error"),
             tr("Failed to load ships: %1").arg(e.what()));
@@ -190,6 +201,7 @@ void ShipManagerDialog::deleteShip()
     int currentRow = m_table->currentRow();
     if (currentRow < 0)
     {
+        qCWarning(lcGuiNetwork) << "ShipManagerDialog::deleteShip: no row selected";
         QMessageBox::warning(
             this, tr("Warning"),
             tr("Please select a ship to delete."));
@@ -208,6 +220,8 @@ void ShipManagerDialog::deleteShip()
 
     if (reply == QMessageBox::Yes)
     {
+        qCInfo(lcGuiNetwork) << "ShipManagerDialog::deleteShip: confirmed deletion of"
+                         << shipId;
         // Store the ship ID before removal
         emit shipDeleted(shipId);
 
@@ -220,6 +234,7 @@ void ShipManagerDialog::deleteShip()
 
 void ShipManagerDialog::updateTable()
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::updateTable: refreshing" << m_ships.size() << "ships";
     // Clear the table
     m_table->setRowCount(0);
 
@@ -238,31 +253,33 @@ void ShipManagerDialog::updateTable()
         m_table->setItem(
             row, 1,
             new QTableWidgetItem(QString::number(
-                ship->getMaxSpeed(), 'f', 1)));
+                ship->maxSpeedUnits().value(), 'f', 1)));
 
         // Length
         m_table->setItem(
             row, 2,
             new QTableWidgetItem(QString::number(
-                ship->getWaterlineLength(), 'f', 1)));
+                ship->waterlineLengthUnits().value(), 'f',
+                1)));
 
         // Beam
         m_table->setItem(
             row, 3,
             new QTableWidgetItem(
-                QString::number(ship->getBeam(), 'f', 1)));
+                QString::number(ship->beamUnits().value(),
+                                'f', 1)));
 
         // Draft
         m_table->setItem(
             row, 4,
             new QTableWidgetItem(QString("%1/%2").arg(
-                QString::number(ship->getDraftAtForward(),
+                QString::number(ship->draftAtForwardUnits().value(),
                                 'f', 1),
-                QString::number(ship->getDraftAtAft(), 'f',
-                                1))));
+                QString::number(ship->draftAtAftUnits().value(),
+                                'f', 1))));
 
         // Displacement
-        double  disp = ship->getVolumetricDisplacement();
+        double  disp = ship->volumetricDisplacementUnits().value();
         QString dispText =
             disp > 0 ? QString::number(disp, 'f', 1)
                      : tr("N/A");
@@ -273,14 +290,15 @@ void ShipManagerDialog::updateTable()
         m_table->setItem(
             row, 6,
             new QTableWidgetItem(QString::number(
-                ship->getCargoWeight(), 'f', 1)));
+                ship->cargoWeightUnits().value(), 'f', 1)));
 
         // Propulsion summary
         QString propText =
             QString("%1x %2m")
                 .arg(ship->getPropellerCount())
                 .arg(QString::number(
-                    ship->getPropellerDiameter(), 'f', 1));
+                    ship->propellerDiameterUnits().value(),
+                    'f', 1));
         m_table->setItem(row, 7,
                          new QTableWidgetItem(propText));
     }
@@ -288,6 +306,7 @@ void ShipManagerDialog::updateTable()
 
 void ShipManagerDialog::updateDetails()
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::updateDetails: row" << m_table->currentRow();
     int currentRow = m_table->currentRow();
     if (currentRow < 0 || currentRow >= m_ships.size())
     {
@@ -374,30 +393,30 @@ QString ShipManagerDialog::formatShipDetails(
             "    <li><b>Stop if No Energy:</b> %28</li>"
             "</ul>")
             .arg(ship.getUserId())
-            .arg(QString::number(ship.getWaterlineLength(),
+            .arg(QString::number(ship.waterlineLengthUnits().value(),
                                  'f', 2))
             .arg(QString::number(
-                ship.getLengthBetweenPerpendiculars(), 'f',
-                2))
-            .arg(QString::number(ship.getBeam(), 'f', 2))
-            .arg(QString::number(ship.getDraftAtForward(),
+                ship.lengthBetweenPerpendicularsUnits().value(),
+                'f', 2))
+            .arg(QString::number(ship.beamUnits().value(), 'f', 2))
+            .arg(QString::number(ship.draftAtForwardUnits().value(),
                                  'f', 2))
-            .arg(QString::number(ship.getDraftAtAft(), 'f',
+            .arg(QString::number(ship.draftAtAftUnits().value(), 'f',
                                  2))
-            .arg(ship.getVolumetricDisplacement() > 0
+            .arg(ship.volumetricDisplacementUnits().value() > 0
                      ? QString::number(
-                           ship.getVolumetricDisplacement(),
+                           ship.volumetricDisplacementUnits().value(),
                            'f', 2)
                      : tr("N/A"))
 
-            .arg(ship.getWettedHullSurface() > 0
+            .arg(ship.wettedHullSurfaceUnits().value() > 0
                      ? QString::number(
-                           ship.getWettedHullSurface(), 'f',
+                           ship.wettedHullSurfaceUnits().value(), 'f',
                            2)
                      : tr("N/A"))
             .arg(QString::number(
-                ship.getAreaAboveWaterline(), 'f', 2))
-            .arg(QString::number(ship.getSurfaceRoughness(),
+                ship.areaAboveWaterlineUnits().value(), 'f', 2))
+            .arg(QString::number(ship.surfaceRoughnessUnits().value(),
                                  'f', 4))
             .arg(QString::number(ship.getBuoyancyCenter(),
                                  'f', 2))
@@ -423,8 +442,8 @@ QString ShipManagerDialog::formatShipDetails(
 
             .arg(ship.getPropellerCount())
             .arg(QString::number(
-                ship.getPropellerDiameter(), 'f', 2))
-            .arg(QString::number(ship.getPropellerPitch(),
+                ship.propellerDiameterUnits().value(), 'f', 2))
+            .arg(QString::number(ship.propellerPitchUnits().value(),
                                  'f', 2))
             .arg(ship.getPropellerBladesCount())
             .arg(ship.getEnginesPerPropellerCount())
@@ -436,16 +455,16 @@ QString ShipManagerDialog::formatShipDetails(
             .arg(QString::number(ship.getShaftEfficiency(),
                                  'f', 3))
 
-            .arg(QString::number(ship.getVesselWeight(),
+            .arg(QString::number(ship.vesselWeightUnits().value(),
                                  'f', 2))
-            .arg(QString::number(ship.getCargoWeight(), 'f',
+            .arg(QString::number(ship.cargoWeightUnits().value(), 'f',
                                  2))
 
             .arg(
-                QString::number(ship.getMaxSpeed(), 'f', 1))
-            .arg(ship.getMaxRudderAngle() > 0
+                QString::number(ship.maxSpeedUnits().value(), 'f', 1))
+            .arg(ship.maxRudderAngleUnits().value() > 0
                      ? QString::number(
-                           ship.getMaxRudderAngle(), 'f', 1)
+                           ship.maxRudderAngleUnits().value(), 'f', 1)
                      : tr("N/A"))
             .arg(ship.shouldStopIfNoEnergy() ? tr("Yes")
                                              : tr("No"));
@@ -461,6 +480,7 @@ QList<Backend::Ship *> ShipManagerDialog::getShips() const
 void ShipManagerDialog::setShips(
     const QList<Backend::Ship *> &ships)
 {
+    qCDebug(lcGuiNetwork) << "ShipManagerDialog::setShips: count" << ships.size();
     m_ships = ships;
     updateTable();
 }

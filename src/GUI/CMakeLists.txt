@@ -5,7 +5,9 @@ set(GUI_SOURCES
 
     # Commons
     Commons/NetworkType.h
-    
+    Commons/TransportationModeConversion.cpp
+    Commons/TransportationModeConversion.h
+
     # Controllers
     Controllers/BasicButtonController.cpp
     Controllers/BasicButtonController.h
@@ -17,8 +19,21 @@ set(GUI_SOURCES
     Controllers/ToolbarController.h
     Controllers/UtilityFunctions.cpp
     Controllers/UtilityFunctions.h
-    Controllers/ViewController.cpp
-    Controllers/ViewController.h
+    Controllers/StatusReporter.h
+    Controllers/SceneVisibilityController.cpp
+    Controllers/SceneVisibilityController.h
+    Controllers/TerminalController.cpp
+    Controllers/TerminalController.h
+    Controllers/NetworkDrawingController.cpp
+    Controllers/NetworkDrawingController.h
+    Controllers/ConnectionController.cpp
+    Controllers/ConnectionController.h
+    Controllers/RegionController.cpp
+    Controllers/RegionController.h
+    Controllers/SettingsController.cpp
+    Controllers/SettingsController.h
+    Controllers/FleetController.cpp
+    Controllers/FleetController.h
     
     # Items
     Items/BackgroundPhotoItem.cpp
@@ -45,10 +60,6 @@ set(GUI_SOURCES
     Items/GraphicsObjectBase.cpp
     Items/AnimationObject.h
     
-    # Serializers
-    Serializers/ProjectSerializer.cpp
-    Serializers/ProjectSerializer.h
-    
     # Utils
     Utils/ApplicationLogger.cpp
     Utils/ApplicationLogger.h
@@ -62,8 +73,8 @@ set(GUI_SOURCES
     Utils/IconCreator.h
     Utils/PathFindingWorker.h
     Utils/PathFindingWorker.cpp
-    Utils/SimulationValidationWorker.h
-    Utils/SimulationValidationWorker.cpp
+    Utils/PathComparisonViewModel.h
+    Utils/PathComparisonViewModel.cpp
     Utils/PathReportGenerator.h
     Utils/PathReportGenerator.cpp
     Utils/PathReportExporter.h
@@ -72,10 +83,10 @@ set(GUI_SOURCES
     # Widgets
     Widgets/ColorPickerDialog.cpp
     Widgets/ColorPickerDialog.h
-    Widgets/ContainerManagerWidget.cpp
-    Widgets/ContainerManagerWidget.h
     Widgets/CustomMainWindow.cpp
     Widgets/CustomMainWindow.h
+    Widgets/DestinationListEditor.cpp
+    Widgets/DestinationListEditor.h
     Widgets/GraphicsScene.cpp
     Widgets/GraphicsScene.h
     Widgets/GraphicsView.cpp
@@ -112,6 +123,92 @@ set(GUI_SOURCES
     Widgets/TerminalSelectionDialog.cpp
     Widgets/NetworkMoveDialog.h
     Widgets/NetworkMoveDialog.cpp
+
+    # GUI/Scenario — added by Plan 4
+    Scenario/ItemEventBinder.h
+    Scenario/ItemEventBinder.cpp
+    Scenario/TerminalItemFactory.h
+    Scenario/TerminalItemFactory.cpp
+    Scenario/MapPointFactory.h
+    Scenario/MapPointFactory.cpp
+    Scenario/BackgroundPhotoItemFactory.h
+    Scenario/BackgroundPhotoItemFactory.cpp
+    Scenario/RegionCenterPointFactory.h
+    Scenario/RegionCenterPointFactory.cpp
+    Scenario/SceneRepopulator.h
+    Scenario/SceneRepopulator.cpp
+    Scenario/ConnectionLineFactory.h
+    Scenario/ConnectionLineFactory.cpp
+
+    # Input dispatch pipeline
+    Input/Handled.h
+    Input/InputEvent.h
+    Input/ClickContext.h
+    Input/InteractionController.h
+    Input/InteractionController.cpp
+    Input/PickSession.h
+    Input/PickCoordinator.h
+    Input/PickCoordinator.cpp
+    Input/Interfaces/IInteractionMode.h
+    Input/Interfaces/IClickable.h
+    Input/Interfaces/IContextMenuProvider.h
+    Input/Interfaces/IHoverable.h
+    Input/Interfaces/IDraggable.h
+    Input/Modes/NormalMode.h
+    Input/Modes/NormalMode.cpp
+    Input/Modes/MeasureMode.h
+    Input/Modes/MeasureMode.cpp
+    Input/Modes/PanMode.h
+    Input/Modes/PanMode.cpp
+    Input/Modes/PickDestinationMode.h
+    Input/Modes/PickDestinationMode.cpp
+    Input/Modes/GlobalPositionMode.h
+    Input/Modes/GlobalPositionMode.cpp
+    Input/Modes/LinkTerminalMode.h
+    Input/Modes/LinkTerminalMode.cpp
+    Input/Modes/UnlinkTerminalMode.h
+    Input/Modes/UnlinkTerminalMode.cpp
+    Input/Modes/ConnectMode.h
+    Input/Modes/ConnectMode.cpp
+    Input/Commands/CommandId.h
+    Input/Commands/CommandBus.h
+    Input/Commands/CommandBus.cpp
+    Input/Commands/CreateConnectionCommand.h
+    Input/Commands/CreateConnectionCommand.cpp
+    Input/Commands/CreateGlobalLinkCommand.h
+    Input/Commands/CreateGlobalLinkCommand.cpp
+    Input/Commands/CreateTerminalAtMapPointCommand.h
+    Input/Commands/CreateTerminalAtMapPointCommand.cpp
+    Input/Commands/CreateTerminalAtPointCommand.h
+    Input/Commands/CreateTerminalAtPointCommand.cpp
+    Input/Commands/ApplyBackgroundPhotoEditCommand.h
+    Input/Commands/ApplyBackgroundPhotoEditCommand.cpp
+    Input/Commands/DeleteBackgroundPhotoCommand.h
+    Input/Commands/DeleteBackgroundPhotoCommand.cpp
+    Input/Commands/UpdateBackgroundPhotoPositionCommand.h
+    Input/Commands/UpdateBackgroundPhotoPositionCommand.cpp
+    Input/Commands/UpdateRegionGlobalPositionCommand.h
+    Input/Commands/UpdateRegionGlobalPositionCommand.cpp
+    Input/Commands/DeleteConnectionCommand.h
+    Input/Commands/DeleteConnectionCommand.cpp
+    Input/Commands/DeleteGlobalLinkCommand.h
+    Input/Commands/DeleteGlobalLinkCommand.cpp
+    Input/Commands/DeleteItemCommand.h
+    Input/Commands/DeleteItemCommand.cpp
+    Input/Commands/DeleteTerminalCommand.h
+    Input/Commands/DeleteTerminalCommand.cpp
+    Input/Commands/LinkTerminalToMapPointCommand.h
+    Input/Commands/LinkTerminalToMapPointCommand.cpp
+    Input/Commands/SetTerminalRoleCommand.h
+    Input/Commands/SetTerminalRoleCommand.cpp
+    Input/Commands/SetTerminalTypeCommand.h
+    Input/Commands/SetTerminalTypeCommand.cpp
+    Input/Commands/UnlinkTerminalCommand.h
+    Input/Commands/UnlinkTerminalCommand.cpp
+    Input/Commands/UpdateRegionLocalOriginCommand.h
+    Input/Commands/UpdateRegionLocalOriginCommand.cpp
+    Input/Commands/UpdateTerminalPositionCommand.h
+    Input/Commands/UpdateTerminalPositionCommand.cpp
 )
 
 # Create the GUI library

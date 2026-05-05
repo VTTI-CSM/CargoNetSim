@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "Backend/Commons/LogCategories.h"
 #include <QDebug>
 #include <QMap>
 #include <QMutex>
@@ -147,11 +148,11 @@ private:
     {
         if (detectDeadlock())
         {
-            qWarning() << "Potential deadlock detected!";
+            qCWarning(lcThreading) << "Potential deadlock detected!";
             // Log the current lock state
             for (auto it = heldLocks.begin(); it != heldLocks.end(); ++it)
             {
-                qWarning() << "Thread" << it.key() << "holds" << it.value().size() << "locks";
+                qCWarning(lcThreading) << "Thread" << it.key() << "holds" << it.value().size() << "locks";
             }
         }
     }

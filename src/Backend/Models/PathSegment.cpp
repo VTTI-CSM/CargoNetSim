@@ -1,10 +1,79 @@
 #include "PathSegment.h"
+#include "Backend/Commons/LogCategories.h"
 #include <stdexcept>
+
+#include "Backend/Scenario/PropertyKeys.h"
 
 namespace CargoNetSim
 {
 namespace Backend
 {
+
+namespace PK = Scenario::PropertyKeys;
+
+namespace {
+
+double subValue(const QJsonObject &attrs,
+                const QString &sub, const QString &key)
+{
+    if (!attrs.contains(sub)) return 0.0;
+    const auto obj = attrs.value(sub).toObject();
+    return obj.value(key).toDouble(0.0);
+}
+
+PathSegment::SegmentMetricSnapshot metricSnapshot(
+    const QJsonObject &attrs, const QString &subObject)
+{
+    PathSegment::SegmentMetricSnapshot out;
+    if (!attrs.contains(subObject)
+        || !attrs.value(subObject).isObject())
+    {
+        return out;
+    }
+
+    out.available = true;
+    out.travelTime = subValue(attrs, subObject, PK::Segment::TravelTime);
+    out.distance = subValue(attrs, subObject, PK::Segment::Distance);
+    out.carbonEmissions =
+        subValue(attrs, subObject, PK::Segment::CarbonEmissions);
+    out.energyConsumption =
+        subValue(attrs, subObject, PK::Segment::EnergyConsumption);
+    out.risk = subValue(attrs, subObject, PK::Segment::Risk);
+    return out;
+}
+
+PathSegment::SegmentCostSnapshot costSnapshot(
+    const QJsonObject &attrs, const QString &subObject)
+{
+    PathSegment::SegmentCostSnapshot out;
+    if (!attrs.contains(subObject)
+        || !attrs.value(subObject).isObject())
+    {
+        return out;
+    }
+
+    out.available = true;
+    out.travelTime = subValue(attrs, subObject, PK::Segment::TravelTime);
+    out.distance = subValue(attrs, subObject, PK::Segment::Distance);
+    out.carbonEmissions =
+        subValue(attrs, subObject, PK::Segment::CarbonEmissions);
+    out.energyConsumption =
+        subValue(attrs, subObject, PK::Segment::EnergyConsumption);
+    out.risk = subValue(attrs, subObject, PK::Segment::Risk);
+    out.directCost = subValue(attrs, subObject, PK::Segment::Cost);
+    return out;
+}
+
+QJsonObject scenarioSegmentAttributes(QJsonObject attributes)
+{
+    // PathSegment is scenario-definition data; runtime actuals live in
+    // ScenarioExecutionResult and must not persist in segment attributes.
+    attributes.remove(QStringLiteral("actual_values"));
+    attributes.remove(QStringLiteral("actual_cost"));
+    return attributes;
+}
+
+} // namespace
 
 // PathSegment constructor
 PathSegment::PathSegment(
@@ -17,7 +86,7 @@ PathSegment::PathSegment(
     , m_start(start)
     , m_end(end)
     , m_mode(mode)
-    , m_attributes(attributes)
+    , m_attributes(scenarioSegmentAttributes(attributes))
 {
     // Validate input parameters for construction
     if (pathSegmentId.isEmpty() || start.isEmpty()
@@ -82,7 +151,36 @@ PathSegment::PathSegment(const QJsonObject &json,
     if (json.contains("attributes")
         && json["attributes"].isObject())
     {
-        m_attributes = json["attributes"].toObject();
+        m_attributes = scenarioSegmentAttributes(
+            json["attributes"].toObject());
+    }
+
+    if (json.contains("sequence_index")
+        && json["sequence_index"].isDouble())
+    {
+        m_sequenceIndex = json["sequence_index"].toInt();
+    }
+
+    if (json.contains("ranking_cost_contribution")
+        && json["ranking_cost_contribution"].isDouble())
+    {
+        m_rankingCostContribution =
+            json["ranking_cost_contribution"].toDouble();
+    }
+
+    if (json.contains("weighted_edge_cost")
+        && json["weighted_edge_cost"].isDouble())
+    {
+        m_weightedEdgeCost =
+            json["weighted_edge_cost"].toDouble();
+    }
+
+    if (json.contains("weighted_terminal_cost_embedded_in_segment")
+        && json["weighted_terminal_cost_embedded_in_segment"].isDouble())
+    {
+        m_weightedTerminalCostEmbeddedInSegment =
+            json["weighted_terminal_cost_embedded_in_segment"]
+                .toDouble();
     }
 
     // Extract weight if available
@@ -91,11 +189,22 @@ PathSegment::PathSegment(const QJsonObject &json,
     {
         m_attributes["weight"] = json["weight"].toDouble();
     }
+
+    // Normalize TerminalSim's wire shape once at parse time. Downstream
+    // code reads the canonical `estimated` key; GUI/report compatibility
+    // still keeps `estimated_cost` in the raw attributes bag.
+    if (m_attributes.contains("estimated_values")
+        && m_attributes["estimated_values"].isObject())
+    {
+        m_attributes[PK::Segment::Estimated] =
+            m_attributes["estimated_values"].toObject();
+    }
 }
 
 // Convert PathSegment to JSON
 QJsonObject PathSegment::toJson() const
 {
+    qCDebug(lcModel) << "PathSegment::toJson:" << m_pathSegmentId;
     // Initialize JSON object for serialization
     QJsonObject json;
 
@@ -118,15 +227,98 @@ QJsonObject PathSegment::toJson() const
 PathSegment *PathSegment::fromJson(const QJsonObject &json,
                                    QObject *parent)
 {
+    qCDebug(lcModel) << "PathSegment::fromJson:"
+                     << json.value("from").toString()
+                     << "->" << json.value("to").toString();
     return new PathSegment(json, parent);
+}
+
+PathSegment *PathSegment::clone(QObject *parent) const
+{
+    auto *segment = new PathSegment(
+        m_pathSegmentId, m_start, m_end, m_mode, m_attributes,
+        parent);
+    segment->m_sequenceIndex = m_sequenceIndex;
+    segment->m_rankingCostContribution =
+        m_rankingCostContribution;
+    segment->m_weightedEdgeCost = m_weightedEdgeCost;
+    segment->m_weightedTerminalCostEmbeddedInSegment =
+        m_weightedTerminalCostEmbeddedInSegment;
+    return segment;
 }
 
 void PathSegment::setAttributes(
     const QJsonObject &attributes)
 {
+    qCDebug(lcModel) << "PathSegment::setAttributes:"
+                     << m_pathSegmentId
+                     << "keys=" << attributes.keys().size();
     // Set the attributes of the path segment
-    m_attributes = attributes;
+    m_attributes = scenarioSegmentAttributes(attributes);
 }
+
+double PathSegment::estimatedDistance() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::Distance); }
+
+double PathSegment::estimatedTravelTime() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::TravelTime); }
+
+PathSegment::SegmentMetricSnapshot PathSegment::estimatedValues() const
+{
+    return metricSnapshot(m_attributes, PK::Segment::Estimated);
+}
+
+PathSegment::SegmentMetricSnapshot
+PathSegment::estimatedAllocatedValues() const
+{
+    return metricSnapshot(m_attributes,
+                          PK::Segment::EstimatedAllocated);
+}
+
+PathSegment::SegmentCostSnapshot PathSegment::estimatedCosts() const
+{
+    return costSnapshot(m_attributes, PK::Segment::EstimatedCost);
+}
+
+void PathSegment::setEstimatedDistanceAndTravelTime(
+    double distanceMeters, double travelTimeSeconds)
+{
+    QJsonObject est = m_attributes.value(PK::Segment::Estimated).toObject();
+    est[PK::Segment::Distance]   = distanceMeters;
+    est[PK::Segment::TravelTime] = travelTimeSeconds;
+    m_attributes[PK::Segment::Estimated] = est;
+}
+
+void PathSegment::setEstimatedPhysicalMetrics(
+    double energyKWh, double carbonTonnes, double risk)
+{
+    QJsonObject est = m_attributes.value(PK::Segment::Estimated).toObject();
+    est[PK::Segment::EnergyConsumption] = energyKWh;
+    est[PK::Segment::CarbonEmissions]   = carbonTonnes;
+    est[PK::Segment::Risk]              = risk;
+    m_attributes[PK::Segment::Estimated] = est;
+}
+
+void PathSegment::setEstimatedAllocatedPhysicalMetrics(
+    double energyKWh, double carbonTonnes, double risk)
+{
+    QJsonObject allocated =
+        m_attributes.value(PK::Segment::Estimated).toObject();
+    allocated[PK::Segment::EnergyConsumption] = energyKWh;
+    allocated[PK::Segment::CarbonEmissions]   = carbonTonnes;
+    allocated[PK::Segment::Risk]              = risk;
+    m_attributes[PK::Segment::EstimatedAllocated] =
+        allocated;
+}
+
+double PathSegment::estimatedEnergyConsumption() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::EnergyConsumption); }
+
+double PathSegment::estimatedCarbonEmissions() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::CarbonEmissions); }
+
+double PathSegment::estimatedRisk() const
+{ return subValue(m_attributes, PK::Segment::Estimated, PK::Segment::Risk); }
 
 } // namespace Backend
 } // namespace CargoNetSim

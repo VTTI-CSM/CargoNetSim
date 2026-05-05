@@ -1,19 +1,69 @@
 #include "TerminalItem.h"
+#include "GlobalTerminalItem.h"
 
+#include "Backend/Commons/LogCategories.h"
+#include "Backend/GuiApi/ScenarioContractsApi.h"
+#include "Backend/GuiApi/ScenarioDocumentApi.h"
+#include "Backend/Scenario/ScenarioRuntime.h"
+#include "GUI/Input/ClickContext.h"
+#include "GUI/Input/Commands/CommandBus.h"
+#include "GUI/Input/Commands/CreateConnectionCommand.h"
+#include "GUI/Input/Commands/DeleteItemCommand.h"
+#include "GUI/Input/Commands/SetTerminalRoleCommand.h"
+#include "GUI/Input/Commands/SetTerminalTypeCommand.h"
+#include "GUI/Input/Commands/UpdateTerminalPositionCommand.h"
+#include "GUI/Input/InteractionController.h"
+#include "GUI/MainWindow.h"
+#include "GUI/Utils/IconCreator.h"
+#include "GUI/Widgets/GraphicsView.h"
+
+#include <QAction>
 #include <QApplication>
 #include <QCursor>
 #include <QGraphicsScene>
-#include <QGraphicsSceneMouseEvent>
 #include <QGraphicsView>
+#include <QLoggingCategory>
+#include <QMenu>
 #include <QPainter>
+#include <QPointer>
 #include <QPropertyAnimation>
 #include <QStyleOptionGraphicsItem>
-#include <containerLib/container.h>
 
 namespace CargoNetSim
 {
 namespace GUI
 {
+
+namespace
+{
+
+Backend::Scenario::InterfaceConversion::InterfaceMap
+interfaceMapFromSets(
+    const QSet<Backend::TransportationTypes::TransportationMode> &land,
+    const QSet<Backend::TransportationTypes::TransportationMode> &sea)
+{
+    using InterfaceMap =
+        Backend::Scenario::InterfaceConversion::InterfaceMap;
+    using TerminalInterface = Backend::TerminalTypes::TerminalInterface;
+
+    InterfaceMap map;
+    if (!land.isEmpty())
+        map.insert(TerminalInterface::LAND_SIDE, land);
+    if (!sea.isEmpty())
+        map.insert(TerminalInterface::SEA_SIDE, sea);
+    return map;
+}
+
+Backend::Scenario::InterfaceConversion::InterfaceMap
+interfaceMapForType(const QString &terminalType)
+{
+    const auto defaults =
+        Backend::Scenario::TerminalTypeDefaults::interfacesFor(
+            terminalType);
+    return interfaceMapFromSets(defaults.first, defaults.second);
+}
+
+} // namespace
 
 // Initialize static variables
 QMap<QString, int> TerminalItem::TERMINAL_TYPES_IDs;
@@ -28,8 +78,14 @@ TerminalItem::TerminalItem(
     , m_region(region)
     , m_terminalType(terminalType)
     , m_properties(properties)
-    , m_wasSelected(false)
+    , m_globalTerminalItem(nullptr)
 {
+    qCInfo(lcGuiScene)
+        << "TerminalItem::TerminalItem:"
+        << "type=" << terminalType
+        << "region=" << region
+        << "pixmap=" << pixmap.size();
+
     // Set a higher Z-value for terminals (will be drawn on
     // top)
     setZValue(11);
@@ -59,119 +115,46 @@ TerminalItem::TerminalItem(
 
 TerminalItem::~TerminalItem()
 {
+    qCInfo(lcGuiScene)
+        << "TerminalItem::~TerminalItem:"
+        << "type=" << m_terminalType
+        << "name=" << m_properties.value("Name").toString();
 }
 
 void TerminalItem::initializeDefaultProperties()
 {
-    QString typeId = getNewTerminalID(m_terminalType);
+    qCDebug(lcGuiScene)
+        << "TerminalItem::initializeDefaultProperties:"
+        << "type=" << m_terminalType
+        << "region=" << m_region;
 
-    if (m_terminalType == "Origin"
-        || m_terminalType == "Destination")
-    {
-        QMap<QString, QVariant> interfaces;
-        QStringList             landSide, seaSide;
-        landSide << "Rail" << "Truck";
-        seaSide << "Ship";
-        interfaces["land_side"] = landSide;
-        interfaces["sea_side"]  = seaSide;
+    // Per-type defaults are owned by Backend's single source of truth; we
+    // only override the per-instance Name (suffixed with the type-counter
+    // ID). Any divergence here would re-create the bag/field split this
+    // refactor closes — do not duplicate the per-type branching logic from
+    // TerminalTypeDefaults::defaultProperties.
+    const QString typeId = getNewTerminalID(m_terminalType);
+    m_properties =
+        Backend::Scenario::TerminalTypeDefaults::defaultProperties(
+            m_terminalType);
+    m_properties[QStringLiteral("Name")] =
+        QString("%1%2").arg(m_terminalType).arg(typeId);
 
-        this->m_properties["Name"] =
-            QString("%1%2").arg(m_terminalType).arg(typeId);
-        this->m_properties["Show on Global Map"] = true;
-        this->m_properties["Available Interfaces"] =
-            interfaces;
-    }
-    else
-    {
-        this->m_properties["Name"] =
-            QString("%1%2").arg(m_terminalType).arg(typeId);
-        this->m_properties["Region"] = this->m_region;
-        this->m_properties["Show on Global Map"] = true;
-
-        QMap<QString, QVariant> cost;
-        cost["fixed_fees"]         = "400";
-        cost["customs_fees"]       = "100";
-        cost["risk_factor"]        = "0.015";
-        this->m_properties["cost"] = cost;
-
-        QMap<QString, QVariant> dwellTime;
-        QMap<QString, QVariant> parameters;
-        parameters["mean"]               = "2880";
-        parameters["std_dev"]            = "720";
-        dwellTime["method"]              = "normal";
-        dwellTime["parameters"]          = parameters;
-        this->m_properties["dwell_time"] = dwellTime;
-
-        if (m_terminalType == "Sea Port Terminal"
-            || m_terminalType == "Intermodal Land Terminal")
-        {
-            QMap<QString, QVariant> customs;
-            customs["probability"]        = "0.08";
-            customs["delay_mean"]         = "48";
-            customs["delay_variance"]     = "24";
-            this->m_properties["customs"] = customs;
-
-            QMap<QString, QVariant> capacity;
-            capacity["max_capacity"]       = 100000;
-            capacity["critical_threshold"] = 0.8;
-            this->m_properties["capacity"] = capacity;
-        }
-
-        // Set interfaces based on terminal type
-        QMap<QString, QVariant> interfaces;
-        QStringList             landSide, seaSide;
-
-        if (m_terminalType == "Sea Port Terminal")
-        {
-            landSide << "Truck" << "Rail";
-            seaSide << "Ship";
-        }
-        else if (m_terminalType
-                 == "Intermodal Land Terminal")
-        {
-            landSide << "Truck" << "Rail";
-            this->m_properties["Show on Global Map"] =
-                false;
-        }
-        else if (m_terminalType == "Train Stop/Depot")
-        {
-            landSide << "Rail";
-            this->m_properties["Show on Global Map"] =
-                false;
-        }
-        else if (m_terminalType == "Truck Parking")
-        {
-            landSide << "Truck";
-            this->m_properties["Show on Global Map"] =
-                false;
-        }
-        else
-        {
-            // Default case
-            landSide << "Truck";
-        }
-
-        interfaces["land_side"] = landSide;
-        interfaces["sea_side"]  = seaSide;
-        this->m_properties["Available Interfaces"] =
-            interfaces;
-    }
-
-    if (m_terminalType == "Origin")
-    {
-        this->m_properties["Containers"] =
-            QVariant::fromValue(
-                QList<ContainerCore::Container *>());
-    }
+    qCDebug(lcGuiScene)
+        << "TerminalItem::initializeDefaultProperties:"
+        << "name=" << m_properties.value("Name").toString();
 }
 
 void TerminalItem::setRegion(const QString &newRegion)
 {
     if (m_region != newRegion)
     {
-        QString oldRegion      = m_region;
-        m_region               = newRegion;
-        m_properties["Region"] = newRegion;
+        qCDebug(lcGuiScene)
+            << "TerminalItem::setRegion:"
+            << "old=" << m_region
+            << "new=" << newRegion;
+        QString oldRegion = m_region;
+        m_region          = newRegion;
         emit regionChanged(newRegion);
     }
 }
@@ -179,12 +162,26 @@ void TerminalItem::setRegion(const QString &newRegion)
 void TerminalItem::setGlobalTerminalItem(
     GlobalTerminalItem *globalTerminalItem)
 {
+    qCDebug(lcGuiScene)
+        << "TerminalItem::setGlobalTerminalItem:"
+        << "name=" << m_properties.value("Name").toString()
+        << "hasGlobal=" << (globalTerminalItem != nullptr);
     m_globalTerminalItem = globalTerminalItem;
+}
+
+GlobalTerminalItem *TerminalItem::getGlobalTerminalItem() const
+{
+    return m_globalTerminalItem;
 }
 
 void TerminalItem::updateProperties(
     const QMap<QString, QVariant> &newProperties)
 {
+    qCDebug(lcGuiScene)
+        << "TerminalItem::updateProperties:"
+        << "name=" << m_properties.value("Name").toString()
+        << "count=" << newProperties.size();
+
     for (auto it = newProperties.constBegin();
          it != newProperties.constEnd(); ++it)
     {
@@ -200,6 +197,10 @@ void TerminalItem::setProperty(const QString  &key,
     if (!m_properties.contains(key)
         || m_properties[key] != value)
     {
+        qCDebug(lcGuiScene)
+            << "TerminalItem::setProperty:"
+            << "name=" << m_properties.value("Name").toString()
+            << "key=" << key << "value=" << value;
         m_properties[key] = value;
         emit propertyChanged(key, value);
 
@@ -215,6 +216,82 @@ QVariant TerminalItem::getProperty(
     const QString &key, const QVariant &defaultValue) const
 {
     return m_properties.value(key, defaultValue);
+}
+
+void TerminalItem::setPlacement(
+    Backend::Scenario::TerminalPlacement *placement)
+{
+    qCDebug(lcGuiScene)
+        << "TerminalItem::setPlacement:"
+        << "id=" << (placement ? placement->id : "null");
+
+    m_placement = placement;
+    if (m_placement)
+    {
+        // Update icon when type changes.
+        if (m_terminalType != m_placement->type)
+        {
+            const QPixmap p =
+                IconFactory::createTerminalIcons().value(
+                    m_placement->type);
+            if (!p.isNull())
+                m_pixmap = p;
+        }
+        // Snapshot into local state so getters (including legacy
+        // readers that grep m_properties directly) see a consistent
+        // view between Task-21 observer deliveries. See the cache-
+        // staleness contract in the header.
+        m_properties   = m_placement->properties;
+        m_region       = m_placement->region;
+        m_terminalType = m_placement->type;
+    }
+    update();
+}
+
+QString TerminalItem::getTerminalId() const
+{
+    return m_placement ? m_placement->id : QString();
+}
+
+std::unique_ptr<QUndoCommand> TerminalItem::createDeleteCommand(
+    Backend::Scenario::ScenarioDocument* doc) const
+{
+    if (!doc) return nullptr;
+    const QString id = getTerminalId();
+    if (id.isEmpty()) return nullptr;
+    return Input::DeleteItemCommand::forTerminal(doc, id);
+}
+
+std::unique_ptr<QUndoCommand> TerminalItem::createConnectCommandTo(
+    const GraphicsObjectBase*                        other,
+    Backend::TransportationTypes::TransportationMode mode,
+    Backend::Scenario::ScenarioDocument*             doc) const
+{
+    // Region Connection lives between two TerminalItems. Any other pairing
+    // (e.g., TerminalItem ↔ GlobalTerminalItem) is rejected by nullptr —
+    // scenes are segregated so this shouldn't occur in practice, but the
+    // guard makes the contract explicit.
+    auto* otherTerminal = dynamic_cast<const TerminalItem*>(other);
+    if (!otherTerminal || !doc) return nullptr;
+    const QString fromId = getTerminalId();
+    const QString toId   = otherTerminal->getTerminalId();
+    if (fromId.isEmpty() || toId.isEmpty()) return nullptr;
+    return std::make_unique<Input::CreateConnectionCommand>(
+        doc, fromId, toId, mode);
+}
+
+Backend::Scenario::InterfaceConversion::InterfaceMap
+TerminalItem::availableInterfaces() const
+{
+    if (m_placement && m_placement->interfaces.isSet)
+    {
+        return interfaceMapFromSets(m_placement->interfaces.landSide,
+                                    m_placement->interfaces.seaSide);
+    }
+
+    const QString terminalType =
+        m_placement ? m_placement->type : m_terminalType;
+    return interfaceMapForType(terminalType);
 }
 
 void TerminalItem::resetClassIDs()
@@ -273,19 +350,72 @@ TerminalItem::getNewTerminalID(const QString &terminalType)
 
 QRectF TerminalItem::boundingRect() const
 {
-    return m_boundingRectValue;
+    QRectF rect = m_boundingRectValue;
+    if (m_placement
+        && m_placement->role
+               != Backend::Scenario::TerminalPlacement::
+                   TerminalRole::Transit)
+        rect.adjust(0, -4, 4, 0);
+    return rect;
 }
 
 void TerminalItem::paint(
     QPainter                       *painter,
     const QStyleOptionGraphicsItem *option, QWidget *widget)
 {
+    qCDebug(lcGuiScene)
+        << "TerminalItem::paint:"
+        << "name=" << m_properties.value("Name").toString()
+        << "pos=" << pos();
+
     if (!m_pixmap.isNull())
     {
         int pixmapWidth  = m_pixmap.width();
         int pixmapHeight = m_pixmap.height();
         painter->drawPixmap(-pixmapWidth / 2,
                             -pixmapHeight / 2, m_pixmap);
+
+        // Role badge (top-right corner of icon)
+        if (m_placement
+            && m_placement->role
+                   != Backend::Scenario::TerminalPlacement::
+                       TerminalRole::Transit)
+        {
+            qCDebug(lcGuiScene)
+                << "TerminalItem::paint: badge"
+                << "role="
+                << Backend::Scenario::roleToString(
+                       m_placement->role);
+            const int badgeSize = 12;
+            const int bx = pixmapWidth / 2 - badgeSize + 2;
+            const int by = -pixmapHeight / 2 - 2;
+
+            QColor badgeColor;
+            QString badgeText;
+            if (m_placement->role
+                == Backend::Scenario::TerminalPlacement::
+                    TerminalRole::Origin)
+            {
+                badgeColor = QColor(0x4C, 0xAF, 0x50); // green
+                badgeText  = QStringLiteral("O");
+            }
+            else
+            {
+                badgeColor = QColor(0x21, 0x96, 0xF3); // blue
+                badgeText  = QStringLiteral("D");
+            }
+
+            painter->setBrush(badgeColor);
+            painter->setPen(QPen(Qt::black, 1));
+            painter->drawEllipse(bx, by, badgeSize, badgeSize);
+            painter->setPen(Qt::white);
+            QFont badgeFont(QStringLiteral("Arial"), 7,
+                            QFont::Bold);
+            painter->setFont(badgeFont);
+            painter->drawText(
+                QRect(bx, by, badgeSize, badgeSize),
+                Qt::AlignCenter, badgeText);
+        }
     }
 
     if (option->state & QStyle::State_Selected)
@@ -296,85 +426,149 @@ void TerminalItem::paint(
     }
 }
 
-void TerminalItem::mousePressEvent(
-    QGraphicsSceneMouseEvent *event)
+// ---------------------------------------------------------------------------
+// Input interface implementations (Plan 3 — Task 3.8).
+//
+// Replaces Qt event overrides (mousePressEvent, contextMenuEvent,
+// hoverEnter/Leave, itemChange). Dispatch is now mediated by
+// InteractionController via the ClickContext DI struct.
+// ItemPositionChange / ItemPositionHasChanged handling lives in
+// GraphicsObjectBase; we only implement onDragEnd for persistence.
+// ---------------------------------------------------------------------------
+
+Input::Handled
+TerminalItem::onLeftClick(const Input::ClickContext&)
 {
-    // Store the initial click position relative to the
-    // item's origin
-    m_dragOffset = event->pos();
-
-    // Emit clicked signal
-    emit clicked(this);
-
-    // Call base class to handle selection
-    QGraphicsObject::mousePressEvent(event);
+    qCDebug(lcGuiInputItem)
+        << "TerminalItem::onLeftClick; id ="
+        << (m_placement ? m_placement->id
+                        : QStringLiteral("<none>"));
+    return Input::Handled::PassThrough;
 }
 
-QVariant TerminalItem::itemChange(GraphicsItemChange change,
-                                  const QVariant    &value)
+void TerminalItem::buildContextMenu(QMenu* menu,
+                                    const Input::ClickContext& ctx)
 {
-    if (change == ItemPositionChange && scene())
+    Q_ASSERT(menu);
+    if (!m_placement || m_placement->id.isEmpty())
     {
-        // If this is a position change and we have a drag
-        // offset, adjust the position
-        if (m_dragOffset != QPointF()
-            && scene()->mouseGrabberItem() == this)
-        {
-            // Get the proposed new position
-            QPointF newPos = value.toPointF();
-
-            // Get current mouse position in scene
-            // coordinates
-            if (scene()->mouseGrabberItem() == this)
-            {
-                QGraphicsView *view =
-                    scene()->views().first();
-                QPointF mousePos = view->mapToScene(
-                    view->mapFromGlobal(QCursor::pos()));
-
-                auto newPos = mousePos - m_dragOffset;
-
-                // Adjust position to keep item under the
-                // mouse at the right offset
-                return newPos;
-            }
-        }
-    }
-    else if (change == ItemPositionHasChanged && scene())
-    {
-        // Emit position changed signal when position has
-        // been changed
-        emit positionChanged(pos());
-    }
-    else if (change == ItemSelectedChange)
-    {
-        bool selected = value.toBool();
-        if (selected != m_wasSelected)
-        {
-            m_wasSelected = selected;
-            emit selectionChanged(selected);
-        }
+        qCWarning(lcGuiInputItem)
+            << "TerminalItem::buildContextMenu:"
+            << "null or unbound placement — skipping menu";
+        return;
     }
 
-    return QGraphicsObject::itemChange(change, value);
+    QPointer<TerminalItem> self = this;
+    QPointer<Backend::Scenario::ScenarioDocument> doc = ctx.document;
+    Input::CommandBus* bus = ctx.commandBus;
+    const QString terminalId = m_placement->id;
+
+    using Role = Backend::Scenario::TerminalPlacement::TerminalRole;
+    const Role currentRole = m_placement->role;
+
+    // --- Role actions (flat, matches legacy menu exactly) ---
+    QAction* originAction =
+        menu->addAction(QObject::tr("Set as Origin"));
+    QAction* destinationAction =
+        menu->addAction(QObject::tr("Set as Destination"));
+    QAction* transitAction =
+        menu->addAction(QObject::tr("Set as Transit"));
+
+    originAction->setEnabled(currentRole != Role::Origin);
+    destinationAction->setEnabled(currentRole != Role::Destination);
+    transitAction->setEnabled(currentRole != Role::Transit);
+
+    QObject::connect(originAction, &QAction::triggered,
+        [self, doc, bus, terminalId]() {
+            if (!self || !doc || !bus) return;
+            bus->submit(std::make_unique<Input::SetTerminalRoleCommand>(
+                doc.data(), terminalId, Role::Origin));
+        });
+    QObject::connect(destinationAction, &QAction::triggered,
+        [self, doc, bus, terminalId]() {
+            if (!self || !doc || !bus) return;
+            bus->submit(std::make_unique<Input::SetTerminalRoleCommand>(
+                doc.data(), terminalId, Role::Destination));
+        });
+    QObject::connect(transitAction, &QAction::triggered,
+        [self, doc, bus, terminalId]() {
+            if (!self || !doc || !bus) return;
+            bus->submit(std::make_unique<Input::SetTerminalRoleCommand>(
+                doc.data(), terminalId, Role::Transit));
+        });
+
+    menu->addSeparator();
+
+    // --- Change Type submenu (all backend-defined types except current) ---
+    QMenu* changeTypeMenu = menu->addMenu(QObject::tr("Change Type"));
+    const QString currentType = m_placement->type;
+    for (const QString& type :
+         Backend::Scenario::TerminalTypeDefaults::allTypes())
+    {
+        if (type == currentType) continue;
+        QAction* a = changeTypeMenu->addAction(type);
+        QObject::connect(a, &QAction::triggered,
+            [self, doc, bus, terminalId, type]() {
+                if (!self || !doc || !bus) return;
+                bus->submit(std::make_unique<Input::SetTerminalTypeCommand>(
+                    doc.data(), terminalId, type));
+            });
+    }
 }
 
-void TerminalItem::hoverEnterEvent(
-    QGraphicsSceneHoverEvent *event)
+void TerminalItem::onHoverEnter(const Input::ClickContext&)
 {
-    setCursor(QCursor(Qt::PointingHandCursor));
-    QGraphicsObject::hoverEnterEvent(event);
+    qCDebug(lcGuiInputItem)
+        << "TerminalItem::onHoverEnter:"
+        << "name=" << m_properties.value("Name").toString();
+    // Cursor handled by hoverCursor(); no extra visual state to toggle.
 }
 
-void TerminalItem::hoverLeaveEvent(
-    QGraphicsSceneHoverEvent *event)
+void TerminalItem::onHoverLeave(const Input::ClickContext&)
 {
-    unsetCursor();
-    QGraphicsObject::hoverLeaveEvent(event);
+    qCDebug(lcGuiInputItem)
+        << "TerminalItem::onHoverLeave:"
+        << "name=" << m_properties.value("Name").toString();
+}
+
+void TerminalItem::onDragEnd(const QPointF& finalPos,
+                             const Input::ClickContext& ctx)
+{
+    qCInfo(lcGuiInputItem)
+        << "TerminalItem::onDragEnd; id ="
+        << (m_placement ? m_placement->id : QString())
+        << "pos =" << finalPos;
+
+    // Always emit position signal — ConnectionLine curves depend on it
+    // regardless of whether backend persistence is possible.
+    emit positionChanged(finalPos);
+
+    if (!m_placement || m_placement->id.isEmpty() || !ctx.document)
+        return;
+    if (!ctx.view)
+        return;
+
+    const QPointF latLon = ctx.view->sceneToWGS84(finalPos);
+    if (ctx.commandBus) {
+        ctx.commandBus->submit(
+            std::make_unique<Input::UpdateTerminalPositionCommand>(
+                ctx.document.data(), m_placement->id, latLon));
+    }
+
+    qCDebug(lcGuiInputItem)
+        << "TerminalItem::onDragEnd: persisted position"
+        << m_placement->id
+        << "lat=" << latLon.y()
+        << "lon=" << latLon.x();
 }
 
 QMap<QString, QVariant> TerminalItem::toDict() const
 {
+    qCDebug(lcGuiScene)
+        << "TerminalItem::toDict:"
+        << "name=" << m_properties.value("Name").toString()
+        << "type=" << m_terminalType;
+
     QMap<QString, QVariant> data;
 
     // Store position
@@ -399,6 +593,11 @@ TerminalItem::fromDict(const QMap<QString, QVariant> &data,
                        const QPixmap &pixmap,
                        QGraphicsItem *parent)
 {
+    qCInfo(lcGuiScene)
+        << "TerminalItem::fromDict:"
+        << "type=" << data.value("terminal_type").toString()
+        << "region=" << data.value("region").toString();
+
     // Create new instance with essential data
     TerminalItem *instance =
         new TerminalItem(pixmap, data["properties"].toMap(),

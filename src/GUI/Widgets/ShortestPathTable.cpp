@@ -12,20 +12,29 @@
  */
 
 #include "ShortestPathTable.h"
-#include "GUI/Controllers/ViewController.h"
+#include "Backend/Application/PathPresentationService.h"
+#include "Backend/Application/ScenarioPersistenceService.h"
+#include "Backend/Controllers/CargoNetSimController.h"
 #include "GUI/MainWindow.h"
 #include "GUI/Utils/IconCreator.h" // For icon creation utilities
 #include "GUI/Utils/PathReportExporter.h"
 #include "GUI/Widgets/PathComparisonDialog.h"
 #include <QApplication>
 #include <QFileDialog>
+#include <QIcon>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
+#include <QProgressBar>
 #include <QScrollBar>
+#include <QSet>
 #include <QVariant>
 #include <QtWidgets/qscrollarea.h>
 #include <stdexcept>
+#include "Backend/Commons/LogCategories.h"
 
 // Register meta-type for storing widgets in QVariant
 Q_DECLARE_METATYPE(QWidget *)
@@ -34,6 +43,448 @@ namespace CargoNetSim
 {
 namespace GUI
 {
+
+namespace
+{
+
+using ExecutionPathKey = ShortestPathsTable::ExecutionPathKey;
+
+enum TableColumn : int
+{
+    ColumnSelect = 0,
+    ColumnPathId,
+    ColumnStatus,
+    ColumnExecutionProgress,
+    ColumnTerminalPath,
+    ColumnPredictedCost,
+    ColumnActualCost,
+    ColumnPredictedDistance,
+    ColumnPredictedTime,
+    ColumnPredictedFuelPerVehicle,
+    ColumnPredictedEnergyPerVehicle,
+    ColumnPredictedCarbonPerVehicle,
+    ColumnPredictedRiskPerVehicle,
+    ColumnActualDistance,
+    ColumnActualTime,
+    ColumnActualEnergyPerVehicle,
+    ColumnActualCarbonPerVehicle,
+    ColumnActualRiskPerVehicle,
+    ColumnContainers,
+    ColumnVehicles,
+    ColumnPredictedFuelPerContainer,
+    ColumnPredictedEnergyPerContainer,
+    ColumnPredictedCarbonPerContainer,
+    ColumnActualEnergyPerContainer,
+    ColumnActualCarbonPerContainer,
+    ColumnCount
+};
+
+ExecutionPathKey makeUniquePathKey(
+    const ExecutionPathKey &baseKey,
+    const QMap<ExecutionPathKey, ShortestPathsTable::PathData *> &existing)
+{
+    const QString normalizedBase =
+        baseKey.isEmpty() ? QStringLiteral("path") : baseKey;
+    QString candidate = normalizedBase;
+    int     suffix    = 2;
+    while (existing.contains(candidate))
+    {
+        candidate = QStringLiteral("%1#%2")
+                        .arg(normalizedBase)
+                        .arg(suffix++);
+    }
+    return candidate;
+}
+
+QString vehicleBreakdownLabel(
+    const Backend::Scenario::PathMetrics &metrics)
+{
+    if (metrics.previewVehicleBreakdown.isEmpty())
+    {
+        return metrics.valid
+            ? QString::number(metrics.vehiclesNeeded)
+            : QStringLiteral("—");
+    }
+
+    QStringList parts;
+    parts.reserve(metrics.previewVehicleBreakdown.size());
+    for (const auto &requirement : metrics.previewVehicleBreakdown)
+    {
+        parts.append(QStringLiteral("%1 x%2")
+                         .arg(Backend::TransportationTypes::toString(
+                             requirement.mode))
+                         .arg(requirement.vehiclesNeeded));
+    }
+    return parts.join(QStringLiteral(" | "));
+}
+
+QString pathLifecycleLabel(
+    Backend::Scenario::PathLifecycleState lifecycle)
+{
+    using Backend::Scenario::PathLifecycleState;
+    switch (lifecycle)
+    {
+    case PathLifecycleState::Pending:
+        return QObject::tr("pending");
+    case PathLifecycleState::Running:
+        return QObject::tr("running");
+    case PathLifecycleState::WaitingForTerminalHandoff:
+        return QObject::tr("terminal handoff");
+    case PathLifecycleState::WaitingForTerminalProcessing:
+        return QObject::tr("terminal processing");
+    case PathLifecycleState::ReadyForNextSegment:
+        return QObject::tr("ready for next segment");
+    case PathLifecycleState::Paused:
+        return QObject::tr("paused");
+    case PathLifecycleState::Skipped:
+        return QObject::tr("skipped");
+    case PathLifecycleState::Completed:
+        return QObject::tr("completed");
+    case PathLifecycleState::Failed:
+        return QObject::tr("failed");
+    }
+    return QObject::tr("unknown");
+}
+
+QString segmentLifecycleLabel(
+    Backend::Scenario::SegmentLifecycleState lifecycle)
+{
+    using Backend::Scenario::SegmentLifecycleState;
+    switch (lifecycle)
+    {
+    case SegmentLifecycleState::Pending:
+        return QObject::tr("pending");
+    case SegmentLifecycleState::Dispatched:
+        return QObject::tr("dispatched");
+    case SegmentLifecycleState::VehicleRunning:
+        return QObject::tr("running");
+    case SegmentLifecycleState::VehicleArrived:
+        return QObject::tr("arrived");
+    case SegmentLifecycleState::UnloadCompleted:
+        return QObject::tr("unloaded");
+    case SegmentLifecycleState::TerminalHandoffCompleted:
+        return QObject::tr("handoff complete");
+    case SegmentLifecycleState::TerminalProcessing:
+        return QObject::tr("terminal processing");
+    case SegmentLifecycleState::ReadyForPickup:
+        return QObject::tr("ready");
+    case SegmentLifecycleState::Skipped:
+        return QObject::tr("skipped");
+    case SegmentLifecycleState::Completed:
+        return QObject::tr("completed");
+    case SegmentLifecycleState::Failed:
+        return QObject::tr("failed");
+    }
+    return QObject::tr("unknown");
+}
+
+QString modeLabel(
+    Backend::TransportationTypes::TransportationMode mode)
+{
+    if (mode == Backend::TransportationTypes::TransportationMode::Any)
+        return QObject::tr("No mode");
+    return Backend::TransportationTypes::toString(mode);
+}
+
+const Backend::Scenario::SegmentProgressSnapshot *
+activeSegmentFor(
+    const Backend::Scenario::PathProgressSnapshot &progress)
+{
+    for (const auto &segment : progress.segments)
+    {
+        if (segment.segmentIndex == progress.activeSegmentIndex)
+            return &segment;
+    }
+    return nullptr;
+}
+
+QString statusMessage(
+    const Backend::Scenario::PreparedPathEligibility &eligibility)
+{
+    if (!eligibility.simulatable)
+        return QObject::tr("Simulation unavailable");
+
+    if (!eligibility.warningReason.isEmpty())
+        return QObject::tr("Ready with warning");
+
+    return QObject::tr("Ready");
+}
+
+QPixmap statusIcon(
+    const Backend::Scenario::PreparedPathEligibility &eligibility)
+{
+    constexpr int kStatusIconSize = 16;
+
+    if (!eligibility.simulatable)
+    {
+        return IconFactory::createStatusUnavailableIcon(
+            kStatusIconSize);
+    }
+
+    if (!eligibility.warningReason.isEmpty())
+    {
+        return IconFactory::createStatusWarningIcon(
+            kStatusIconSize);
+    }
+
+    return IconFactory::createStatusReadyIcon(kStatusIconSize);
+}
+
+void styleStatusItem(
+    QTableWidgetItem                                 *item,
+    const Backend::Scenario::PreparedPathEligibility &eligibility)
+{
+    if (!item)
+        return;
+
+    item->setTextAlignment(Qt::AlignCenter);
+    item->setText(QString());
+    item->setIcon(QIcon(statusIcon(eligibility)));
+
+    if (!eligibility.simulatable)
+    {
+        item->setBackground(QColor(253, 236, 234));
+        item->setForeground(QBrush(QColor(145, 33, 54)));
+        QFont font = item->font();
+        font.setBold(true);
+        item->setFont(font);
+        return;
+    }
+
+    if (!eligibility.warningReason.isEmpty())
+    {
+        item->setBackground(QColor(255, 245, 224));
+        item->setForeground(QBrush(QColor(133, 87, 0)));
+        return;
+    }
+
+    item->setBackground(QColor(232, 245, 236));
+    item->setForeground(QBrush(QColor(31, 101, 58)));
+}
+
+QString compactJsonObject(const QJsonObject &object)
+{
+    if (object.isEmpty())
+        return QStringLiteral("{}");
+    return QString::fromUtf8(
+        QJsonDocument(object).toJson(QJsonDocument::Compact));
+}
+
+double costSnapshotTotal(
+    const Backend::Application::PathPresentationCostSnapshot &costs)
+{
+    return costs.travelTime + costs.distance
+           + costs.carbonEmissions + costs.energyConsumption
+           + costs.risk + costs.directCost;
+}
+
+void logPredictedPathDiagnostics(
+    const QMap<ExecutionPathKey, ShortestPathsTable::PathData *> &paths,
+    const QVector<ExecutionPathKey>                              &displayOrder,
+    const QString                                                &source)
+{
+    Backend::Application::PathPresentationService presenter;
+
+    qCInfo(lcGuiPathTable)
+        << "ShortestPathsTable::predictedDiagnostics: begin"
+        << "source=" << source
+        << "pathCount=" << displayOrder.size();
+
+    for (const auto &pathKey : displayOrder)
+    {
+        const auto *record = paths.value(pathKey, nullptr);
+        if (!record || !record->path)
+        {
+            qCWarning(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:"
+                << "missing path record"
+                << "source=" << source
+                << "pathKey=" << pathKey;
+            continue;
+        }
+
+        const auto *path = record->path.get();
+        const auto  summary = presenter.summary(*record);
+        const auto  totals = presenter.pathCostTotals(*record);
+        const auto &metrics = record->predictedMetrics;
+
+        qCInfo(lcGuiPathTable)
+            << "ShortestPathsTable::predictedDiagnostics:path"
+            << "source=" << source
+            << "pathKey=" << pathKey
+            << "canonicalPathKey=" << path->canonicalPathKey()
+            << "pathId=" << path->getPathId()
+            << "rank=" << path->getRank()
+            << "effectiveContainers=" << path->getEffectiveContainerCount()
+            << "terminalCount=" << summary.terminalCount
+            << "segmentCount=" << summary.segmentCount
+            << "pathTotalUsd=" << path->getTotalPathCost()
+            << "pathEdgeUsd=" << path->getTotalEdgeCosts()
+            << "pathTerminalUsd=" << path->getTotalTerminalCosts()
+            << "rankingCostUsd=" << path->getRankingCost()
+            << "weightedTerminalDelayUsd="
+            << path->getWeightedTerminalDelayTotal()
+            << "weightedTerminalDirectUsd="
+            << path->getWeightedTerminalDirectCostTotal()
+            << "rawTerminalDelaySeconds="
+            << path->getRawTerminalDelayTotal()
+            << "rawTerminalDirectUsd="
+            << path->getRawTerminalCostTotal()
+            << "presentedPredictedCostAvailable="
+            << totals.predicted.available
+            << "presentedPredictedCostTotalUsd="
+            << costSnapshotTotal(totals.predicted)
+            << "costBreakdown="
+            << compactJsonObject(path->getCostBreakdown());
+
+        qCInfo(lcGuiPathTable)
+            << "ShortestPathsTable::predictedDiagnostics:pathMetrics"
+            << "source=" << source
+            << "pathKey=" << pathKey
+            << "valid=" << metrics.valid
+            << "distanceKm=" << metrics.distanceKm
+            << "travelTimeHours=" << metrics.travelTimeHours
+            << "fuelPerVehicle=" << metrics.fuelPerVehicle
+            << "energyPerVehicleKWh=" << metrics.energyPerVehicle
+            << "carbonPerVehicleT=" << metrics.carbonPerVehicle
+            << "riskPerVehicle=" << metrics.riskPerVehicle
+            << "containerCount=" << metrics.containerCount
+            << "fuelPerContainer=" << metrics.fuelPerContainer
+            << "energyPerContainerKWh="
+            << metrics.energyPerContainer
+            << "carbonPerContainerT=" << metrics.carbonPerContainer
+            << "riskPerContainer=" << metrics.riskPerContainer
+            << "vehiclesNeeded=" << metrics.vehiclesNeeded
+            << "fuelType=" << metrics.fuelType;
+
+        for (const auto &requirement :
+             metrics.previewVehicleBreakdown)
+        {
+            qCInfo(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:vehicleRequirement"
+                << "source=" << source
+                << "pathKey=" << pathKey
+                << "segmentIndex=" << requirement.segmentIndex
+                << "mode="
+                << Backend::TransportationTypes::toString(
+                       requirement.mode)
+                << "vehiclesNeeded="
+                << requirement.vehiclesNeeded;
+        }
+
+        const auto &terminals = path->getTerminalsInPath();
+        for (int terminalIndex = 0;
+             terminalIndex < terminals.size(); ++terminalIndex)
+        {
+            const auto &terminal = terminals[terminalIndex];
+            const auto  values =
+                presenter.terminalValues(*record, terminalIndex);
+            qCInfo(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:terminal"
+                << "source=" << source
+                << "pathKey=" << pathKey
+                << "index=" << terminalIndex
+                << "sequenceIndex=" << terminal.sequenceIndex
+                << "terminalId=" << terminal.id
+                << "displayName=" << terminal.displayName
+                << "canonicalName=" << terminal.canonicalName
+                << "predictedAvailable="
+                << values.predictedAvailable
+                << "handlingSeconds="
+                << values.predictedHandlingSeconds
+                << "rawDirectCostUsd="
+                << values.predictedDirectCostUsd
+                << "weightedDelayUsd="
+                << values.predictedWeightedDelayContribution
+                << "weightedDirectCostUsd="
+                << values.predictedWeightedCostContribution
+                << "weightedTotalUsd="
+                << values.predictedWeightedTotalContribution
+                << "costsSkipped="
+                << values.predictedCostsSkipped
+                << "skipReason=" << values.predictedSkipReason;
+        }
+
+        const auto segments = path->getSegments();
+        for (int segmentIndex = 0; segmentIndex < segments.size();
+             ++segmentIndex)
+        {
+            const auto *segment = segments[segmentIndex];
+            if (!segment)
+            {
+                qCWarning(lcGuiPathTable)
+                    << "ShortestPathsTable::predictedDiagnostics:"
+                    << "null segment"
+                    << "source=" << source
+                    << "pathKey=" << pathKey
+                    << "index=" << segmentIndex;
+                continue;
+            }
+
+            const auto values =
+                presenter.segmentValues(*record, segmentIndex);
+            const auto costs =
+                presenter.segmentPredictedCosts(*record,
+                                                segmentIndex);
+            const auto rawMetrics = segment->estimatedValues();
+            const auto rawCosts = segment->estimatedCosts();
+
+            qCInfo(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:segmentMetrics"
+                << "source=" << source
+                << "pathKey=" << pathKey
+                << "index=" << segmentIndex
+                << "sequenceIndex=" << segment->sequenceIndex()
+                << "segmentId=" << segment->getPathSegmentId()
+                << "mode="
+                << Backend::TransportationTypes::toString(
+                       segment->getMode())
+                << "start=" << segment->getStart()
+                << "end=" << segment->getEnd()
+                << "estimatedAvailable=" << rawMetrics.available
+                << "distanceMeters=" << rawMetrics.distance
+                << "presentedDistanceKm="
+                << values.predictedDistanceKm
+                << "travelTimeSeconds=" << rawMetrics.travelTime
+                << "presentedTravelTimeHours="
+                << values.predictedTravelTimeHours
+                << "energyKWh=" << rawMetrics.energyConsumption
+                << "presentedEnergyKWh="
+                << values.predictedEnergyConsumption
+                << "carbonT=" << rawMetrics.carbonEmissions
+                << "risk=" << rawMetrics.risk
+                << "rankingCostContributionUsd="
+                << segment->rankingCostContribution()
+                << "weightedEdgeCostUsd="
+                << segment->weightedEdgeCost()
+                << "weightedTerminalEmbeddedUsd="
+                << segment->weightedTerminalCostEmbeddedInSegment();
+
+            qCInfo(lcGuiPathTable)
+                << "ShortestPathsTable::predictedDiagnostics:segmentCosts"
+                << "source=" << source
+                << "pathKey=" << pathKey
+                << "index=" << segmentIndex
+                << "segmentId=" << segment->getPathSegmentId()
+                << "rawCostAvailable=" << rawCosts.available
+                << "presentedCostAvailable=" << costs.available
+                << "travelTimeUsd=" << costs.travelTime
+                << "distanceUsd=" << costs.distance
+                << "energyUsd=" << costs.energyConsumption
+                << "carbonUsd=" << costs.carbonEmissions
+                << "riskUsd=" << costs.risk
+                << "directUsd=" << costs.directCost
+                << "totalUsd=" << costSnapshotTotal(costs);
+        }
+    }
+
+    qCInfo(lcGuiPathTable)
+        << "ShortestPathsTable::predictedDiagnostics: end"
+        << "source=" << source
+        << "pathCount=" << displayOrder.size();
+}
+
+} // namespace
 
 //------------------------------------------------------------------------------
 // TerminalPathDelegate Implementation
@@ -53,7 +504,7 @@ void TerminalPathDelegate::paint(
 {
     // Check if we're in the terminals column (column index
     // 2)
-    if (index.column() == 2)
+    if (index.column() == ColumnTerminalPath)
     {
         // Try to extract the widget from user data
         QWidget *widget = qvariant_cast<QWidget *>(
@@ -110,7 +561,7 @@ QSize TerminalPathDelegate::sizeHint(
     const QModelIndex          &index) const
 {
     // Check if we're in the terminals column
-    if (index.column() == 2)
+    if (index.column() == ColumnTerminalPath)
     {
         // Try to extract the widget from user data
         QWidget *widget = qvariant_cast<QWidget *>(
@@ -168,9 +619,8 @@ ShortestPathsTable::ShortestPathsTable(QWidget *parent)
     {
 
         connect(this, &ShortestPathsTable::showPathSignal,
-                [this, mainWindow](int pathId) {
-                    ViewController::flashPathLines(
-                        mainWindow, pathId);
+                [this, mainWindow](const ExecutionPathKey &pathKey) {
+                    mainWindow->flashPathLines(pathKey);
                 });
     }
 }
@@ -209,6 +659,22 @@ void ShortestPathsTable::initUI()
     createTableWidget();
     layout->addWidget(m_table);
 
+    m_availabilityBanner = new QLabel(this);
+    m_availabilityBanner->setObjectName(
+        QStringLiteral("pathAvailabilityBanner"));
+    m_availabilityBanner->setWordWrap(true);
+    m_availabilityBanner->setVisible(false);
+    m_availabilityBanner->setStyleSheet(
+        QStringLiteral(
+            "QLabel#pathAvailabilityBanner {"
+            " background-color: #fff3f3;"
+            " color: #7f1d2d;"
+            " border: 1px solid #e6b7c0;"
+            " border-radius: 4px;"
+            " padding: 6px 8px;"
+            "}"));
+    layout->addWidget(m_availabilityBanner);
+
     // Create panel for buttons
     auto buttonPanel = new QHBoxLayout();
 
@@ -242,17 +708,31 @@ void ShortestPathsTable::createTableWidget()
     // Create table widget
     m_table = new QTableWidget(this);
 
-    // Configure table structure
-    m_table->setColumnCount(5);
+    // Configure table structure.
+    //
+    // Plan 8.2/A2: add a dedicated status column near the front of
+    // the table so backend eligibility is visible without drowning the
+    // metric columns in warning colors.
+    m_table->setColumnCount(ColumnCount);
     m_table->setHorizontalHeaderLabels({
-        tr("Select"),  // Column 0: Checkbox for selection
-        tr("Path ID"), // Column 1: Path identifier
-        tr("Terminal Path"),  // Column 2: Visual
-                              // representation of the path
-        tr("Predicted Cost"), // Column 3: Analysis-based
-                              // cost prediction
-        tr("Actual Cost")     // Column 4: Simulation-based
-                              // actual cost
+        tr("Select"),                tr("Path ID"),
+        tr("Status"),                tr("Progress"),
+        tr("Terminal Path"),
+        tr("Predicted Cost"),        tr("Actual Cost"),
+        // Predicted per-vehicle.
+        tr("P. Distance (km)"),      tr("P. Time (h)"),
+        tr("P. Fuel/Veh"),           tr("P. Energy/Veh (kWh)"),
+        tr("P. CO₂/Veh (t)"),        tr("P. Risk/Veh"),
+        // Actual per-vehicle; no fuel key from
+        // SegmentCostMath)
+        tr("A. Distance (km)"),      tr("A. Time (h)"),
+        tr("A. Energy/Veh (kWh)"),   tr("A. CO₂/Veh (t)"),
+        tr("A. Risk/Veh"),
+        // Preview-demand counts and per-container metrics.
+        tr("OD Containers"),         tr("Preview Vehicle Plan"),
+        tr("P. Fuel/Cont"),          tr("P. Energy/Cont (kWh)"),
+        tr("P. CO₂/Cont (t)"),
+        tr("A. Energy/Cont (kWh)"),  tr("A. CO₂/Cont (t)"),
     });
 
     // Configure selection behavior
@@ -269,22 +749,32 @@ void ShortestPathsTable::createTableWidget()
 
     // Set column sizing policies
     header->setSectionResizeMode(
-        0, QHeaderView::Fixed); // Fixed width for checkbox
+        ColumnSelect, QHeaderView::Fixed); // Fixed width for checkbox
     m_table->setColumnWidth(
-        0, 50); // 50 pixels for checkbox column
+        ColumnSelect, 50); // 50 pixels for checkbox column
 
     header->setSectionResizeMode(
-        1, QHeaderView::ResizeToContents); // Auto-size for
-                                           // Path ID
+        ColumnPathId, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(
-        2, QHeaderView::Stretch); // Stretch terminal path
-                                  // column
+        ColumnStatus, QHeaderView::ResizeToContents);
     header->setSectionResizeMode(
-        3, QHeaderView::ResizeToContents); // Auto-size for
-                                           // costs
+        ColumnExecutionProgress, QHeaderView::Interactive);
+    m_table->setColumnWidth(ColumnExecutionProgress, 260);
     header->setSectionResizeMode(
-        4, QHeaderView::ResizeToContents); // Auto-size for
-                                           // costs
+        ColumnTerminalPath, QHeaderView::Interactive);
+    // The terminal sequence is the most scan-heavy field in the table.
+    // Give it a wide default so it does not collapse behind the metric
+    // columns, while still letting users resize it manually.
+    m_table->setColumnWidth(ColumnTerminalPath, 520);
+    header->setSectionResizeMode(
+        ColumnPredictedCost, QHeaderView::ResizeToContents);
+    header->setSectionResizeMode(
+        ColumnActualCost, QHeaderView::ResizeToContents);
+
+    // Plan 8.2 + Plan 10: auto-size the metric columns.
+    for (int c = ColumnPredictedDistance; c < ColumnCount; ++c)
+        header->setSectionResizeMode(
+            c, QHeaderView::ResizeToContents);
 
     // Set custom delegate for terminal path visualization
     m_table->setItemDelegate(
@@ -378,56 +868,176 @@ void ShortestPathsTable::createSelectionPanel()
  * object and adding it to the internal data structure.
  */
 void ShortestPathsTable::addPaths(
-    const QList<Backend::Path *> &paths)
+    const QList<Backend::Path *>                              &paths,
+    const QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> &predicted,
+    const QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> &actual)
 {
-    // Sort the paths by total path cost
-    QVector<Backend::Path *> tempPaths(paths.begin(),
-                                       paths.end());
-    std::sort(tempPaths.begin(), tempPaths.end(),
-              [](Backend::Path *a, Backend::Path *b) {
-                  return a->getTotalPathCost()
-                         < b->getTotalPathCost();
-              });
-
-    // Process each path from the list
-    for (Backend::Path *path : tempPaths)
+    qCDebug(lcGuiPathTable) << "ShortestPathsTable::addPaths:"
+                            << "pathCount=" << paths.size();
+    const auto records =
+        Backend::Application::PathPresentationService()
+            .recordsFromRawPaths(paths, predicted, actual);
+    for (auto record : records)
     {
-        if (!path)
-        {
-            // Skip null paths
-            qWarning() << "Skipping null path in addPaths";
-            continue;
-        }
-
-        try
-        {
-            // Create a new PathData pointer
-            PathData *pathDataPtr = new PathData();
-            pathDataPtr->path =
-                path; // PathData now owns the Path
-            pathDataPtr->m_totalSimulationPathCost  = -1.0;
-            pathDataPtr->m_totalSimulationEdgeCosts = -1.0;
-            pathDataPtr->m_totalSimulationTerminalCosts =
-                -1.0;
-            pathDataPtr->isVisible = true;
-
-            // Store the pointer in the map
-            m_pathData.insert(path->getPathId(),
-                              pathDataPtr);
-        }
-        catch (const std::exception &ex)
-        {
-            // Handle any exceptions during path processing
-            qWarning() << "Error adding path:" << ex.what();
-            delete path; // Clean up on error
-        }
+        appendPathRecord(std::move(record));
     }
+    logPredictedPathDiagnostics(m_pathData, m_displayOrder,
+                                QStringLiteral("addPaths"));
 
     // Refresh the table with the new paths
     refreshTable();
 
     // Enable export all button if we have data
     m_exportButton->setEnabled(!m_pathData.isEmpty());
+}
+
+void ShortestPathsTable::setPreparedPaths(
+    const Backend::Scenario::PreparedPathSet                  &prepared,
+    const QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> &actual,
+    const QHash<ExecutionPathKey, Backend::Scenario::PreparedPathEligibility>
+        &eligibility)
+{
+    clear();
+
+    const auto records =
+        Backend::Application::PathPresentationService()
+            .recordsFromPreparedPaths(prepared, actual,
+                                      eligibility);
+    for (auto record : records)
+    {
+        appendPathRecord(std::move(record));
+    }
+    logPredictedPathDiagnostics(m_pathData, m_displayOrder,
+                                QStringLiteral("setPreparedPaths"));
+
+    refreshTable();
+    m_exportButton->setEnabled(!m_pathData.isEmpty());
+}
+
+void ShortestPathsTable::setPathEligibility(
+    const QHash<ExecutionPathKey, Backend::Scenario::PreparedPathEligibility>
+        &eligibility)
+{
+    for (auto it = m_pathData.begin(); it != m_pathData.end(); ++it)
+    {
+        if (!it.value())
+            continue;
+        it.value()->eligibility =
+            eligibility.value(it.key(),
+                              Backend::Scenario::
+                                  PreparedPathEligibility{});
+    }
+
+    refreshTable();
+}
+
+bool ShortestPathsTable::isSelectable(const PathData *pathData) const
+{
+    return pathData && pathData->eligibility.selectable;
+}
+
+int ShortestPathsTable::selectablePathCount() const
+{
+    int count = 0;
+    for (const auto *pathData : m_pathData)
+    {
+        if (pathData && pathData->isVisible && pathData->path
+            && isSelectable(pathData))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+QString ShortestPathsTable::eligibilityTooltip(
+    const PathData *pathData) const
+{
+    if (!pathData)
+        return QString();
+
+    if (!pathData->eligibility.simulatable
+        && !pathData->eligibility.blockingReason.isEmpty())
+    {
+        return tr("Simulation unavailable: %1")
+            .arg(pathData->eligibility.blockingReason);
+    }
+
+    if (!pathData->eligibility.simulatable)
+        return tr("Simulation unavailable.");
+
+    if (!pathData->eligibility.warningReason.isEmpty())
+    {
+        return tr("Ready for simulation with warning: %1")
+            .arg(pathData->eligibility.warningReason);
+    }
+
+    return tr("Ready for simulation.");
+}
+
+QString ShortestPathsTable::availabilityBannerText() const
+{
+    int           unavailableCount = 0;
+    QSet<QString> affectedDependencies;
+
+    for (const auto *pathData : m_pathData)
+    {
+        if (!pathData || !pathData->path || !pathData->isVisible
+            || pathData->eligibility.simulatable)
+        {
+            continue;
+        }
+
+        ++unavailableCount;
+        const QString reason = pathData->eligibility.blockingReason;
+        if (reason.contains(QStringLiteral("ShipNetSim")))
+            affectedDependencies.insert(QStringLiteral("ShipNetSim"));
+        if (reason.contains(QStringLiteral("NeTrainSim")))
+            affectedDependencies.insert(QStringLiteral("NeTrainSim"));
+        if (reason.contains(QStringLiteral("TerminalSim")))
+            affectedDependencies.insert(QStringLiteral("TerminalSim"));
+        if (reason.contains(QStringLiteral("train fleet")))
+            affectedDependencies.insert(tr("train fleet"));
+        if (reason.contains(QStringLiteral("ship fleet")))
+            affectedDependencies.insert(tr("ship fleet"));
+        if (reason.contains(QStringLiteral("truck-backed execution")))
+        {
+            affectedDependencies.insert(
+                tr("truck-backed execution"));
+        }
+    }
+
+    if (unavailableCount == 0)
+        return QString();
+
+    QString text =
+        unavailableCount == 1
+            ? tr("One path is currently unavailable for simulation. ")
+            : tr("%1 paths are currently unavailable for simulation. ")
+                  .arg(unavailableCount);
+
+    text += tr("Rows marked unavailable remain visible, but they cannot be selected for simulation until the required backends and fleet resources are available.");
+
+    if (!affectedDependencies.isEmpty())
+    {
+        QStringList dependencies = affectedDependencies.values();
+        dependencies.sort();
+        text += tr(" Affected dependencies: %1.")
+                    .arg(dependencies.join(QStringLiteral(", ")));
+    }
+
+    text += tr(" Hover the Status column for the exact requirement.");
+    return text;
+}
+
+void ShortestPathsTable::updateAvailabilityBanner()
+{
+    if (!m_availabilityBanner)
+        return;
+
+    const QString text = availabilityBannerText();
+    m_availabilityBanner->setText(text);
+    m_availabilityBanner->setVisible(!text.isEmpty());
 }
 
 int ShortestPathsTable::pathsSize() const
@@ -446,26 +1056,29 @@ int ShortestPathsTable::pathsSize() const
  * and refreshes the table display.
  */
 void ShortestPathsTable::updatePredictionCosts(
-    int pathId, double totalCost, double edgeCost,
+    const ExecutionPathKey &pathKey, double totalCost, double edgeCost,
     double terminalCost)
 {
+    qCDebug(lcGuiPathTable) << "ShortestPathTable: updating cost field:"
+                            << "pathKey=" << pathKey;
     // Check if the path exists in our data
-    if (!m_pathData.contains(pathId))
+    if (!m_pathData.contains(pathKey))
     {
-        qWarning()
-            << "Path ID" << pathId
+        qCWarning(lcGuiPathTable)
+            << "Path key" << pathKey
             << "not found for prediction cost update";
         return;
     }
 
     // Get reference to the path data
-    PathData *pathData = m_pathData[pathId];
+    PathData *pathData = m_pathData[pathKey];
 
     // Validate path pointer
     if (!pathData->path)
     {
-        qWarning() << "Path object is null for path ID"
-                   << pathId;
+        qCWarning(lcGuiPathTable)
+            << "Path object is null for path"
+            << pathKey;
         return;
     }
 
@@ -494,14 +1107,16 @@ void ShortestPathsTable::updatePredictionCosts(
         for (int row = 0; row < m_table->rowCount(); ++row)
         {
             // Get the path ID for this row
-            auto idItem = m_table->item(row, 1);
-            if (idItem && idItem->text().toInt() == pathId)
+            auto idItem = m_table->item(row, ColumnPathId);
+            if (idItem
+                && idItem->data(Qt::UserRole).toString()
+                       == pathKey)
             {
                 // Update the predicted cost cell if total
                 // cost was updated
                 if (totalCost >= 0)
                 {
-                    m_table->item(row, 3)->setText(
+                    m_table->item(row, ColumnPredictedCost)->setText(
                         QString::number(totalCost, 'f', 2));
                 }
                 break;
@@ -510,9 +1125,9 @@ void ShortestPathsTable::updatePredictionCosts(
     }
     catch (const std::exception &ex)
     {
-        qWarning()
+        qCWarning(lcGuiPathTable)
             << "Error updating prediction costs for path"
-            << pathId << ":" << ex.what();
+            << pathKey << ":" << ex.what();
     }
 }
 
@@ -528,38 +1143,38 @@ void ShortestPathsTable::updatePredictionCosts(
  * exists and refreshes the table display.
  */
 void ShortestPathsTable::updateSimulationCosts(
-    int pathId, double simulationTotalCost,
+    const ExecutionPathKey &pathKey, double simulationTotalCost,
     double simulationEdgeCost,
     double simulationTerminalCost)
 {
     // Check if the path exists in our data
-    if (!m_pathData.contains(pathId))
+    if (!m_pathData.contains(pathKey))
     {
-        qWarning()
-            << "Path ID" << pathId
+        qCWarning(lcGuiPathTable)
+            << "Path key" << pathKey
             << "not found for simulation cost update";
         return;
     }
 
     // Get reference to the path data
-    PathData *pathData = m_pathData[pathId];
+    PathData *pathData = m_pathData[pathKey];
 
     // Update simulation costs if values are valid (>= 0)
     if (simulationTotalCost >= 0)
     {
-        pathData->m_totalSimulationPathCost =
+        pathData->simulationTotalCost =
             simulationTotalCost;
     }
 
     if (simulationEdgeCost >= 0)
     {
-        pathData->m_totalSimulationEdgeCosts =
+        pathData->simulationEdgeCosts =
             simulationEdgeCost;
     }
 
     if (simulationTerminalCost >= 0)
     {
-        pathData->m_totalSimulationTerminalCosts =
+        pathData->simulationTerminalCosts =
             simulationTerminalCost;
     }
 
@@ -567,14 +1182,16 @@ void ShortestPathsTable::updateSimulationCosts(
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         // Get the path ID for this row
-        auto idItem = m_table->item(row, 1);
-        if (idItem && idItem->text().toInt() == pathId)
+        auto idItem = m_table->item(row, ColumnPathId);
+        if (idItem
+            && idItem->data(Qt::UserRole).toString()
+                   == pathKey)
         {
             // Update the actual cost cell if simulation
             // total cost was updated
             if (simulationTotalCost >= 0)
             {
-                m_table->item(row, 4)->setText(
+                m_table->item(row, ColumnActualCost)->setText(
                     QString::number(simulationTotalCost,
                                     'f', 2));
             }
@@ -595,15 +1212,15 @@ void ShortestPathsTable::updateSimulationCosts(
  * show it on the map.
  */
 QWidget *
-ShortestPathsTable::createPathRow(int             pathId,
-                                  const PathData *pathData)
+ShortestPathsTable::createPathRow(
+    const ExecutionPathKey &pathKey, const PathData *pathData)
 {
     // Check if path pointer is valid
     if (!pathData->path)
     {
-        qWarning()
+        qCWarning(lcGuiPathTable)
             << "Cannot create path row: path is null for ID"
-            << pathId;
+            << pathKey;
         return new QWidget(); // Return empty widget on
                               // error
     }
@@ -624,20 +1241,21 @@ ShortestPathsTable::createPathRow(int             pathId,
     // Connect button to show path signal
     connect(
         showButton, &QPushButton::clicked, this,
-        [this, pathId]() { emit showPathSignal(pathId); });
+        [this, pathKey]() { emit showPathSignal(pathKey); });
 
     contentLayout->addWidget(showButton);
 
     // Get terminals and segments from the path
-    const QList<Backend::Terminal *> &terminals =
+    const QList<Backend::PathTerminal> &terminals =
         pathData->path->getTerminalsInPath();
-    const QList<Backend::PathSegment *> &segments =
+    const QList<Backend::PathSegment *> segments =
         pathData->path->getSegments();
 
     // Validate terminal and segment data
     if (terminals.isEmpty())
     {
-        qWarning() << "No terminals for path ID" << pathId;
+        qCWarning(lcGuiPathTable) << "No terminals for path"
+                                  << pathKey;
         contentLayout->addWidget(
             new QLabel(tr("No terminal data")));
         contentLayout->addStretch();
@@ -661,16 +1279,8 @@ ShortestPathsTable::createPathRow(int             pathId,
     // Add terminal names and transportation mode indicators
     for (int i = 0; i < terminals.size(); ++i)
     {
-        if (!terminals[i])
-        {
-            qWarning()
-                << "Null terminal in path ID" << pathId;
-            continue; // Skip null terminals
-        }
-
-        // Extract terminal name from the JSON object
-        QString terminalName =
-            terminals[i]->getDisplayName();
+        // Extract terminal name from the snapshot
+        QString terminalName = terminals[i].displayName;
         if (terminalName.isEmpty())
         {
             terminalName = tr("Terminal %1")
@@ -801,19 +1411,28 @@ QPixmap ShortestPathsTable::createArrowPixmap(
  */
 void ShortestPathsTable::refreshTable()
 {
+    qCDebug(lcGuiPathTable) << "ShortestPathsTable::refreshTable:"
+                            << "pathCount=" << m_pathData.size();
     // Set flag to prevent recursive UI updates during
     // refresh
     m_updatingUI = true;
 
+    const QVector<ExecutionPathKey> checkedPathKeys =
+        getCheckedPathKeys();
+    QSet<ExecutionPathKey> checkedSet;
+    for (const auto &pathKey : checkedPathKeys)
+        checkedSet.insert(pathKey);
+
     // Clear the table while preserving header
     m_table->setRowCount(0);
+    // Plan 8.2: row indices are rebuilt below; reset the map.
+    m_rowByPathKey.clear();
 
     // Add rows for each visible path
-    for (auto it = m_pathData.begin();
-         it != m_pathData.end(); ++it)
+    for (const auto &pathKey : std::as_const(m_displayOrder))
     {
-        int             pathId   = it.key();
-        const PathData *pathData = it.value();
+        const PathData *pathData =
+            m_pathData.value(pathKey, nullptr);
 
         // Skip paths marked as not visible
         if (!pathData->isVisible || !pathData->path)
@@ -824,6 +1443,8 @@ void ShortestPathsTable::refreshTable()
         // Add a new row at the end of the table
         int row = m_table->rowCount();
         m_table->insertRow(row);
+        // Plan 8.2: remember row index for refreshRow updates.
+        m_rowByPathKey.insert(pathKey, row);
 
         // Create checkbox widget for the select column
         auto checkboxWidget = new QWidget();
@@ -834,20 +1455,26 @@ void ShortestPathsTable::refreshTable()
 
         auto checkbox = new QCheckBox();
         checkboxLayout->addWidget(checkbox);
-        m_table->setCellWidget(row, 0, checkboxWidget);
+        m_table->setCellWidget(row, ColumnSelect, checkboxWidget);
+        checkbox->setEnabled(isSelectable(pathData));
+        const QString rowTooltip = eligibilityTooltip(pathData);
+        checkbox->setToolTip(rowTooltip);
+        checkboxWidget->setToolTip(rowTooltip);
 
         // Connect checkbox state change to update
         // compare button state
 #if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
         // Qt 6.7+ version with checkStateChanged signal
         connect(checkbox, &QCheckBox::checkStateChanged,
-                this, [this, pathId](Qt::CheckState state) {
+                this, [this, pathKey](Qt::CheckState state) {
                     // Emit signal that checkbox state changed
-                    emit checkboxChanged(pathId, state == Qt::Checked);
+                    emit checkboxChanged(pathKey, state == Qt::Checked);
 
-                           // Get all checked paths
-                    QVector<int> checkedPaths = getCheckedPathIds();
-                    bool hasCheckedPaths = !checkedPaths.isEmpty();
+                    // Get all checked paths
+                    QVector<ExecutionPathKey> checkedPaths =
+                        getCheckedPathKeys();
+                    bool hasCheckedPaths =
+                        !checkedPaths.isEmpty();
 
                            // Enable compare button if at least 1 path is checked
                     m_compareButton->setEnabled(hasCheckedPaths);
@@ -859,21 +1486,25 @@ void ShortestPathsTable::refreshTable()
                     m_unselectAllButton->setEnabled(hasCheckedPaths);
 
                            // Enable select all button only if not all paths are already selected
-                    m_selectAllButton->setEnabled(m_pathData.size() > checkedPaths.size());
+                    m_selectAllButton->setEnabled(
+                        selectablePathCount() > checkedPaths.size());
                 });
 #else
       // Qt 6.4-6.6 version with stateChanged signal
         connect(checkbox, &QCheckBox::stateChanged,
-                this, [this, pathId](int state) {
+                this, [this, pathKey](int state) {
                     // Convert int to Qt::CheckState for consistency
                     Qt::CheckState checkState = static_cast<Qt::CheckState>(state);
 
-                           // Emit signal that checkbox state changed
-                    emit checkboxChanged(pathId, checkState == Qt::Checked);
+                    // Emit signal that checkbox state changed
+                    emit checkboxChanged(pathKey,
+                                         checkState == Qt::Checked);
 
-                           // Get all checked paths
-                    QVector<int> checkedPaths = getCheckedPathIds();
-                    bool hasCheckedPaths = !checkedPaths.isEmpty();
+                    // Get all checked paths
+                    QVector<ExecutionPathKey> checkedPaths =
+                        getCheckedPathKeys();
+                    bool hasCheckedPaths =
+                        !checkedPaths.isEmpty();
 
                            // Enable compare button if at least 1 path is checked
                     m_compareButton->setEnabled(hasCheckedPaths);
@@ -885,25 +1516,46 @@ void ShortestPathsTable::refreshTable()
                     m_unselectAllButton->setEnabled(hasCheckedPaths);
 
                            // Enable select all button only if not all paths are already selected
-                    m_selectAllButton->setEnabled(m_pathData.size() > checkedPaths.size());
+                    m_selectAllButton->setEnabled(
+                        selectablePathCount() > checkedPaths.size());
                 });
 #endif
 
+        if (isSelectable(pathData)
+            && checkedSet.contains(pathKey))
+        {
+            checkbox->setChecked(true);
+        }
+
+        auto *statusItem = new QTableWidgetItem();
+        statusItem->setData(Qt::AccessibleTextRole,
+                            statusMessage(pathData->eligibility));
+        statusItem->setData(Qt::AccessibleDescriptionRole,
+                            rowTooltip);
+        statusItem->setToolTip(rowTooltip);
+        styleStatusItem(statusItem, pathData->eligibility);
+        m_table->setItem(row, ColumnStatus, statusItem);
+
         // Add Path ID cell
-        auto pathItem =
-            new QTableWidgetItem(QString::number(pathId));
-        m_table->setItem(row, 1, pathItem);
+        auto pathItem = new QTableWidgetItem(
+            QString::number(pathData->path->getPathId()));
+        pathItem->setData(Qt::UserRole, pathKey);
+        pathItem->setToolTip(rowTooltip);
+        if (!isSelectable(pathData))
+            pathItem->setForeground(QBrush(Qt::gray));
+        m_table->setItem(row, ColumnPathId, pathItem);
 
         // Create and add terminal path visualization
-        auto pathWidget = createPathRow(pathId, pathData);
-        m_table->setCellWidget(row, 2, pathWidget);
+        auto pathWidget = createPathRow(pathKey, pathData);
+        pathWidget->setToolTip(rowTooltip);
+        m_table->setCellWidget(row, ColumnTerminalPath, pathWidget);
 
         // Store widget pointer in user role for custom
         // delegate
         QVariant widgetPtr;
         widgetPtr.setValue(pathWidget);
         m_table->model()->setData(
-            m_table->model()->index(row, 2), widgetPtr,
+            m_table->model()->index(row, ColumnTerminalPath), widgetPtr,
             Qt::UserRole);
 
         // Add Predicted Cost cell
@@ -919,14 +1571,17 @@ void ShortestPathsTable::refreshTable()
         }
         auto predictedItem =
             new QTableWidgetItem(predictedCostText);
-        m_table->setItem(row, 3, predictedItem);
+        predictedItem->setToolTip(rowTooltip);
+        if (!isSelectable(pathData))
+            predictedItem->setForeground(QBrush(Qt::gray));
+        m_table->setItem(row, ColumnPredictedCost, predictedItem);
 
         // Add Actual Cost cell
         QString actualCostText;
-        if (pathData->m_totalSimulationPathCost >= 0)
+        if (pathData->hasSimulationTotalCost())
         {
             actualCostText = QString::number(
-                pathData->m_totalSimulationPathCost, 'f',
+                pathData->simulationTotalCost, 'f',
                 2);
         }
         else
@@ -935,7 +1590,13 @@ void ShortestPathsTable::refreshTable()
         }
         auto actualItem =
             new QTableWidgetItem(actualCostText);
-        m_table->setItem(row, 4, actualItem);
+        actualItem->setToolTip(rowTooltip);
+        if (!isSelectable(pathData))
+            actualItem->setForeground(QBrush(Qt::gray));
+        m_table->setItem(row, ColumnActualCost, actualItem);
+
+        // Plan 8.2: populate per-vehicle metric columns.
+        refreshRow(pathKey);
     }
 
     // Clear UI update flag
@@ -945,9 +1606,11 @@ void ShortestPathsTable::refreshTable()
     m_exportButton->setEnabled(!m_pathData.isEmpty());
 
     // Update selection button states
-    m_selectAllButton->setEnabled(!m_pathData.isEmpty());
+    m_selectAllButton->setEnabled(
+        selectablePathCount() > getCheckedPathKeys().size());
     m_unselectAllButton->setEnabled(
-        false); // Initially disable until paths are checked
+        !getCheckedPathKeys().isEmpty());
+    updateAvailabilityBanner();
 }
 
 /**
@@ -956,10 +1619,11 @@ void ShortestPathsTable::refreshTable()
  * @return Pointer to the path data or nullptr if not found
  */
 const ShortestPathsTable::PathData *
-ShortestPathsTable::getDataByPathId(int pathId) const
+ShortestPathsTable::getDataByPathKey(
+    const ExecutionPathKey &pathKey) const
 {
     // Look up the path in the map
-    auto it = m_pathData.find(pathId);
+    auto it = m_pathData.find(pathKey);
     if (it == m_pathData.end())
     {
         return nullptr; // Path not found
@@ -973,15 +1637,15 @@ const QList<const ShortestPathsTable::PathData *>
 ShortestPathsTable::getCheckedPathData() const
 {
     QList<const ShortestPathsTable::PathData *> result;
-    auto checkedpaths = getCheckedPathIds();
-    if (checkedpaths.isEmpty())
+    auto checkedPaths = getCheckedPathKeys();
+    if (checkedPaths.isEmpty())
     {
         return QList<const PathData *>();
     }
 
-    for (auto pathId : std::as_const(checkedpaths))
+    for (const auto &pathKey : std::as_const(checkedPaths))
     {
-        auto pathData = getDataByPathId(pathId);
+        auto pathData = getDataByPathKey(pathKey);
         if (pathData)
         {
             result.append(pathData);
@@ -995,37 +1659,40 @@ ShortestPathsTable::getCheckedPathData() const
  * @brief Gets the currently selected path ID
  * @return The selected path ID or -1 if none selected
  */
-int ShortestPathsTable::getSelectedPathId() const
+ShortestPathsTable::ExecutionPathKey
+ShortestPathsTable::getSelectedPathKey() const
 {
     // Get all selected items
     QList<QTableWidgetItem *> selectedItems =
         m_table->selectedItems();
     if (selectedItems.isEmpty())
     {
-        return -1; // No selection
+        return QString(); // No selection
     }
 
     // Get the row of the first selected item
     int row = selectedItems.first()->row();
 
     // Get the Path ID from column 1
-    auto idItem = m_table->item(row, 1);
-    return idItem ? idItem->text().toInt() : -1;
+    auto idItem = m_table->item(row, ColumnPathId);
+    return idItem ? idItem->data(Qt::UserRole).toString()
+                  : QString();
 }
 
 /**
  * @brief Gets all path IDs that are currently checked
  * @return Vector of checked path IDs
  */
-QVector<int> ShortestPathsTable::getCheckedPathIds() const
+QVector<ExecutionPathKey>
+ShortestPathsTable::getCheckedPathKeys() const
 {
-    QVector<int> checkedPaths;
+    QVector<ExecutionPathKey> checkedPaths;
 
     // Iterate through all rows in the table
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         // Get the checkbox widget in the first column
-        auto checkboxWidget = m_table->cellWidget(row, 0);
+        auto checkboxWidget = m_table->cellWidget(row, ColumnSelect);
         if (!checkboxWidget)
         {
             continue; // Skip rows without checkbox widget
@@ -1041,14 +1708,16 @@ QVector<int> ShortestPathsTable::getCheckedPathIds() const
         // Get the checkbox from the layout
         auto checkBox = qobject_cast<QCheckBox *>(
             layout->itemAt(0)->widget());
-        if (checkBox && checkBox->isChecked())
+        if (checkBox && checkBox->isEnabled()
+            && checkBox->isChecked())
         {
             // If checkbox exists and is checked, add the
             // path ID
-            auto idItem = m_table->item(row, 1);
+            auto idItem = m_table->item(row, ColumnPathId);
             if (idItem)
             {
-                checkedPaths.append(idItem->text().toInt());
+                checkedPaths.append(
+                    idItem->data(Qt::UserRole).toString());
             }
         }
     }
@@ -1065,7 +1734,9 @@ void ShortestPathsTable::clear()
 {
     // Clear all path data, which will delete the owned Path
     // pointers
+    qDeleteAll(m_pathData);
     m_pathData.clear();
+    m_displayOrder.clear();
 
     // Clear the table
     m_table->setRowCount(0);
@@ -1073,6 +1744,97 @@ void ShortestPathsTable::clear()
     // Disable buttons that require paths
     m_compareButton->setEnabled(false);
     m_exportButton->setEnabled(false);
+    m_predicted.clear();
+    m_actual.clear();
+    m_progressByPathKey.clear();
+    m_rowByPathKey.clear();
+    updateAvailabilityBanner();
+}
+
+QList<QJsonObject> ShortestPathsTable::buildComparisonSnapshots(
+    const Backend::Scenario::ScenarioDocument &doc) const
+{
+    QVariantMap costWeights;
+    auto &ctl = CargoNetSim::CargoNetSimController::getInstance();
+    costWeights = ctl.getCostFunctionWeights();
+
+    const QVector<ExecutionPathKey> checkedPathKeys =
+        getCheckedPathKeys();
+    QSet<ExecutionPathKey> checkedSet;
+    for (const auto &pathKey : checkedPathKeys)
+        checkedSet.insert(pathKey);
+
+    QList<Backend::Application::PathPresentationRecord>
+        records;
+    records.reserve(m_displayOrder.size());
+    for (const auto &pathKey : std::as_const(m_displayOrder))
+    {
+        const PathData *pathData =
+            m_pathData.value(pathKey, nullptr);
+        if (!pathData || !pathData->path)
+            continue;
+
+        Backend::Application::PathPresentationRecord
+            record = *pathData;
+        record.executionPathKey = pathData->pathKey;
+        record.pathKey = pathData->pathKey;
+        record.isSelected =
+            checkedSet.contains(pathKey);
+        record.predictedMetrics = m_predicted.value(pathKey);
+        record.actualMetrics = m_actual.value(pathKey);
+        records.append(std::move(record));
+    }
+
+    return Backend::Application::PathPresentationService()
+        .buildComparisonSnapshots(doc, records, costWeights);
+}
+
+void ShortestPathsTable::loadComparisonSnapshots(
+    const QList<QJsonObject> &snapshots)
+{
+    clear();
+
+    QSet<ExecutionPathKey> selectedPathKeys;
+    const auto records =
+        Backend::Application::PathPresentationService()
+            .loadComparisonSnapshots(snapshots);
+    for (const auto &record : records)
+    {
+        if (!record.path)
+            continue;
+
+        const ExecutionPathKey storedKey =
+            appendPathRecord(record);
+        if (record.isSelected)
+            selectedPathKeys.insert(storedKey);
+    }
+    logPredictedPathDiagnostics(m_pathData, m_displayOrder,
+                                QStringLiteral("loadComparisonSnapshots"));
+
+    refreshTable();
+    m_exportButton->setEnabled(!m_pathData.isEmpty());
+    m_selectAllButton->setEnabled(!m_pathData.isEmpty());
+
+    for (int row = 0; row < m_table->rowCount(); ++row)
+    {
+        auto *idItem = m_table->item(row, ColumnPathId);
+        if (!idItem)
+            continue;
+        const QString pathKey =
+            idItem->data(Qt::UserRole).toString();
+        if (!selectedPathKeys.contains(pathKey))
+            continue;
+        auto *checkboxWidget = m_table->cellWidget(row, ColumnSelect);
+        if (!checkboxWidget || !checkboxWidget->layout())
+            continue;
+        auto *checkBox = qobject_cast<QCheckBox *>(
+            checkboxWidget->layout()->itemAt(0)->widget());
+        if (checkBox)
+            checkBox->setChecked(true);
+    }
+
+    m_compareButton->setEnabled(!selectedPathKeys.isEmpty());
+    m_unselectAllButton->setEnabled(!selectedPathKeys.isEmpty());
 }
 
 /**
@@ -1090,18 +1852,20 @@ void ShortestPathsTable::onSelectionChanged()
     }
 
     // Get the currently selected path ID
-    int pathId = getSelectedPathId();
+    const ExecutionPathKey pathKey = getSelectedPathKey();
+    qCDebug(lcGuiPathTable) << "ShortestPathsTable::onSelectionChanged:"
+                            << "pathKey=" << pathKey;
 
     // Enable export button if either a path is selected or
     // any path is checked
-    bool hasCheckedPaths = !getCheckedPathIds().isEmpty();
-    m_exportButton->setEnabled(pathId >= 0
+    bool hasCheckedPaths = !getCheckedPathKeys().isEmpty();
+    m_exportButton->setEnabled(!pathKey.isEmpty()
                                || hasCheckedPaths);
 
     // Emit selection signal if a path is selected
-    if (pathId >= 0)
+    if (!pathKey.isEmpty())
     {
-        emit pathSelected(pathId);
+        emit pathSelected(pathKey);
     }
 }
 
@@ -1128,8 +1892,10 @@ void ShortestPathsTable::onItemCheckedChanged(int row,
  */
 void ShortestPathsTable::onCompareButtonClicked()
 {
+    qCDebug(lcGuiPathTable) << "ShortestPathsTable::onCompareButtonClicked: begin";
     // Get IDs of all checked paths
-    QVector<int> checkedPaths = getCheckedPathIds();
+    QVector<ExecutionPathKey> checkedPaths =
+        getCheckedPathKeys();
 
     // Get the path data for all checked paths
     QList<const PathData *> pathDataToCompare =
@@ -1155,13 +1921,15 @@ void ShortestPathsTable::onCompareButtonClicked()
  */
 void ShortestPathsTable::onExportButtonClicked()
 {
+    qCInfo(lcGuiPathTable) << "ShortestPathsTable::onExportButtonClicked: begin";
     // Get IDs of all checked paths
-    QVector<int> checkedPaths = getCheckedPathIds();
+    QVector<ExecutionPathKey> checkedPaths =
+        getCheckedPathKeys();
 
     if (checkedPaths.isEmpty())
     {
         // No paths checked, export all visible paths
-        exportPathsToPdf(QVector<int>());
+        exportPathsToPdf(QVector<ExecutionPathKey>());
         emit allPathsExportRequested();
     }
     else
@@ -1189,9 +1957,10 @@ void ShortestPathsTable::onExportButtonClicked()
  */
 void ShortestPathsTable::onExportAllButtonClicked()
 {
+    qCInfo(lcGuiPathTable) << "ShortestPathsTable::onExportAllButtonClicked: begin";
     // Export all paths to PDF (empty vector means all
     // paths)
-    exportPathsToPdf(QVector<int>());
+    exportPathsToPdf(QVector<ExecutionPathKey>());
 
     // Emit signal for other listeners
     emit allPathsExportRequested();
@@ -1211,7 +1980,7 @@ void ShortestPathsTable::onSelectAllButtonClicked()
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         // Get the checkbox widget in the first column
-        auto checkboxWidget = m_table->cellWidget(row, 0);
+        auto checkboxWidget = m_table->cellWidget(row, ColumnSelect);
         if (!checkboxWidget)
         {
             continue; // Skip rows without checkbox widget
@@ -1227,7 +1996,7 @@ void ShortestPathsTable::onSelectAllButtonClicked()
         // Get the checkbox from the layout
         auto checkBox = qobject_cast<QCheckBox *>(
             layout->itemAt(0)->widget());
-        if (checkBox)
+        if (checkBox && checkBox->isEnabled())
         {
             // Check the checkbox
             checkBox->setChecked(true);
@@ -1239,12 +2008,13 @@ void ShortestPathsTable::onSelectAllButtonClicked()
 
     // Enable compare button if paths are checked
     m_compareButton->setEnabled(
-        !getCheckedPathIds().isEmpty());
+        !getCheckedPathKeys().isEmpty());
 
     // Enable/disable selection buttons based on state
-    m_selectAllButton->setEnabled(false);
+    m_selectAllButton->setEnabled(
+        selectablePathCount() > getCheckedPathKeys().size());
     m_unselectAllButton->setEnabled(
-        !getCheckedPathIds().isEmpty());
+        !getCheckedPathKeys().isEmpty());
 }
 
 /**
@@ -1262,7 +2032,7 @@ void ShortestPathsTable::onUnselectAllButtonClicked()
     for (int row = 0; row < m_table->rowCount(); ++row)
     {
         // Get the checkbox widget in the first column
-        auto checkboxWidget = m_table->cellWidget(row, 0);
+        auto checkboxWidget = m_table->cellWidget(row, ColumnSelect);
         if (!checkboxWidget)
         {
             continue; // Skip rows without checkbox widget
@@ -1292,34 +2062,37 @@ void ShortestPathsTable::onUnselectAllButtonClicked()
     m_compareButton->setEnabled(false);
 
     // Enable/disable selection buttons based on state
-    m_selectAllButton->setEnabled(!m_pathData.isEmpty());
+    m_selectAllButton->setEnabled(selectablePathCount() > 0);
     m_unselectAllButton->setEnabled(false);
 }
 
 void ShortestPathsTable::exportPathsToPdf(
-    const QVector<int> &pathIds)
+    const QVector<ExecutionPathKey> &pathKeys)
 {
+    qCInfo(lcGuiPathTable) << "ShortestPathsTable::exportPathsToPdf:"
+                           << "pathKeys=" << pathKeys.size();
     // Get path data for the specified IDs
     QList<const PathData *> pathsToExport;
 
-    if (pathIds.isEmpty())
+    if (pathKeys.isEmpty())
     {
         // If no IDs specified, export all visible paths
-        for (auto it = m_pathData.begin();
-             it != m_pathData.end(); ++it)
+        for (const auto &pathKey : std::as_const(m_displayOrder))
         {
-            if (it.value()->isVisible)
+            const auto *pathData =
+                m_pathData.value(pathKey, nullptr);
+            if (pathData && pathData->isVisible)
             {
-                pathsToExport.append(it.value());
+                pathsToExport.append(pathData);
             }
         }
     }
     else
     {
         // Export only the specified paths
-        for (int pathId : pathIds)
+        for (const auto &pathKey : pathKeys)
         {
-            auto it = m_pathData.find(pathId);
+            auto it = m_pathData.find(pathKey);
             if (it != m_pathData.end()
                 && it.value()->isVisible)
             {
@@ -1377,6 +2150,301 @@ void ShortestPathsTable::exportPathsToPdf(
         exporter.exportPathsWithDialog(pathsToExport, this,
                                        defaultFilename);
     }
+}
+
+// ---------------------------------------------------------------
+// Plan 8.2: per-path predicted/actual metric column support.
+// ---------------------------------------------------------------
+
+void ShortestPathsTable::setActualMetrics(
+    const QHash<ExecutionPathKey, Backend::Scenario::PathMetrics> &actual)
+{
+    for (auto it = actual.constBegin();
+         it != actual.constEnd(); ++it)
+    {
+        m_actual.insert(it.key(), it.value());
+        if (auto *pathData = m_pathData.value(it.key(), nullptr))
+            pathData->actualMetrics = it.value();
+        refreshRow(it.key());
+    }
+}
+
+void ShortestPathsTable::setExecutionResults(
+    const Backend::Scenario::ScenarioExecutionResultSet &results)
+{
+    for (const auto &result : results.pathResults())
+    {
+        PathData *pathData =
+            m_pathData.value(result.executionPathKey, nullptr);
+        if (!pathData && !result.canonicalPathKey.isEmpty())
+        {
+            pathData = m_pathData.value(result.canonicalPathKey, nullptr);
+        }
+        if (!pathData)
+        {
+            qCWarning(lcGuiPathTable)
+                << "Path key" << result.executionPathKey
+                << "not found for execution result update";
+            continue;
+        }
+
+        pathData->executionResult = result;
+        updateSimulationCosts(pathData->pathKey,
+                              result.totalCost,
+                              result.edgeCosts,
+                              result.terminalCosts);
+    }
+}
+
+void ShortestPathsTable::setExecutionProgress(
+    const Backend::Scenario::ExecutionProgressSnapshot &snapshot)
+{
+    m_progressByPathKey.clear();
+
+    for (const auto &progress : snapshot.paths)
+    {
+        ExecutionPathKey pathKey;
+        if (m_pathData.contains(progress.executionPathKey))
+        {
+            pathKey = progress.executionPathKey;
+        }
+        else if (!progress.canonicalPathKey.isEmpty()
+                 && m_pathData.contains(progress.canonicalPathKey))
+        {
+            pathKey = progress.canonicalPathKey;
+        }
+
+        if (pathKey.isEmpty())
+        {
+            qCDebug(lcGuiPathTable)
+                << "Ignoring execution progress for unknown path"
+                << progress.executionPathKey
+                << "canonicalPathKey=" << progress.canonicalPathKey;
+            continue;
+        }
+
+        m_progressByPathKey.insert(pathKey, progress);
+    }
+
+    for (const auto &pathKey : std::as_const(m_displayOrder))
+        refreshProgressCell(pathKey);
+}
+
+void ShortestPathsTable::clearExecutionProgress()
+{
+    if (m_progressByPathKey.isEmpty())
+        return;
+
+    m_progressByPathKey.clear();
+    for (const auto &pathKey : std::as_const(m_displayOrder))
+        refreshProgressCell(pathKey);
+}
+
+ShortestPathsTable::ExecutionPathKey
+ShortestPathsTable::appendPathRecord(PathData record)
+{
+    if (!record.path)
+    {
+        qCWarning(lcGuiPathTable)
+            << "Skipping null path presentation record";
+        return {};
+    }
+
+    const ExecutionPathKey preferredKey =
+        record.executionPathKey.isEmpty()
+            ? record.path->canonicalPathKey().isEmpty()
+                  ? QStringLiteral("path_id|%1")
+                        .arg(record.path->getPathId())
+                  : record.path->canonicalPathKey()
+            : record.executionPathKey;
+    const ExecutionPathKey resolvedKey =
+        makeUniquePathKey(preferredKey, m_pathData);
+
+    record.executionPathKey = resolvedKey;
+    record.pathKey = resolvedKey;
+
+    m_predicted.insert(resolvedKey, record.predictedMetrics);
+    m_actual.insert(resolvedKey, record.actualMetrics);
+
+    auto *pathData = new PathData(std::move(record));
+    m_pathData.insert(resolvedKey, pathData);
+    m_displayOrder.append(resolvedKey);
+
+    if (resolvedKey != preferredKey)
+    {
+        qCWarning(lcGuiPathTable)
+            << "Execution path key collision detected;"
+            << "using compatibility key" << resolvedKey
+            << "for preferred execution path key" << preferredKey;
+    }
+
+    return resolvedKey;
+}
+
+void ShortestPathsTable::refreshProgressCell(
+    const ExecutionPathKey &pathKey)
+{
+    const int row = m_rowByPathKey.value(pathKey, -1);
+    if (row < 0)
+        return;
+
+    auto *progressBar = qobject_cast<QProgressBar *>(
+        m_table->cellWidget(row, ColumnExecutionProgress));
+    if (!progressBar)
+    {
+        progressBar = new QProgressBar(m_table);
+        progressBar->setRange(0, 100);
+        progressBar->setTextVisible(true);
+        progressBar->setAlignment(Qt::AlignCenter);
+        m_table->setCellWidget(row, ColumnExecutionProgress,
+                               progressBar);
+    }
+
+    const auto it = m_progressByPathKey.constFind(pathKey);
+    if (it == m_progressByPathKey.constEnd())
+    {
+        progressBar->setValue(0);
+        progressBar->setFormat(tr("Waiting simulation"));
+        progressBar->setToolTip(
+            tr("No execution progress has been reported for this path yet."));
+        progressBar->setEnabled(false);
+        return;
+    }
+
+    const auto &progress = it.value();
+    progressBar->setEnabled(progress.executable);
+    progressBar->setValue(qBound(0, qRound(progress.percent), 100));
+
+    QString phase = pathLifecycleLabel(progress.lifecycle);
+    if (const auto *activeSegment = activeSegmentFor(progress))
+    {
+        phase = segmentLifecycleLabel(activeSegment->lifecycle);
+    }
+
+    QString summary = phase;
+    if (progress.activeSegmentIndex >= 0
+        && progress.totalSegments > 0)
+    {
+        summary = tr("%1 seg %2/%3 %4")
+                      .arg(modeLabel(progress.activeMode))
+                      .arg(progress.activeSegmentIndex + 1)
+                      .arg(progress.totalSegments)
+                      .arg(phase);
+    }
+    else if (!progress.message.isEmpty())
+    {
+        summary = progress.message;
+    }
+
+    progressBar->setFormat(QStringLiteral("%p%  %1").arg(summary));
+
+    QStringList tooltip;
+    tooltip << tr("Path progress: %1%")
+                   .arg(progress.percent, 0, 'f', 1)
+            << tr("Path state: %1")
+                   .arg(pathLifecycleLabel(progress.lifecycle));
+    if (progress.activeSegmentIndex >= 0)
+    {
+        tooltip << tr("Active segment: %1 of %2")
+                       .arg(progress.activeSegmentIndex + 1)
+                       .arg(progress.totalSegments)
+                << tr("Mode: %1").arg(modeLabel(progress.activeMode))
+                << tr("Network: %1").arg(progress.activeNetworkName)
+                << tr("From: %1").arg(progress.activeStartTerminalId)
+                << tr("To: %1").arg(progress.activeEndTerminalId);
+    }
+    if (!progress.message.isEmpty())
+        tooltip << tr("Message: %1").arg(progress.message);
+
+    if (!progress.segments.isEmpty())
+    {
+        tooltip << tr("Segments:");
+        for (const auto &segment : progress.segments)
+        {
+            tooltip << tr("%1. %2 %3 -> %4: %5 (%6%)")
+                           .arg(segment.segmentIndex + 1)
+                           .arg(modeLabel(segment.mode))
+                           .arg(segment.startTerminalId,
+                                segment.endTerminalId,
+                                segmentLifecycleLabel(
+                                    segment.lifecycle))
+                           .arg(segment.percent, 0, 'f', 1);
+        }
+    }
+
+    progressBar->setToolTip(tooltip.join(QLatin1Char('\n')));
+}
+
+void ShortestPathsTable::refreshRow(
+    const ExecutionPathKey &pathKey)
+{
+    const int row = m_rowByPathKey.value(pathKey, -1);
+    if (row < 0)
+        return;
+
+    auto          fmt  = [](double v) {
+        return QString::number(v, 'f', 2);
+    };
+    const QString dash = QStringLiteral("—");
+    auto          cell = [&](bool valid, double v) {
+        return new QTableWidgetItem(valid ? fmt(v) : dash);
+    };
+
+    const auto &p = m_predicted.value(pathKey);
+    const auto &a = m_actual.value(pathKey);
+
+    refreshProgressCell(pathKey);
+
+    // Predicted per-vehicle.
+    m_table->setItem(row, ColumnPredictedDistance,
+                     cell(p.valid, p.distanceKm));
+    m_table->setItem(row, ColumnPredictedTime,
+                     cell(p.valid, p.travelTimeHours));
+    m_table->setItem(row, ColumnPredictedFuelPerVehicle,
+                     cell(p.valid, p.fuelPerVehicle));
+    m_table->setItem(row, ColumnPredictedEnergyPerVehicle,
+                     cell(p.valid, p.energyPerVehicle));
+    m_table->setItem(row, ColumnPredictedCarbonPerVehicle,
+                     cell(p.valid, p.carbonPerVehicle));
+    m_table->setItem(row, ColumnPredictedRiskPerVehicle,
+                     cell(p.valid, p.riskPerVehicle));
+
+    // Actual per-vehicle; no fuel column, see createTableWidget note.
+    m_table->setItem(row, ColumnActualDistance,
+                     cell(a.valid, a.distanceKm));
+    m_table->setItem(row, ColumnActualTime,
+                     cell(a.valid, a.travelTimeHours));
+    m_table->setItem(row, ColumnActualEnergyPerVehicle,
+                     cell(a.valid, a.energyPerVehicle));
+    m_table->setItem(row, ColumnActualCarbonPerVehicle,
+                     cell(a.valid, a.carbonPerVehicle));
+    m_table->setItem(row, ColumnActualRiskPerVehicle,
+                     cell(a.valid, a.riskPerVehicle));
+
+    // Preview-demand counts and per-container metrics.
+    m_table->setItem(row, ColumnContainers, new QTableWidgetItem(
+        p.valid ? QString::number(p.containerCount) : dash));
+    auto *vehicleItem = new QTableWidgetItem(
+        p.valid ? vehicleBreakdownLabel(p) : dash);
+    if (p.valid && !p.previewVehicleBreakdown.isEmpty())
+    {
+        vehicleItem->setToolTip(
+            tr("Per-segment preview vehicle requirements for the path: %1")
+                .arg(vehicleBreakdownLabel(p)));
+    }
+    m_table->setItem(row, ColumnVehicles, vehicleItem);
+
+    m_table->setItem(row, ColumnPredictedFuelPerContainer,
+                     cell(p.valid, p.fuelPerContainer));
+    m_table->setItem(row, ColumnPredictedEnergyPerContainer,
+                     cell(p.valid, p.energyPerContainer));
+    m_table->setItem(row, ColumnPredictedCarbonPerContainer,
+                     cell(p.valid, p.carbonPerContainer));
+
+    m_table->setItem(row, ColumnActualEnergyPerContainer,
+                     cell(a.valid, a.energyPerContainer));
+    m_table->setItem(row, ColumnActualCarbonPerContainer,
+                     cell(a.valid, a.carbonPerContainer));
 }
 
 } // namespace GUI

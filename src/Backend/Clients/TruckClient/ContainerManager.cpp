@@ -6,6 +6,7 @@
  */
 
 #include "ContainerManager.h"
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -23,8 +24,18 @@ void ContainerManager::assignContainersToVehicle(
     const QString                           &vehicleId,
     const QList<ContainerCore::Container *> &containers)
 {
+    qCDebug(lcClientTruck)
+        << "ContainerManager::assignContainersToVehicle:"
+        << "vehicleId=" << vehicleId
+        << "containerCount=" << containers.size();
+
     if (containers.isEmpty())
     {
+        qCWarning(lcClientTruck)
+            << "ContainerManager::"
+               "assignContainersToVehicle:"
+            << "empty container list"
+            << "vehicleId=" << vehicleId;
         return;
     }
 
@@ -71,7 +82,22 @@ void ContainerManager::assignContainersToVehicle(
     // Emit signal if any containers were assigned
     if (!containerIds.isEmpty())
     {
+        qCDebug(lcClientTruck)
+            << "ContainerManager::"
+               "assignContainersToVehicle:"
+            << "assigned" << containerIds.size()
+            << "containers to vehicleId=" << vehicleId;
         emit containersAssigned(vehicleId, containerIds);
+    }
+    else
+    {
+        int skipped = containers.size();
+        qCWarning(lcClientTruck)
+            << "ContainerManager::"
+               "assignContainersToVehicle:"
+            << "all" << skipped
+            << "containers were null or already assigned"
+            << "vehicleId=" << vehicleId;
     }
 }
 
@@ -80,9 +106,29 @@ ContainerManager::removeContainersFromVehicle(
     const QString                           &vehicleId,
     const QList<ContainerCore::Container *> &containers)
 {
-    if (!m_containersByVehicle.contains(vehicleId)
-        || containers.isEmpty())
+    qCDebug(lcClientTruck)
+        << "ContainerManager::"
+           "removeContainersFromVehicle:"
+        << "vehicleId=" << vehicleId
+        << "containerCount=" << containers.size();
+
+    if (!m_containersByVehicle.contains(vehicleId))
     {
+        qCWarning(lcClientTruck)
+            << "ContainerManager::"
+               "removeContainersFromVehicle:"
+            << "vehicle not found"
+            << "vehicleId=" << vehicleId;
+        return QList<ContainerCore::Container *>();
+    }
+
+    if (containers.isEmpty())
+    {
+        qCWarning(lcClientTruck)
+            << "ContainerManager::"
+               "removeContainersFromVehicle:"
+            << "empty container list"
+            << "vehicleId=" << vehicleId;
         return QList<ContainerCore::Container *>();
     }
 
@@ -130,8 +176,18 @@ QList<ContainerCore::Container *>
 ContainerManager::removeAllContainersFromVehicle(
     const QString &vehicleId)
 {
+    qCDebug(lcClientTruck)
+        << "ContainerManager::"
+           "removeAllContainersFromVehicle:"
+        << "vehicleId=" << vehicleId;
+
     if (!m_containersByVehicle.contains(vehicleId))
     {
+        qCWarning(lcClientTruck)
+            << "ContainerManager::"
+               "removeAllContainersFromVehicle:"
+            << "vehicle not found"
+            << "vehicleId=" << vehicleId;
         return QList<ContainerCore::Container *>();
     }
 
@@ -159,6 +215,11 @@ ContainerManager::removeAllContainersFromVehicle(
     // Emit signal if any containers were removed
     if (!containerIds.isEmpty())
     {
+        qCDebug(lcClientTruck)
+            << "ContainerManager::"
+               "removeAllContainersFromVehicle:"
+            << "removed" << containerIds.size()
+            << "containers from vehicleId=" << vehicleId;
         emit containersRemoved(vehicleId, containerIds);
     }
 
@@ -170,8 +231,17 @@ bool ContainerManager::transferContainers(
     const QString &destVehicleId,
     const QList<ContainerCore::Container *> &containers)
 {
+    qCDebug(lcClientTruck)
+        << "ContainerManager::transferContainers:"
+        << "from=" << sourceVehicleId
+        << "to=" << destVehicleId
+        << "containerCount=" << containers.size();
+
     if (containers.isEmpty())
     {
+        qCWarning(lcClientTruck)
+            << "ContainerManager::transferContainers:"
+            << "empty container list";
         return false;
     }
 
@@ -219,21 +289,37 @@ QList<ContainerCore::Container *>
 ContainerManager::getContainersForVehicle(
     const QString &vehicleId) const
 {
-    return m_containersByVehicle.value(vehicleId);
+    auto result = m_containersByVehicle.value(vehicleId);
+    qCDebug(lcClientTruck)
+        << "ContainerManager::getContainersForVehicle:"
+        << "vehicleId=" << vehicleId
+        << "count=" << result.size();
+    return result;
 }
 
 QString ContainerManager::getVehicleForContainer(
     const ContainerCore::Container *container) const
 {
-    return m_vehicleByContainer.value(container, QString());
+    auto result =
+        m_vehicleByContainer.value(container, QString());
+    qCDebug(lcClientTruck)
+        << "ContainerManager::getVehicleForContainer:"
+        << "result=" << result;
+    return result;
 }
 
 bool ContainerManager::isContainerAssignedToVehicle(
     const QString                  &vehicleId,
     const ContainerCore::Container *container) const
 {
-    return m_vehicleByContainer.value(container)
-           == vehicleId;
+    bool result =
+        m_vehicleByContainer.value(container) == vehicleId;
+    qCDebug(lcClientTruck)
+        << "ContainerManager::"
+           "isContainerAssignedToVehicle:"
+        << "vehicleId=" << vehicleId
+        << "assigned=" << result;
+    return result;
 }
 
 } // namespace TruckClient

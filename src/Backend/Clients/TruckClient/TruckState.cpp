@@ -6,6 +6,7 @@
  */
 
 #include "TruckState.h"
+#include "Backend/Commons/LogCategories.h"
 
 namespace CargoNetSim
 {
@@ -24,12 +25,21 @@ TruckState::TruckState(const QString &networkName,
     , m_originId(originId)
     , m_destinationId(destinationId)
 {
+    qCDebug(lcClientTruck)
+        << "TruckState::TruckState:"
+        << "network=" << networkName
+        << "tripId=" << tripId
+        << "origin=" << originId
+        << "dest=" << destinationId;
 }
 
 TruckState::TruckState(const QJsonObject &jsonData,
                        QObject           *parent)
     : QObject(parent)
 {
+    qCDebug(lcClientTruck)
+        << "TruckState::TruckState:"
+        << "constructing from JSON";
     updateFromJson(jsonData);
 }
 
@@ -93,6 +103,12 @@ QJsonObject TruckState::toJson() const
 
 void TruckState::updateFromJson(const QJsonObject &jsonData)
 {
+    qCDebug(lcClientTruck)
+        << "TruckState::updateFromJson:"
+        << "tripId=" << jsonData["tripId"].toString()
+        << "network="
+        << jsonData["networkName"].toString();
+
     m_networkName =
         jsonData["networkName"].toString(m_networkName);
     m_tripId   = jsonData["tripId"].toString().toInt();
@@ -106,12 +122,24 @@ void TruckState::updateFromJson(const QJsonObject &jsonData)
     m_travelTime =
         jsonData["travelTime"].toDouble(m_travelTime);
     m_isCompleted = true;
+
+    qCDebug(lcClientTruck)
+        << "TruckState::updateFromJson:"
+        << "completed, distance=" << m_distance
+        << "fuel=" << m_fuelConsumption
+        << "travelTime=" << m_travelTime;
+
     emit tripEnded();
 }
 
 void TruckState::updateInfoFromJson(
     const QJsonObject &jsonData)
 {
+    qCDebug(lcClientTruck)
+        << "TruckState::updateInfoFromJson:"
+        << "tripId=" << jsonData["tripId"].toString()
+        << "linkId=" << jsonData["linkId"].toString();
+
     m_networkName =
         jsonData["networkName"].toString(m_networkName);
     m_tripId   = jsonData["tripId"].toString().toInt();
@@ -119,6 +147,11 @@ void TruckState::updateInfoFromJson(
     m_speed    = jsonData["speed"].toDouble(m_speed);
     m_distance = jsonData["distance"].toDouble(m_distance);
     m_isCompleted = false;
+
+    qCDebug(lcClientTruck)
+        << "TruckState::updateInfoFromJson:"
+        << "speed=" << m_speed
+        << "distance=" << m_distance;
 }
 
 } // namespace TruckClient

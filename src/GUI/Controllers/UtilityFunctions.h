@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Backend/Commons/ShortestPathResult.h"
 #include "Backend/Controllers/CargoNetSimController.h"
 #include "GUI/Commons/NetworkType.h"
 #include "GUI/Items/RegionCenterPoint.h"
@@ -19,12 +18,9 @@ namespace GUI
 
 class MapPoint;
 class MainWindow;
-class PathFindingWorker;
 
 class UtilitiesFunctions
 {
-    friend class PathFindingWorker;
-
 public:
     enum class ConnectionType
     {
@@ -61,12 +57,6 @@ public:
         const QString &networkName = "*",
         NetworkType    networkType = NetworkType::Train);
 
-    static CargoNetSim::GUI::TerminalItem *
-    getOriginTerminal(MainWindow *mainWindow);
-
-    static CargoNetSim::GUI::TerminalItem *
-    getDestinationTerminal(MainWindow *mainWindow);
-
     /**
      * @brief Updates the properties panel with the selected
      * item's properties
@@ -92,7 +82,11 @@ public:
     updateGlobalMapForRegion(MainWindow    *mainWindow,
                              const QString &regionName);
 
-    static QList<QString>
+    /// Returns the intersection of source and target interface modes.
+    /// Typed enum set — callers compare against TransportationMode values
+    /// rather than hand-matching "Truck" / "Rail" / "Ship" strings.
+    /// Empty set when either endpoint is unresolvable.
+    static QSet<Backend::TransportationTypes::TransportationMode>
     getCommonModes(QGraphicsItem *sourceItem,
                    QGraphicsItem *targetItem);
 
@@ -113,15 +107,6 @@ public:
 
     static void getTopShortestPaths(MainWindow *mainWindow,
                                     int         PathsCount);
-
-    static bool setConnectionProperties(
-        MainWindow                       *mainWindow,
-        CargoNetSim::GUI::ConnectionLine *connection,
-        const CargoNetSim::Backend::ShortestPathResult
-                                      &pathResult,
-        CargoNetSim::GUI::NetworkType &networkType,
-        std::optional<bool> overrideUseNetworkValue =
-            std::nullopt);
 
     static bool processNetworkModeConnection(
         MainWindow                     *mainWindow,

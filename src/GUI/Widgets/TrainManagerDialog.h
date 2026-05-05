@@ -2,6 +2,7 @@
 
 #include <QDialog>
 #include <QHeaderView>
+#include <QStringList>
 #include <QTableWidget>
 #include <QTextEdit>
 #include <QToolBar>
@@ -45,6 +46,15 @@ public:
      */
     virtual ~TrainManagerDialog() = default;
 
+    /**
+     * @brief Get the current trains from the dialog
+     * @return Vector of train objects
+     */
+    QVector<Backend::Train *> getTrains() const;
+
+    /// @brief Returns the list of file paths loaded during this dialog session.
+    QStringList newlyLoadedFiles() const { return m_newlyLoadedFiles; }
+
 signals:
     /**
      * @brief Signal emitted when trains are loaded from a
@@ -71,12 +81,6 @@ public slots:
      * @param trains Vector of train objects
      */
     void setTrains(const QVector<Backend::Train *> trains);
-
-    /**
-     * @brief Get the current trains from the dialog
-     * @return Vector of train objects
-     */
-    QVector<Backend::Train *> getTrains() const;
 
 private slots:
     /**
@@ -122,6 +126,7 @@ private:
 
     // Data
     QVector<Backend::Train *> m_trains;
+    QStringList               m_newlyLoadedFiles;
 };
 
 } // namespace GUI

@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "Backend/Commons/Units.h"
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
@@ -198,9 +199,29 @@ public:
     {
         return m_length;
     }
+
+    Units::LengthKilometers lengthUnits() const
+    {
+        return Units::kilometers(m_length);
+    }
+
+    Units::LengthKilometers scaledLengthUnits() const
+    {
+        return Units::kilometers(m_length * m_lengthScale);
+    }
     float getFreeSpeed() const
     {
         return m_freeSpeed;
+    }
+
+    Units::SpeedKilometersPerHour freeSpeedUnits() const
+    {
+        return Units::kilometersPerHour(m_freeSpeed);
+    }
+
+    Units::SpeedKilometersPerHour scaledFreeSpeedUnits() const
+    {
+        return Units::kilometersPerHour(m_freeSpeed * m_speedScale);
     }
     float getSaturationFlow() const
     {
@@ -217,6 +238,11 @@ public:
     float getSpeedAtCapacity() const
     {
         return m_speedAtCapacity;
+    }
+
+    Units::SpeedKilometersPerHour speedAtCapacityUnits() const
+    {
+        return Units::kilometersPerHour(m_speedAtCapacity);
     }
     float getJamDensity() const
     {
@@ -292,11 +318,25 @@ public:
     void setUpstreamNodeId(int upstreamNodeId);
     void setDownstreamNodeId(int downstreamNodeId);
     void setLength(float length);
+    void setLengthUnits(Units::LengthKilometers length)
+    {
+        setLength(static_cast<float>(length.value()));
+    }
     void setFreeSpeed(float freeSpeed);
+    void setFreeSpeedUnits(Units::SpeedKilometersPerHour freeSpeed)
+    {
+        setFreeSpeed(static_cast<float>(freeSpeed.value()));
+    }
     void setSaturationFlow(float saturationFlow);
     void setLanes(float lanes);
     void setSpeedCoeffVariation(float speedCoeffVariation);
     void setSpeedAtCapacity(float speedAtCapacity);
+    void setSpeedAtCapacityUnits(
+        Units::SpeedKilometersPerHour speedAtCapacity)
+    {
+        setSpeedAtCapacity(
+            static_cast<float>(speedAtCapacity.value()));
+    }
     void setJamDensity(float jamDensity);
     void setTurnProhibition(int turnProhibition);
     void setProhibitionStart(int prohibitionStart);

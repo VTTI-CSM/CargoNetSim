@@ -45,7 +45,7 @@ public:
     /**
      * @brief Updates the network list for the specified
      * network type.
-     * @param networkType The type of network ("Train
+     * @param networkType The type of network ("Rail
      * Network" or "Truck Network").
      */
     void updateNetworkList(const QString &networkType);

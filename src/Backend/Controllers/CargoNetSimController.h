@@ -11,6 +11,7 @@
 #include <QObject>
 #include <QString>
 #include <QThread>
+#include <atomic>
 #include <memory>
 
 #include "Backend/Clients/ShipClient/ShipSimulationClient.h"
@@ -28,45 +29,76 @@ namespace CargoNetSim
 {
 
 /**
- * @class CargoNetSimControllerCleanup
- * @brief Utility class to handle singleton cleanup.
- */
-class CargoNetSimControllerCleanup
-{
-public:
-    /**
-     * @brief Cleanup the CargoNetSimController singleton
-     *        instance.
-     */
-    static void cleanup();
-};
-
-/**
  * @class CargoNetSimController
- * @brief Central controller for multi-modal simulation
+ * @brief Central backend controller. Owns scenario data, network
+ *        catalogs, vehicle inventory, configuration, and the worker
+ *        thread pool used by the simulation clients.
  *
- * Manages truck, ship, train, and terminal simulation
- * clients, each running in its own thread, and provides a
- * unified interface for simulation control and
- * synchronization.
+ * @par Lifetime (Tier 1, Option E)
+ * Exactly one instance per process, stack-allocated in main()
+ * (both GUI and CLI). For GUI the declaration sits between the
+ * QApplication stack variable and the MainWindow stack variable,
+ * so C++ stack unwinding destroys MainWindow first, then the
+ * controller, then QApplication - the order required for safe
+ * GUI-before-controller teardown.
+ *
+ * For test binaries, QTEST_MAIN generates main() so the
+ * controller is instead heap-allocated in initTestCase() and
+ * parented to QCoreApplication::instance(). Qt reclaims it at
+ * process exit; test binaries are short-lived so production-
+ * style stack discipline is unnecessary.
+ *
+ * Callers look up the instance via getInstance() (reference,
+ * asserts if uninitialized) or instance() (nullable pointer,
+ * safe to call during startup and shutdown windows).
+ *
+ * @par Thread affinity
+ * Construction and destruction occur on the main thread; both
+ * are enforced at runtime by qFatal in release builds. Worker
+ * threads are created and joined inside the controller's
+ * lifetime, so cross-thread reads of instance() are safe without
+ * synchronization (construction happens-before worker spawn,
+ * destruction happens-after worker join).
+ *
+ * @par Invariants
+ * - Exactly one instance exists at any time; double construction
+ *   fires qFatal (release-safe).
+ * - Construction and destruction are main-thread only; off-thread
+ *   fires qFatal.
+ * - instance() returns nullptr before construction and after
+ *   destruction; getInstance() asserts.
  */
 class CargoNetSimController : public QObject
 {
     Q_OBJECT
 
-    friend class CargoNetSimControllerCleanup;
-
 public:
     /**
-     * @brief Get the singleton instance of
-     *        CargoNetSimController.
-     * @param logger Optional logger interface for logging
-     * @param parent Optional parent QObject.
-     * @return Reference to the singleton instance.
+     * @brief Reference access to the singleton. Asserts at runtime
+     * (qFatal in release) if no instance has been constructed. Use
+     * instance() for nullable access during startup or shutdown
+     * windows.
      */
-    static CargoNetSimController &
-    getInstance(Backend::LoggerInterface *logger = nullptr,
-                QObject                  *parent = nullptr);
+    static CargoNetSimController &getInstance();
+
+    /**
+     * @brief Non-owning lookup of the controller singleton.
+     *
+     * Returns nullptr if no instance has been constructed yet or if the
+     * instance has already been destroyed. Prefer this over getInstance()
+     * in code that may run during startup or shutdown windows.
+     *
+     * @return Pointer to the singleton, or nullptr.
+     */
+    static CargoNetSimController *instance();
+
+    // Tier 1 ownership model: main() and test setup construct the
+    // controller explicitly as a QObject parent-child of
+    // QCoreApplication::instance(). Only one instance may exist at a
+    // time - enforced by Q_ASSERT_X in the constructor body.
+    explicit CargoNetSimController(
+        Backend::LoggerInterface *logger = nullptr,
+        QObject                  *parent = nullptr);
 
     /**
      * @brief Destructor
@@ -98,10 +130,39 @@ public:
     bool startAll();
 
     /**
+     * @brief Wait until all client-thread startup work completes
+     * @param timeoutMs Maximum time to wait for queued startup tasks
+     * @param errorMessage Optional error output when startup fails
+     * @return True when every client reported ready before timeout
+     */
+    bool waitForAllClientsReady(
+        int timeoutMs, QString *errorMessage = nullptr);
+
+    /**
      * @brief Stops all simulation clients
      * @return True if all clients stopped successfully
      */
     bool stopAll();
+
+    // ==========================================
+    // Dynamic Interventions
+    // ==========================================
+
+    /**
+     * @brief Close a terminal and reroute traffic
+     * @param terminalId Terminal to close
+     * @param alternativeTerminalId Alternative terminal for rerouting
+     * @return True if closure was successful
+     */
+    Q_INVOKABLE bool closeTerminal(const QString& terminalId,
+                                   const QString& alternativeTerminalId);
+
+    /**
+     * @brief Reopen a previously closed terminal
+     * @param terminalId Terminal to reopen
+     * @return True if reopening was successful
+     */
+    Q_INVOKABLE bool reopenTerminal(const QString& terminalId);
 
     // Controller access methods
 
@@ -137,6 +198,83 @@ public:
      */
     Backend::TruckClient::TruckSimulationManager *
     getTruckManager() const;
+
+    /**
+     * @brief Returns the truck simulator executable path used to
+     *        initialize the controller.
+     */
+    QString truckExecutablePath() const;
+
+    // ==========================================
+    // GUI/CLI Façade Operations
+    // ==========================================
+
+    /**
+     * @brief Reload configuration from disk into the live controller-owned
+     *        config store.
+     * @return True if loading succeeded.
+     */
+    bool loadConfig();
+
+    /**
+     * @brief Returns the full configuration map currently held by the
+     *        controller-owned config store.
+     */
+    QVariantMap getAllConfigParams() const;
+
+    /**
+     * @brief Returns the simulation subsection of the live configuration.
+     */
+    QVariantMap getSimulationParams() const;
+
+    /**
+     * @brief Returns the canonical cost-function weights derived from the
+     *        live configuration.
+     */
+    QVariantMap getCostFunctionWeights() const;
+
+    /**
+     * @brief Replace the live configuration in memory.
+     */
+    void updateConfig(const QVariantMap &newConfig);
+
+    /**
+     * @brief Persist the live configuration to disk.
+     * @return True if saving succeeded.
+     */
+    bool saveConfig();
+
+    /**
+     * @brief Returns the current in-memory train inventory.
+     */
+    QVector<Backend::Train *> getAllTrains() const;
+
+    /**
+     * @brief Returns the current in-memory ship inventory.
+     */
+    QVector<Backend::Ship *> getAllShips() const;
+
+    /**
+     * @brief Replace the current in-memory train inventory.
+     * @return True if the update succeeded.
+     */
+    bool updateTrains(QVector<Backend::Train *> trains);
+
+    /**
+     * @brief Replace the current in-memory ship inventory.
+     * @return True if the update succeeded.
+     */
+    bool updateShips(QVector<Backend::Ship *> ships);
+
+    /**
+     * @brief Convenience read for GUI/CLI gating.
+     */
+    bool hasAnyTrains() const;
+
+    /**
+     * @brief Convenience read for GUI/CLI gating.
+     */
+    bool hasAnyShips() const;
 
     /**
      * @brief Gets the ship simulation client
@@ -211,6 +349,16 @@ signals:
      */
     void allClientsReady();
 
+    /**
+     * @brief Signal emitted whenever a queued client startup finishes
+     * @param clientType Type of client whose startup finished
+     * @param success Whether the queued startup succeeded
+     * @param errorMessage Error text when startup failed
+     */
+    void clientStartupFinished(
+        CargoNetSim::Backend::ClientType clientType, bool success,
+        const QString &errorMessage);
+
     ////////////// Terminal Client ////////////////////
     /**
      * @brief Signal to request terminal capacity
@@ -238,27 +386,36 @@ signals:
                               const QString &containersJson,
                               bool          &result);
 
-private slots:
     /**
-     * @brief Slot called when a thread has started
+     * @brief Emitted when a terminal is closed
+     * @param terminalId The closed terminal
+     * @param alternativeId The alternative terminal
      */
-    void onThreadStarted();
+    void terminalClosed(const QString& terminalId,
+                        const QString& alternativeId);
 
+    /**
+     * @brief Emitted when a terminal is reopened
+     * @param terminalId The reopened terminal
+     */
+    void terminalReopened(const QString& terminalId);
+
+private slots:
     /**
      * @brief Slot called when a thread has finished
      */
     void onThreadFinished();
 
-protected:
-    /**
-     * @brief Constructor
-     * @param parent The parent QObject
-     */
-    explicit CargoNetSimController(
-        Backend::LoggerInterface *logger = nullptr,
-        QObject                  *parent = nullptr);
-
-    static CargoNetSimController *m_instance;
+private:
+    // Tier 1 lifetime: single source of truth for the controller's
+    // identity. Set by the constructor (via compare_exchange, which
+    // also enforces the single-instance invariant atomically) and
+    // cleared by the destructor with a release store. Atomic so that
+    // cross-thread reads via instance() obey memory ordering even in
+    // the edge case where ~CargoNetSimController's 3s thread-join
+    // timeout is insufficient to stop a stuck worker: the release
+    // store synchronizes with acquire loads in worker threads.
+    static std::atomic<CargoNetSimController *> s_instance;
 
 private:
     /**
@@ -286,8 +443,18 @@ private:
      */
     bool initializeTerminalClient();
 
+    void queueTruckManagerStartup();
+    void queueShipClientStartup();
+    void queueTrainClientStartup();
+    void queueTerminalClientStartup();
+    void recordClientStartupResult(
+        Backend::ClientType clientType, bool success,
+        const QString &errorMessage);
+
     // SimulationTime
     Backend::SimulationTime *m_simulationTime;
+
+    QString m_truckExecutablePath;
 
     // Client threads
     QThread *m_truckThread;
@@ -314,12 +481,14 @@ private:
 
     // Track client initialization status
     QMap<Backend::ClientType, bool> m_clientInitialized;
+    QMap<Backend::ClientType, bool> m_clientReady;
+    QMap<Backend::ClientType, QString> m_clientStartupErrors;
     int                    m_initializedClientCount;
+    int                    m_completedStartupCount;
     int                    m_readyClientCount;
 
-    /** @brief Lock for thread safety of singleton creation
-     */
-    static QReadWriteLock m_instanceLock;
+    // Closed terminals for rerouting
+    QMap<QString, QString> m_closedTerminals;  // terminalId -> alternativeId
 };
 
 } // namespace CargoNetSim
