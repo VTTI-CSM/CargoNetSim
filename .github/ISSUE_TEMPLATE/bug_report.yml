@@ -1,0 +1,66 @@
+name: Bug Report
+description: Report a reproducible problem in CargoNetSim.
+title: "[Bug]: "
+labels:
+  - bug
+  - triage
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the problem clearly and concisely.
+    validations:
+      required: true
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Reproduction steps
+      description: List the steps needed to reproduce the issue.
+      placeholder: |
+        1. Open ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+      description: What actually happened?
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Other
+  - type: input
+    id: qt-version
+    attributes:
+      label: Qt version
+      placeholder: "Example: 6.6.3"
+  - type: input
+    id: cargonetsim-version
+    attributes:
+      label: CargoNetSim version or commit SHA
+      placeholder: "Example: 0.0.x or abc1234"
+  - type: textarea
+    id: logs-screenshots
+    attributes:
+      label: Logs and screenshots
+      description: Add logs, terminal output, screenshots, or screen recordings if useful.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues.
+          required: true
