@@ -1,0 +1,9 @@
+Minimal Truck Test Config
+3600 1 1 1 0
+.
+.
+truck_nodes.dat
+truck_links.dat
+truck_signals.dat
+truck_demands.dat
+truck_incidents.dat

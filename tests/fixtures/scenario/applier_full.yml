@@ -1,0 +1,73 @@
+schema_version: 1
+
+simulation:
+  time_step: 60
+  end_time: 86400
+  shortest_paths_n: 3
+  time_value_of_money: 10.0
+  use_specific_time_values: false
+  carbon_rate: 0.5
+  multipliers: { ship: 1.0, rail: 1.0, truck: 1.0 }
+  ship:  { speed: 20.0, fuel_type: HFO,    fuel_rate: 0.20, containers: 2000, risk: 0.05, time_value: 5.0,  use_network: true }
+  rail: { speed: 60.0, fuel_type: Diesel, fuel_rate: 0.40, containers: 500,  risk: 0.02, time_value: 10.0, use_network: true }
+  truck: { speed: 80.0, fuel_type: Diesel, fuel_rate: 0.08, containers: 2,    risk: 0.01, time_value: 15.0, use_network: true }
+  fuel_types:
+    Diesel: { energy: 35.8, carbon: 2.64, price: 1.20 }
+    HFO:    { energy: 40.5, carbon: 3.114, price: 0.80 }
+  dwell_time:
+    method: normal
+    parameters: { mean: 2880, std_dev: 720 }
+
+output:
+  directory: ./results
+  formats: [json]
+  container_tracking: true
+
+fleet:
+  trains: { files: ["fleet_trains.json"], inline: [] }
+  ships:  { files: ["fleet_ships.json"],  inline: [] }
+  trucks: { files: [],                    inline: [] }
+
+regions:
+  - name: USA
+    color: "#ff8800"
+    local_origin:    { latitude: 38.0, longitude: -97.0 }
+    global_position: { latitude: 40.7, longitude: -74.0 }
+    networks:
+      - { name: USA_rail,  type: rail,  reference_point: { x: 0, y: 0 },
+          files: { nodes: "rail_nodes.dat", links: "rail_links.dat" } }
+      - { name: USA_truck, type: truck, reference_point: { x: 0, y: 0 },
+          files: { config: "truck_config.dat" } }
+    linkages:    { strategy: hybrid, auto_rules: [land_terminal_to_rail_node], manual: [], exclude: [] }
+    connections: { strategy: auto,   auto_rules: [by_networks],                manual: [], exclude: [] }
+  - name: EU
+    color: "#0088ff"
+    local_origin:    { latitude: 51.5, longitude:  0.0 }
+    global_position: { latitude: 51.5, longitude:  0.0 }
+    networks: []
+    linkages:    { strategy: manual, auto_rules: [], manual: [], exclude: [] }
+    connections: { strategy: manual, auto_rules: [], manual: [], exclude: [] }
+
+terminals:
+  - id: IL1
+    type: "Intermodal Land Terminal"
+    region: USA
+    # Real fixture node 1 is at (1100978.17, 2831426.60). Place near it so
+    # land_terminal_to_rail_node picks node 1 as the nearest.
+    position: { mode: scene, x: 1100978.0, y: 2831426.0 }
+    properties:
+      capacity: { max_capacity: 5000, critical_threshold: 0.8 }
+  - id: SP_USA
+    type: "Sea Port Terminal"
+    region: USA
+    position: { mode: latlon, latitude: 40.7, longitude: -74.0 }
+    properties: {}
+  - id: SP_EU
+    type: "Sea Port Terminal"
+    region: EU
+    position: { mode: latlon, latitude: 51.5, longitude: 0.0 }
+    properties: {}
+
+linkages: []
+connections: []
+global_links: []

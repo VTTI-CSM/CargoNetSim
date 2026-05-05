@@ -1,0 +1,33 @@
+schema_version: 1
+
+simulation:
+  time_step: 60
+  end_time: 3600
+  shortest_paths_n: 5
+  time_value_of_money: 0.0
+  use_specific_time_values: false
+  carbon_rate: 0.0
+  multipliers: { ship: 1.0, rail: 1.0, truck: 1.0 }
+  ship:  { speed: 0.0, fuel_type: "", fuel_rate: 0.0, containers: 0, risk: 0.0, time_value: 0.0, use_network: true }
+  rail: { speed: 0.0, fuel_type: "", fuel_rate: 0.0, containers: 0, risk: 0.0, time_value: 0.0, use_network: true }
+  truck: { speed: 0.0, fuel_type: "", fuel_rate: 0.0, containers: 0, risk: 0.0, time_value: 0.0, use_network: true }
+  fuel_types: {}
+  dwell_time:
+    method: normal
+    parameters: { mean: 1800, std_dev: 300 }
+
+output:
+  directory: ./results
+  formats: [json]
+  container_tracking: true
+
+fleet:
+  trains: { files: [], inline: [] }
+  ships:  { files: [], inline: [] }
+  trucks: { files: [], inline: [] }
+
+regions: []
+terminals: []
+linkages: []
+connections: []
+global_links: []
