@@ -67,7 +67,6 @@ jobs:
 
       - name: Check clang-format
         if: ${{ hashFiles('.clang-format') != '' }}
-        continue-on-error: true
         shell: bash
         run: |
           shopt -s globstar nullglob
@@ -76,7 +75,11 @@ jobs:
             echo "No C++ source files found."
             exit 0
           fi
-          clang-format --dry-run --Werror "${files[@]}"
+          if clang-format --dry-run --Werror "${files[@]}"; then
+            echo "clang-format completed successfully."
+          else
+            echo "::warning::clang-format found existing source formatting drift. This advisory check can become blocking after the source tree is formatted once."
+          fi
 
   build-linux:
     name: Build Linux
@@ -181,9 +184,8 @@ jobs:
 
       - name: Configure CargoNetSim
         id: configure-cargonet
-        continue-on-error: true
         run: |
-          cmake -S . -B build -G Ninja \
+          if cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
             -DCMAKE_PREFIX_PATH="${DEPS_PREFIX};/usr" \
             -DCONTAINER_CMAKE_DIR="${DEPS_PREFIX}/lib/cmake/Container" \
@@ -193,23 +195,33 @@ jobs:
             -DCARGONET_BUILD_TESTS=OFF \
             -DCARGONET_BUILD_INSTALLER=OFF \
             -DCARGONET_BUILD_RABBITMQ_CONFIG=OFF \
-            -DCMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER}"
+            -DCMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER}"; then
+            echo "configured=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "configured=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::CargoNetSim configure failed. build-linux is advisory until dependency bootstrap is stable in CI."
+          fi
 
       - name: Build CargoNetSim
         id: build-cargonet
-        if: ${{ steps.configure-cargonet.outcome == 'success' }}
-        continue-on-error: true
-        run: cmake --build build
+        if: ${{ steps.configure-cargonet.outputs.configured == 'true' }}
+        run: |
+          if cmake --build build; then
+            echo "built=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "built=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::CargoNetSim build failed. build-linux is advisory until dependency bootstrap and source build compatibility are stable in CI."
+          fi
 
       - name: Report advisory build result
         if: ${{ always() }}
         run: |
-          if [ "${{ steps.configure-cargonet.outcome }}" != "success" ]; then
-            echo "::warning::CargoNetSim configure failed. build-linux is advisory until dependency bootstrap is stable in CI."
+          if [ "${{ steps.configure-cargonet.outputs.configured }}" != "true" ]; then
+            echo "CargoNetSim configure did not complete; see the advisory warning above."
             exit 0
           fi
-          if [ "${{ steps.build-cargonet.outcome }}" != "success" ]; then
-            echo "::warning::CargoNetSim build failed. build-linux is advisory until dependency bootstrap and source build compatibility are stable in CI."
+          if [ "${{ steps.build-cargonet.outputs.built }}" != "true" ]; then
+            echo "CargoNetSim build did not complete; see the advisory warning above."
             exit 0
           fi
           echo "CargoNetSim configure and build completed successfully."
