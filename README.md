@@ -14,6 +14,9 @@
   <a href="https://www.gnu.org/licenses/gpl-3.0">
     <img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GNU GPL v3">
   </a>
+  <a href="https://github.com/AhmedAredah/CargoNetSim/actions/workflows/ci.yml">
+    <img src="https://github.com/AhmedAredah/CargoNetSim/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
   <a href="https://github.com/VTTI-CSM/CargoNetSim/releases">
     <img alt="GitHub tag (latest by date)" src="https://img.shields.io/github/v/tag/VTTI-CSM/CargoNetSim.svg?label=latest">
   </a>
