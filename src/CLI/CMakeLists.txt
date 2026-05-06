@@ -80,4 +80,7 @@ target_include_directories(cargonetsim-cli-lib PUBLIC
 add_executable(cargonetsim-cli main.cpp)
 target_link_libraries(cargonetsim-cli PRIVATE cargonetsim-cli-lib)
 
-install(TARGETS cargonetsim-cli RUNTIME DESTINATION bin)
+install(TARGETS cargonetsim-cli
+    RUNTIME DESTINATION bin
+    COMPONENT CargoNetSim_COMP
+)

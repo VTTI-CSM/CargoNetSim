@@ -35,6 +35,64 @@ function(filter_debug_dlls input_dll_list output_dll_list)
     set(${output_dll_list} "${filtered_dlls}" PARENT_SCOPE)
 endfunction()
 
+# Resolve the directory containing the shared library file backing an
+# imported target. Needed to bundle non-Qt third-party dependencies
+# (yaml-cpp, KDReports) whose location is not exposed via dedicated
+# CMake variables the way CONTAINER_LIB_DIR / RABBITMQ_SHRD_LIB_DIR are.
+function(resolve_imported_lib_dir target out_var)
+    set(${out_var} "" PARENT_SCOPE)
+    if(NOT TARGET ${target})
+        return()
+    endif()
+    foreach(prop
+        IMPORTED_LOCATION_RELEASE
+        IMPORTED_LOCATION_RELWITHDEBINFO
+        IMPORTED_LOCATION_MINSIZEREL
+        IMPORTED_LOCATION_DEBUG
+        IMPORTED_LOCATION
+    )
+        get_target_property(loc ${target} ${prop})
+        if(loc AND EXISTS "${loc}")
+            get_filename_component(dir "${loc}" DIRECTORY)
+            set(${out_var} "${dir}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+endfunction()
+
+# Glob and install the shared library plus any versioned symlinks for
+# `target` from its resolved location. `dest` is the destination
+# relative to the install prefix; `glob_patterns` is a list of file
+# globs (extension-specific, e.g. "libfoo*.so*"). Silently no-ops when
+# the target does not exist or its location cannot be resolved.
+function(install_imported_runtime_lib target dest)
+    set(globs ${ARGN})
+    if(NOT TARGET ${target})
+        message(STATUS "install_imported_runtime_lib: skipping ${target} (not a target)")
+        return()
+    endif()
+    resolve_imported_lib_dir(${target} _lib_dir)
+    if(NOT _lib_dir)
+        message(WARNING "install_imported_runtime_lib: could not resolve lib dir for ${target}")
+        return()
+    endif()
+    set(_collected "")
+    foreach(_pattern ${globs})
+        file(GLOB _matches "${_lib_dir}/${_pattern}")
+        list(APPEND _collected ${_matches})
+    endforeach()
+    if(_collected)
+        list(REMOVE_DUPLICATES _collected)
+        message(STATUS "Bundling ${target} from ${_lib_dir}: ${_collected}")
+        install(FILES ${_collected}
+            DESTINATION ${dest}
+            COMPONENT CargoNetSim_COMP
+        )
+    else()
+        message(WARNING "install_imported_runtime_lib: no files matched for ${target} in ${_lib_dir}")
+    endif()
+endfunction()
+
 # Check if building of installer is enabled
 if(CARGONET_BUILD_INSTALLER)
 
@@ -43,8 +101,18 @@ if(CARGONET_BUILD_INSTALLER)
         COMMENT "Creating an installer for CargoNetSim."
     )
 
-    # Ensure that CargoNetSim is built first by specifying it as a dependency
-    add_dependencies(CargoNetSimInstaller CargoNetSim)
+    # Make sure every binary that ships in the package is built before
+    # CPack runs. The CLI and the standalone RabbitMQ config tool are
+    # opt-in but ship under the same component as the GUI, so wire them
+    # in conditionally.
+    set(CARGONETSIM_INSTALLER_DEPS CargoNetSim)
+    if(TARGET cargonetsim-cli)
+        list(APPEND CARGONETSIM_INSTALLER_DEPS cargonetsim-cli)
+    endif()
+    if(CARGONET_BUILD_RABBITMQ_CONFIG AND TARGET RabbitMQConfig)
+        list(APPEND CARGONETSIM_INSTALLER_DEPS RabbitMQConfig)
+    endif()
+    add_dependencies(CargoNetSimInstaller ${CARGONETSIM_INSTALLER_DEPS})
 
     # Install CargoNetSim executable with component
     # This is needed because the install in src/CMakeLists.txt may not be processed correctly by CPack
@@ -186,6 +254,11 @@ if(CARGONET_BUILD_INSTALLER)
         if(NOT RABBITMQ_FOUND)
             message(FATAL_ERROR "CRITICAL: RabbitMQ DLLs not found! RABBITMQ_SHRD_LIB_DIR=${RABBITMQ_SHRD_LIB_DIR}")
         endif()
+
+        # yaml-cpp and KDReports DLLs (REQUIRED at runtime — Backend
+        # links yaml-cpp::yaml-cpp, GUI links KDReports::kdreports).
+        install_imported_runtime_lib(yaml-cpp::yaml-cpp bin "yaml-cpp*.dll")
+        install_imported_runtime_lib(KDReports::kdreports bin "kdreports*.dll" "KDReports*.dll")
 
         # Download RabbitMQ installer
         if(NOT EXISTS "${RABBITMQ_INSTALLER_FILE}")
@@ -535,6 +608,15 @@ if(CARGONET_BUILD_INSTALLER)
             endif()
         endif()
 
+        # yaml-cpp and KDReports dylibs (REQUIRED at runtime — Backend
+        # links yaml-cpp::yaml-cpp, GUI links KDReports::kdreports).
+        install_imported_runtime_lib(yaml-cpp::yaml-cpp
+            CargoNetSim.app/Contents/Frameworks
+            "libyaml-cpp*.dylib")
+        install_imported_runtime_lib(KDReports::kdreports
+            CargoNetSim.app/Contents/Frameworks
+            "libkdreports*.dylib" "libKDReports*.dylib")
+
         # Create qt.conf for macOS bundle
         file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/qt.conf.macos"
             "[Paths]\nPlugins = PlugIns\n")
@@ -567,35 +649,38 @@ if(CARGONET_BUILD_INSTALLER)
             )
         else()
             message(WARNING "Qt version < 6.3 detected. Manual Linux deployment may be required.")
-            # Fallback: Install Qt libraries manually
-            set(REQUIRED_QT_LIBS
-                "${QT_LIB_DIR}/libQt6Core.so.6"
-                "${QT_LIB_DIR}/libQt6Network.so.6"
-                "${QT_LIB_DIR}/libQt6Xml.so.6"
-                "${QT_LIB_DIR}/libQt6Gui.so.6"
-                "${QT_LIB_DIR}/libQt6Widgets.so.6"
-                "${QT_LIB_DIR}/libQt6PrintSupport.so.6"
-                "${QT_LIB_DIR}/libQt6Sql.so.6"
-                "${QT_LIB_DIR}/libQt6DBus.so.6"
-                "${QT_LIB_DIR}/libQt6XcbQpa.so.6"
+            # Fallback: install each required Qt module by globbing the
+            # full symlink chain (`.so`, `.so.6`, `.so.6.10.1`). Without
+            # the SONAMEd file the symlinks point to nothing and the
+            # binary fails to start with "cannot open shared object".
+            set(REQUIRED_QT_MODULES
+                Core Network Xml Gui Widgets PrintSupport Sql DBus XcbQpa
             )
-            foreach(QT_LIB ${REQUIRED_QT_LIBS})
-                if(EXISTS "${QT_LIB}")
-                    install(FILES "${QT_LIB}"
+            foreach(QT_MOD ${REQUIRED_QT_MODULES})
+                file(GLOB QT_LIB_FILES "${QT_LIB_DIR}/libQt6${QT_MOD}.so*")
+                if(QT_LIB_FILES)
+                    install(FILES ${QT_LIB_FILES}
                         DESTINATION lib
                         COMPONENT CargoNetSim_COMP
                     )
-                    # Also install the .so symlinks
-                    get_filename_component(LIB_NAME "${QT_LIB}" NAME)
-                    string(REGEX REPLACE "\\.so\\.6$" ".so" LIB_SYMLINK "${LIB_NAME}")
-                    if(EXISTS "${QT_LIB_DIR}/${LIB_SYMLINK}")
-                        install(FILES "${QT_LIB_DIR}/${LIB_SYMLINK}"
-                            DESTINATION lib
-                            COMPONENT CargoNetSim_COMP
-                        )
-                    endif()
+                else()
+                    message(WARNING "Qt module not found in ${QT_LIB_DIR}: libQt6${QT_MOD}.so*")
                 endif()
             endforeach()
+        endif()
+
+        # ICU shared libraries: Qt's text codecs (Qt6Core) link against
+        # libicui18n / libicuuc / libicudata at the version Qt was built
+        # against. The target machine may not have a matching ICU, so
+        # bundle whatever Qt was linked against.
+        file(GLOB QT_ICU_LIBS "${QT_LIB_DIR}/libicu*.so*")
+        if(QT_ICU_LIBS)
+            install(FILES ${QT_ICU_LIBS}
+                DESTINATION lib
+                COMPONENT CargoNetSim_COMP
+            )
+        else()
+            message(STATUS "Qt ICU libraries not found in ${QT_LIB_DIR} (system ICU will be used at runtime)")
         endif()
 
         # Install Qt plugins
@@ -654,6 +739,12 @@ if(CARGONET_BUILD_INSTALLER)
             endif()
         endif()
 
+        # yaml-cpp and KDReports shared libraries (REQUIRED at runtime —
+        # Backend links yaml-cpp::yaml-cpp, GUI links KDReports::kdreports).
+        install_imported_runtime_lib(yaml-cpp::yaml-cpp lib "libyaml-cpp.so*")
+        install_imported_runtime_lib(KDReports::kdreports lib
+            "libkdreports*.so*" "libKDReports*.so*")
+
         # Create qt.conf for Linux
         file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/qt.conf.linux"
             "[Paths]\nPrefix = ..\nPlugins = lib/plugins\nLibraries = lib\n")
@@ -663,13 +754,10 @@ if(CARGONET_BUILD_INSTALLER)
             COMPONENT CargoNetSim_COMP
         )
 
-        # Install .desktop file
-        if(EXISTS "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.desktop")
-            install(FILES "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.desktop"
-                DESTINATION share/applications
-                COMPONENT CargoNetSim_COMP
-            )
-        endif()
+        # The desktop entry is created at install time by the IFW
+        # CreateDesktopEntry operation (see Linux component script
+        # below). It points at the CargoNetSim binary and at the
+        # bundled icon, so no static .desktop file ships in the payload.
 
         # Install icons for XDG compliance
         if(EXISTS "${CMAKE_SOURCE_DIR}/resources/linux/CargoNetSim.png")
@@ -684,19 +772,42 @@ if(CARGONET_BUILD_INSTALLER)
             )
         endif()
 
-        # Create a wrapper script that sets LD_LIBRARY_PATH
-        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/CargoNetSim.sh"
-"#!/bin/bash
-# CargoNetSim launcher script
-SCRIPT_DIR=\"$(cd \"$(dirname \"\${BASH_SOURCE[0]}\")\" && pwd)\"
-export LD_LIBRARY_PATH=\"\${SCRIPT_DIR}/../lib:\${LD_LIBRARY_PATH}\"
-export QT_PLUGIN_PATH=\"\${SCRIPT_DIR}/../lib/plugins\"
-exec \"\${SCRIPT_DIR}/CargoNetSim\" \"$@\"
-")
-        install(PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/CargoNetSim.sh"
-            DESTINATION bin
-            COMPONENT CargoNetSim_COMP
-        )
+        # Bundled third-party .so files (Container, RabbitMQ-C,
+        # KDReports, yaml-cpp, Qt itself) carry hardcoded RPATHs from
+        # their original install prefix. Rewrite them at install time
+        # to $ORIGIN-based paths so the bundled libraries find their
+        # peers and so Qt plugins find the bundled Qt libs. Combined
+        # with the project-wide CMAKE_INSTALL_RPATH set at the root
+        # (executables get $ORIGIN/../lib;$ORIGIN), this lets users
+        # invoke the binaries directly — no wrapper script, no
+        # LD_LIBRARY_PATH dance.
+        find_program(PATCHELF_EXECUTABLE patchelf)
+        if(PATCHELF_EXECUTABLE)
+            message(STATUS "Found patchelf: ${PATCHELF_EXECUTABLE}")
+            install(CODE "
+                file(GLOB _all_libs \"\${CMAKE_INSTALL_PREFIX}/lib/*.so*\")
+                foreach(_lib \${_all_libs})
+                    if(IS_SYMLINK \"\${_lib}\")
+                        continue()
+                    endif()
+                    execute_process(
+                        COMMAND \"${PATCHELF_EXECUTABLE}\" --set-rpath \\$ORIGIN \"\${_lib}\"
+                        ERROR_QUIET)
+                endforeach()
+
+                # Qt plugins live at lib/plugins/<category>/*.so so
+                # $ORIGIN/../.. resolves to lib/, where the bundled Qt
+                # libs live.
+                file(GLOB_RECURSE _qt_plugins \"\${CMAKE_INSTALL_PREFIX}/lib/plugins/*.so\")
+                foreach(_plugin \${_qt_plugins})
+                    execute_process(
+                        COMMAND \"${PATCHELF_EXECUTABLE}\" --set-rpath \\$ORIGIN/../.. \"\${_plugin}\"
+                        ERROR_QUIET)
+                endforeach()
+            " COMPONENT CargoNetSim_COMP)
+        else()
+            message(WARNING "patchelf not found. Bundled .so RPATHs will not be relocatable. Install with: sudo apt install patchelf")
+        endif()
 
     endif() # Platform-specific deployment
 
@@ -1162,7 +1273,7 @@ Component.prototype.createOperations = function() {
         set(CPACK_IFW_PACKAGE_ALLOW_SPACE_IN_PATH ON)
 
         # Linux-specific settings
-        set(CPACK_IFW_PACKAGE_RUN_PROGRAM "@TargetDir@/bin/CargoNetSim.sh")
+        set(CPACK_IFW_PACKAGE_RUN_PROGRAM "@TargetDir@/bin/CargoNetSim")
         set(CPACK_IFW_PACKAGE_RUN_PROGRAM_DESCRIPTION "Launch CargoNetSim now")
 
         # Use PNG icon for Linux
@@ -1225,7 +1336,7 @@ Component.prototype.createOperations = function() {
             'Name=CargoNetSim\\n' +
             'GenericName=Cargo Network Simulator\\n' +
             'Comment=Simulation software for cargo networks\\n' +
-            'Exec=' + targetDir + '/bin/CargoNetSim.sh\\n' +
+            'Exec=' + targetDir + '/bin/CargoNetSim\\n' +
             'Icon=' + targetDir + '/share/icons/hicolor/256x256/apps/CargoNetSim.png\\n' +
             'Terminal=false\\n' +
             'Categories=Science;Simulation;Education;\\n'

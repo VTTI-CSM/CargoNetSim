@@ -6,6 +6,20 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# RPATH configuration for portable/relocatable installs.
+# Build tree uses link-path RPATHs as usual; install tree gets $ORIGIN
+# entries so the installed binaries find their bundled deps without a
+# launcher script setting LD_LIBRARY_PATH.
+#   $ORIGIN/../lib  — executables in bin/ resolve libs in lib/
+#   $ORIGIN         — shared libs in lib/ resolve peer libs alongside them
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+if(UNIX AND NOT APPLE)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib;$ORIGIN")
+    set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+else()
+    set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+endif()
+
 # Option to enable or disable tests
 option(CARGONET_BUILD_TESTS "Build the CargoNetSim test suite" ON)
 option(CARGONET_BUILD_INSTALLER "Build the CargoNetSim installer package" ON)
