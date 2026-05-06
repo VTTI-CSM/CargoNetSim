@@ -1231,15 +1231,6 @@ Component.prototype.createOperations = function() {
             'Categories=Science;Simulation;Education;\\n'
         );
 
-        // Update icon cache (best effort - may fail if not root)
-        try {
-            component.addOperation('Execute', 'gtk-update-icon-cache', '-f', '-t',
-                '/usr/share/icons/hicolor',
-                'errormessage=Note: Could not update system icon cache');
-        } catch (e) {
-            console.log('Note: Could not update icon cache: ' + e.message);
-        }
-
     } catch (e) {
         console.log('ERROR in Linux createOperations: ' + e.message);
     }
