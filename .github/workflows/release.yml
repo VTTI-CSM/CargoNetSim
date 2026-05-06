@@ -80,7 +80,7 @@ jobs:
 
           echo "QTIFW_ROOT=${ifw_root}" >> "${GITHUB_ENV}"
           echo "${ifw_root}/bin" >> "${GITHUB_PATH}"
-          "${ifw_root}/bin/binarycreator" --version
+          echo "Using Qt Installer Framework at ${ifw_root}"
 
       - name: Prepare RabbitMQ-C include compatibility
         run: |
