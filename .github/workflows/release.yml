@@ -177,21 +177,48 @@ jobs:
             exit 1
           fi
 
-          cp "${installer}" "dist/CargoNetSim-${ref_name}-linux-x86_64.run"
-          sha256sum dist/CargoNetSim-${ref_name}-linux-x86_64.run > dist/SHA256SUMS
-          file dist/CargoNetSim-${ref_name}-linux-x86_64.run
-          cat dist/SHA256SUMS
+          installer_name="CargoNetSim-${ref_name}-linux-x86_64.run"
+          cp "${installer}" "dist/${installer_name}"
+          checksum="$(sha256sum "dist/${installer_name}" | awk '{print $1}')"
+          printf '%s %s\n' "${checksum}" "${installer_name}" > release-checksums.txt
+          file "dist/${installer_name}"
+          cat release-checksums.txt
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: CargoNetSim-linux-installer
-          path: dist/*
+          path: dist/*.run
           if-no-files-found: error
 
       - name: Attach assets to GitHub Release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: dist/*.run
           generate_release_notes: true
+
+      - name: Add checksums to GitHub Release notes
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" --json body --jq '.body // ""' > release-body.md
+
+          awk '
+            /^## Checksums$/ { skip = 1; next }
+            skip && /^## / { skip = 0 }
+            !skip { print }
+          ' release-body.md > release-body-without-checksums.md
+
+          {
+            cat release-body-without-checksums.md
+            printf '\n## Checksums\n\n'
+            printf '| Asset | SHA256 |\n'
+            printf '| --- | --- |\n'
+            while read -r checksum asset_name; do
+              printf '| `%s` | `%s` |\n' "${asset_name}" "${checksum}"
+            done < release-checksums.txt
+          } > release-body-final.md
+
+          gh release edit "${GITHUB_REF_NAME}" --notes-file release-body-final.md
